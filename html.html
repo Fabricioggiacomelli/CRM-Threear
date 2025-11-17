@@ -1,0 +1,231 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Gestão de Ofertas</title>
+    <link rel="stylesheet" href="style.css">
+</head>
+<body>
+
+    <!-- Botão mobile para abrir/fechar sidebar -->
+    <div class="mobile-toggle" onclick="toggleSidebar()">☰</div>
+
+    <!-- SIDEBAR -->
+    <aside class="sidebar collapsed" id="sidebar">
+<div class="sidebar-header">
+    <img src="logo.png" class="logo-img">
+    <h2 class="sidebar-title">CRM-Threear</h2>
+</div>
+
+
+        <nav class="sidebar-menu">
+            <button type="button" class="menu-item" onclick="irPara('cadastro')">
+                <span class="icon">📝</span>
+                <span class="label">Cadastro</span>
+            </button>
+            <button type="button" class="menu-item" onclick="irPara('registros')">
+                <span class="icon">📋</span>
+                <span class="label">Registros</span>
+            </button>
+            <button type="button" class="menu-item" onclick="exportExcel()">
+                <span class="icon">📤</span>
+                <span class="label">Exportar Excel</span>
+            </button>
+            <button type="button" class="menu-item" onclick="exportPdf()">
+                <span class="icon">🧾</span>
+                <span class="label">Gerar PDF</span>
+            </button>
+            <button type="button" class="menu-item" onclick="toggleTheme()">
+                <span class="icon">🌙</span>
+                <span class="label" id="themeLabel">Modo escuro</span>
+            </button>
+            <button type="button" class="menu-item logout" onclick="logout()">
+                <span class="icon">🚪</span>
+                <span class="label">Sair</span>
+            </button>
+        </nav>
+
+        <!-- Botão para colapsar/expandir sidebar (desktop) -->
+        <button class="collapse-btn" type="button" onclick="toggleSidebar()">⮜</button>
+    </aside>
+
+    <!-- CONTEÚDO PRINCIPAL -->
+    <div class="main-content">
+
+        <!-- LOGIN -->
+        <div id="loginContainer" class="container">
+            <h1>Login</h1>
+            <p>Digite seu Usuário e senha.</p>
+
+            <label for="loginUser">Usuário</label>
+            <input type="text" id="loginUser" placeholder="admin">
+
+            <label for="loginPass">Senha</label>
+            <input type="password" id="loginPass" placeholder="1234">
+
+            <button id="btnLogin">Entrar</button>
+        </div>
+
+        <!-- APP -->
+        <div id="appContainer" class="container hidden">
+
+            <div class="topbar">
+                <div>
+                    <h1>Gestão de Ofertas</h1>
+                    <p class="subtitle">Cadastre, gerencie e exporte suas oportunidades.</p>
+                </div>
+                <div class="topbar-right">
+                    <span id="userInfo"></span>
+                </div>
+            </div>
+
+            <!-- FORMULÁRIO -->
+            <section id="secCadastro">
+                <h3>Cadastro de Oferta</h3>
+
+                <form id="formOferta">
+
+                    <div class="form-grid">
+                        <div class="form-col">
+
+                            <label for="bu">B.U</label>
+                            <input type="text" id="bu">
+
+                            <label for="razao">Razão Social</label>
+                            <input type="text" id="razao">
+
+                            <label for="solicitante">Solicitante</label>
+                            <input type="text" id="solicitante">
+
+                            <label for="telefone">Telefone</label>
+                            <input type="text" id="telefone">
+
+                            <label for="email">E-mail</label>
+                            <input type="email" id="email">
+
+                            <label for="oferta">N° da Oferta</label>
+                            <input type="text" id="oferta">
+
+                        </div>
+
+                        <div class="form-col">
+
+                            <label for="valor_total">Vl. Total</label>
+                            <input type="number" step="0.01" id="valor_total">
+
+                            <label for="oportunidade">Oportunidade</label>
+                            <input type="text" id="oportunidade">
+
+                            <label for="data_entrada">Data Entrada</label>
+                            <input type="date" id="data_entrada">
+
+                            <label for="status">Status</label>
+                            <input type="text" id="status">
+
+                            <label for="data_envio">Data Envio</label>
+                            <input type="date" id="data_envio">
+
+                            <label>Possui Pedido?</label>
+                            <div class="radio-group">
+                                <label><input type="radio" name="pedido" value="sim"> Sim</label>
+                                <label><input type="radio" name="pedido" value="nao" checked> Não</label>
+                            </div>
+                        </div>
+                    </div>
+
+                    <div id="secaoPedido" class="hidden">
+                        <h3>Informações do Pedido</h3>
+
+                        <div class="form-grid">
+                            <div class="form-col">
+                                <label for="numero_pedido">N° Pedido</label>
+                                <input type="text" id="numero_pedido">
+
+                                <label for="data_po">Data Entrada P.O</label>
+                                <input type="date" id="data_po">
+
+                                <label for="valor_pedido">VL. Total Pedido</label>
+                                <input type="number" step="0.01" id="valor_pedido">
+                            </div>
+
+                            <div class="form-col">
+                                <label for="ref_projeto">Ref./Projeto</label>
+                                <input type="text" id="ref_projeto">
+
+                                <label for="tipo_produto">Tipo de Produto</label>
+                                <input type="text" id="tipo_produto">
+
+                                <label for="obs">Obs</label>
+                                <textarea id="obs"></textarea>
+                            </div>
+                        </div>
+                    </div>
+
+                    <button type="button" id="btnAdicionar">Adicionar</button>
+                </form>
+            </section>
+
+            <!-- CONSULTA -->
+            <section id="secRegistros">
+                <h3>Consulta de Registros</h3>
+
+                <div class="filters">
+                    <input type="text" id="searchTerm" placeholder="Buscar por texto...">
+
+                    <select id="filterField">
+                        <option value="todos">Buscar em todos os campos</option>
+                        <option value="bu">B.U</option>
+                        <option value="razao">Razão Social</option>
+                        <option value="solicitante">Solicitante</option>
+                        <option value="status">Status</option>
+                        <option value="oferta">N° Oferta</option>
+                    </select>
+
+                    <input type="text" id="statusFilter" placeholder="Filtrar por Status (contém)">
+
+                    <select id="pedidoFilter">
+                        <option value="todos">Pedido: todos</option>
+                        <option value="com">Somente com pedido</option>
+                        <option value="sem">Somente sem pedido</option>
+                    </select>
+                </div>
+
+                <div class="actions-row">
+                    <button id="btnVerTudo" class="secondary">Atualizar Lista</button>
+                    <button id="btnExportExcel" class="secondary" type="button" onclick="exportExcel()">Exportar Excel</button>
+                    <button id="btnExportPdf" class="secondary" type="button" onclick="exportPdf()">Gerar PDF</button>
+                </div>
+
+                <table id="tabelaRegistros">
+                    <thead>
+                        <tr>
+                            <th>#</th>
+                            <th>B.U</th>
+                            <th>Razão Social</th>
+                            <th>Solicitante</th>
+                            <th>N° Oferta</th>
+                            <th>Status</th>
+                            <th>Vl. Total</th>
+                            <th>Pedido?</th>
+                            <th>Ações</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        <!-- linhas via JS -->
+                    </tbody>
+                </table>
+
+                <div class="paginacao">
+                    <button id="btnPrev" class="secondary" type="button">Anterior</button>
+                    <span id="pageInfo">Página 1 de 1</span>
+                    <button id="btnNext" class="secondary" type="button">Próxima</button>
+                </div>
+            </section>
+        </div>
+
+    </div> <!-- main-content -->
+
+    <script src="script.js"></script>
+</body>
+</html>
