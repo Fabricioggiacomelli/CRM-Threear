@@ -1,0 +1,65 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Dashboard - CRM</title>
+    <link rel="stylesheet" href="style.css" />
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+</head>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/html2pdf.js/0.10.1/html2pdf.bundle.min.js"></script>
+
+<body>
+
+    <div class="mobile-toggle" onclick="toggleSidebar()">☰</div>
+
+    <!-- SIDEBAR -->
+    <aside class="sidebar collapsed" id="sidebar">
+        <div class="sidebar-header">
+            <img src="Logo.png" class="logo-img" alt="logo" />
+            <h2 class="sidebar-title">CRM-Threear</h2>
+        </div>
+
+        <nav class="sidebar-menu">
+            <button type="button" class="menu-item" onclick="location.href='html.html'">
+                <span class="icon">📝</span>
+                <span class="label">Cadastro</span>
+            </button>
+            <button type="button" class="menu-item" onclick="location.href='html.html'">
+                <span class="icon">📋</span>
+                <span class="label">Registros</span>
+            </button>
+            <button type="button" class="menu-item" onclick="toggleTheme()">
+                <span class="icon">🌙</span>
+                <span class="label" id="themeLabel">Modo escuro</span>
+            </button>
+            <button type="button" class="menu-item logout" onclick="logout()">
+                <span class="icon">🚪</span>
+                <span class="label">Sair</span>
+            </button>
+        </nav>
+
+        <button class="collapse-btn" onclick="toggleSidebar()">⮜</button>
+    </aside>
+
+    <!-- MAIN CONTENT -->
+    <div class="container">
+    <h1>Dashboard de Ofertas</h1>
+    <p class="subtitle">Indicadores gerais do sistema</p>
+
+    <button class="secondary" id="btnDownloadPDF" style="width:auto; margin-bottom:15px;">
+        📄 Exportar Dashboard em PDF
+    </button>
+
+    <div class="chart-container">
+        <canvas id="chartStatus"></canvas>
+    </div>
+
+    <div class="chart-container">
+        <canvas id="chartFaturamento"></canvas>
+    </div>
+</div>
+
+    <script src="dashboard.js"></script>
+</body>
+</html>
