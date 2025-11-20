@@ -10,26 +10,68 @@ const USERS = [
 let registros = [];
 let editId = null;
 let currentPage = 1;
-const pageSize = 5; // registros por página
+const pageSize = 5;
 
 // ====== INICIALIZAÇÃO GERAL ======
 window.addEventListener("load", () => {
-    // Carrega registros salvos
     registros = JSON.parse(localStorage.getItem("registros")) || [];
 
-    // Aplica tema salvo
     const savedTheme = localStorage.getItem("theme") || "light";
     applyTheme(savedTheme);
 
     initLogin();
     initForm();
     initFiltrosEPaginacao();
+    initMoneyMask();
+    initPhoneMask(); 
 
-    // Se já tiver login salvo, pula tela de login
+
     if (localStorage.getItem("loggedUser")) {
         mostrarApp();
     }
 });
+
+// ====== MÁSCARA MONETÁRIA ======
+function initMoneyMask() {
+    document.querySelectorAll('.money').forEach(input => {
+        input.addEventListener('input', formatMoney);
+    });
+}
+
+function formatMoney(e) {
+    let value = e.target.value.replace(/\D/g, '');
+    value = (value / 100).toFixed(2) + '';
+    value = value.replace('.', ',');
+    value = value.replace(/\B(?=(\d{3})+(?!\d))/g, '.');
+    e.target.value = value;
+}
+
+// ====== MÁSCARA DE TELEFONE ======
+function initPhoneMask() {
+    const telInput = document.getElementById("telefone");
+    if (!telInput) return;
+
+    telInput.addEventListener("input", (e) => {
+        let value = e.target.value.replace(/\D/g, ""); // remove tudo que não é número
+        if (value.length > 11) value = value.slice(0, 11); // máximo 11 dígitos
+
+        if (value.length <= 10) {
+            value = value.replace(/^(\d{2})(\d{4})(\d{0,4}).*/, "($1) $2-$3");
+        } else {
+            value = value.replace(/^(\d{2})(\d{5})(\d{0,4}).*/, "($1) $2-$3");
+        }
+
+        e.target.value = value;
+    });
+
+    telInput.addEventListener("blur", (e) => {
+        if (e.target.value.replace(/\D/g, "").length < 10) {
+            e.target.value = "";
+            alert("Telefone incompleto!");
+        }
+    });
+}
+
 
 // ====== LOGIN ======
 function initLogin() {
@@ -39,7 +81,6 @@ function initLogin() {
     btnLogin.addEventListener("click", () => {
         const u = document.getElementById("loginUser").value.trim();
         const p = document.getElementById("loginPass").value.trim();
-
         const encontrado = USERS.find(x => x.user === u && x.pass === p);
 
         if (!encontrado) {
@@ -47,24 +88,17 @@ function initLogin() {
             return;
         }
 
-        // Salva usuário logado
         localStorage.setItem("loggedUser", encontrado.user);
         mostrarApp();
     });
 }
 
 function mostrarApp() {
-    const loginContainer = document.getElementById("loginContainer");
-    const appContainer = document.getElementById("appContainer");
+    document.getElementById("loginContainer")?.classList.add("hidden");
+    document.getElementById("appContainer")?.classList.remove("hidden");
 
-    if (loginContainer) loginContainer.classList.add("hidden");
-    if (appContainer) appContainer.classList.remove("hidden");
-
-    const user = localStorage.getItem("loggedUser");
-    const userInfo = document.getElementById("userInfo");
-    if (userInfo) {
-        userInfo.textContent = "Logado como: " + user;
-    }
+    document.getElementById("userInfo").textContent =
+        "Logado como: " + localStorage.getItem("loggedUser");
 
     renderTabela();
 }
@@ -74,17 +108,17 @@ function logout() {
     location.reload();
 }
 
-// ====== TEMA (DARK/LIGHT) ======
+// ====== TEMA ======
 function applyTheme(theme) {
     const body = document.body;
     const label = document.getElementById("themeLabel");
 
     if (theme === "dark") {
         body.classList.add("dark");
-        if (label) label.textContent = "Modo claro";
+        label.textContent = "Modo claro";
     } else {
         body.classList.remove("dark");
-        if (label) label.textContent = "Modo escuro";
+        label.textContent = "Modo escuro";
     }
 }
 
@@ -95,25 +129,19 @@ function toggleTheme() {
     applyTheme(newTheme);
 }
 
-// ====== SIDEBAR (COLAPSÁVEL / MOBILE) ======
+// ====== SIDEBAR ======
 function toggleSidebar() {
     const sidebar = document.getElementById("sidebar");
-    if (!sidebar) return;
-
     if (window.innerWidth <= 780) {
-        // Mobile: abre/fecha
         sidebar.classList.toggle("open");
     } else {
-        // Desktop: colapsa/expande
         sidebar.classList.toggle("collapsed");
     }
 }
 
-// ====== FORMULÁRIO PRINCIPAL ======
+// ====== FORMULÁRIO ======
 function initForm() {
-    // Mostrar / esconder seção do pedido
-    const radiosPedido = document.querySelectorAll("input[name='pedido']");
-    radiosPedido.forEach(radio => {
+    document.querySelectorAll("input[name='pedido']").forEach(radio => {
         radio.addEventListener("change", () => {
             document
                 .getElementById("secaoPedido")
@@ -121,55 +149,33 @@ function initForm() {
         });
     });
 
-    const btnAdicionar = document.getElementById("btnAdicionar");
-    if (!btnAdicionar) return;
-
-    btnAdicionar.addEventListener("click", () => {
-        const bu = document.getElementById("bu");
-        const razao = document.getElementById("razao");
-        const solicitante = document.getElementById("solicitante");
-        const telefone = document.getElementById("telefone");
-        const email = document.getElementById("email");
-        const oferta = document.getElementById("oferta");
-        const valor_total = document.getElementById("valor_total");
-        const oportunidade = document.getElementById("oportunidade");
-        const data_entrada = document.getElementById("data_entrada");
-        const status = document.getElementById("status");
-        const data_envio = document.getElementById("data_envio");
-
-        const possuiPedido = document.querySelector("input[name='pedido']:checked").value;
-
+    document.getElementById("btnAdicionar").addEventListener("click", () => {
         const registro = {
             id: editId || gerarId(),
-            bu: bu.value,
-            razao: razao.value,
-            solicitante: solicitante.value,
-            telefone: telefone.value,
-            email: email.value,
-            oferta: oferta.value,
-            valor_total: valor_total.value,
-            oportunidade: oportunidade.value,
-            data_entrada: data_entrada.value,
-            status: status.value,
-            data_envio: data_envio.value,
-            possuiPedido
+            bu: document.getElementById("bu").value,
+            razao: document.getElementById("razao").value,
+            solicitante: document.getElementById("solicitante").value,
+            telefone: document.getElementById("telefone").value,
+            email: document.getElementById("email").value,
+            oferta: document.getElementById("oferta").value,
+            ref_proposta: document.getElementById("ref_proposta").value,
+            valor_total: document.getElementById("valor_total").value,
+            oportunidade: document.getElementById("oportunidade").value,
+            data_entrada: document.getElementById("data_entrada").value,
+            status: document.getElementById("status").value,
+            data_envio: document.getElementById("data_envio").value,
+            possuiPedido: document.querySelector("input[name='pedido']:checked").value
         };
 
-        if (possuiPedido === "sim") {
-            const numero_pedido = document.getElementById("numero_pedido");
-            const data_po = document.getElementById("data_po");
-            const valor_pedido = document.getElementById("valor_pedido");
-            const ref_projeto = document.getElementById("ref_projeto");
-            const tipo_produto = document.getElementById("tipo_produto");
-            const obs = document.getElementById("obs");
-
+        if (registro.possuiPedido === "sim") {
             registro.pedido = {
-                numero_pedido: numero_pedido.value,
-                data_po: data_po.value,
-                valor_pedido: valor_pedido.value,
-                ref_projeto: ref_projeto.value,
-                tipo_produto: tipo_produto.value,
-                obs: obs.value
+                numero_pedido: document.getElementById("numero_pedido").value,
+                data_po: document.getElementById("data_po").value,
+                valor_pedido: document.getElementById("valor_pedido").value,
+                cond_pagamento: document.getElementById("cond_pagamento").value,
+                ref_projeto: document.getElementById("ref_projeto").value,
+                tipo_produto: document.getElementById("tipo_produto").value,
+                obs: document.getElementById("obs").value
             };
         } else {
             registro.pedido = null;
@@ -180,329 +186,174 @@ function initForm() {
             alert("Registro adicionado!");
         } else {
             const idx = registros.findIndex(r => r.id === editId);
-            if (idx !== -1) {
-                registros[idx] = registro;
-                alert("Registro atualizado!");
-            }
+            registros[idx] = registro;
+            alert("Registro atualizado!");
             editId = null;
-            btnAdicionar.textContent = "Adicionar";
+            document.getElementById("btnAdicionar").textContent = "Adicionar";
         }
 
         salvarRegistros();
-
         document.getElementById("formOferta").reset();
         document.getElementById("secaoPedido").classList.add("hidden");
-        const radioNao = document.querySelector("input[name='pedido'][value='nao']");
-        if (radioNao) radioNao.checked = true;
 
         currentPage = 1;
         renderTabela();
     });
 }
 
-// ====== FILTROS, PAGINAÇÃO, EXPORT ======
+// ====== FILTROS, PAGINAÇÃO ======
 function initFiltrosEPaginacao() {
-    const searchTerm = document.getElementById("searchTerm");
-    const filterField = document.getElementById("filterField");
-    const statusFilter = document.getElementById("statusFilter");
-    const pedidoFilter = document.getElementById("pedidoFilter");
-    const btnVerTudo = document.getElementById("btnVerTudo");
-    const btnPrev = document.getElementById("btnPrev");
-    const btnNext = document.getElementById("btnNext");
-    const btnExportExcel = document.getElementById("btnExportExcel");
-    const btnExportPdf = document.getElementById("btnExportPdf");
-
-    if (searchTerm) {
-        searchTerm.addEventListener("input", () => {
+    ["searchTerm", "filterField", "statusFilter", "pedidoFilter"].forEach(id => {
+        const el = document.getElementById(id);
+        el?.addEventListener("input", () => {
             currentPage = 1;
             renderTabela();
         });
-    }
+    });
 
-    if (filterField) {
-        filterField.addEventListener("change", () => {
-            currentPage = 1;
+    document.getElementById("btnPrev").addEventListener("click", () => {
+        if (currentPage > 1) {
+            currentPage--;
             renderTabela();
-        });
-    }
+        }
+    });
 
-    if (statusFilter) {
-        statusFilter.addEventListener("input", () => {
-            currentPage = 1;
+    document.getElementById("btnNext").addEventListener("click", () => {
+        const totalPages = Math.ceil(getRegistrosFiltrados().length / pageSize);
+        if (currentPage < totalPages) {
+            currentPage++;
             renderTabela();
-        });
-    }
-
-    if (pedidoFilter) {
-        pedidoFilter.addEventListener("change", () => {
-            currentPage = 1;
-            renderTabela();
-        });
-    }
-
-    if (btnVerTudo) {
-        btnVerTudo.addEventListener("click", () => {
-            renderTabela();
-        });
-    }
-
-    if (btnPrev) {
-        btnPrev.addEventListener("click", () => {
-            if (currentPage > 1) {
-                currentPage--;
-                renderTabela();
-            }
-        });
-    }
-
-    if (btnNext) {
-        btnNext.addEventListener("click", () => {
-            const totalFiltrados = getRegistrosFiltrados().length;
-            const totalPages = Math.max(1, Math.ceil(totalFiltrados / pageSize));
-            if (currentPage < totalPages) {
-                currentPage++;
-                renderTabela();
-            }
-        });
-    }
-
-    if (btnExportExcel) {
-        btnExportExcel.addEventListener("click", exportExcel);
-    }
-
-    if (btnExportPdf) {
-        btnExportPdf.addEventListener("click", exportPdf);
-    }
+        }
+    });
 }
 
 // ====== FILTRO DE REGISTROS ======
 function getRegistrosFiltrados() {
-    const termInput = document.getElementById("searchTerm");
-    const fieldSelect = document.getElementById("filterField");
-    const statusFilterInput = document.getElementById("statusFilter");
-    const pedidoFilterSelect = document.getElementById("pedidoFilter");
-
-    const term = termInput ? termInput.value.trim().toLowerCase() : "";
-    const field = fieldSelect ? fieldSelect.value : "todos";
-    const statusFilter = statusFilterInput ? statusFilterInput.value.trim().toLowerCase() : "";
-    const pedidoFilter = pedidoFilterSelect ? pedidoFilterSelect.value : "todos";
+    const term = document.getElementById("searchTerm").value.toLowerCase();
+    const field = document.getElementById("filterField").value;
+    const statusFilter = document.getElementById("statusFilter").value.toLowerCase();
+    const pedidoFilter = document.getElementById("pedidoFilter").value;
 
     return registros.filter(reg => {
-        // Busca geral ou por campo específico
         if (term) {
-            if (field === "todos") {
-                const textos = [
-                    reg.bu,
-                    reg.razao,
-                    reg.solicitante,
-                    reg.telefone,
-                    reg.email,
-                    reg.oferta,
-                    reg.valor_total,
-                    reg.oportunidade,
-                    reg.data_entrada,
-                    reg.status,
-                    reg.data_envio
-                ];
-
-                if (reg.pedido) {
-                    textos.push(
-                        reg.pedido.numero_pedido,
-                        reg.pedido.valor_pedido,
-                        reg.pedido.ref_projeto,
-                        reg.pedido.tipo_produto,
-                        reg.pedido.obs
-                    );
-                }
-
-                const textoUnico = textos
-                    .filter(Boolean)
-                    .join(" ")
-                    .toLowerCase();
-
-                if (!textoUnico.includes(term)) {
-                    return false;
-                }
-            } else {
-                let valorCampo = "";
-                switch (field) {
-                    case "bu": valorCampo = reg.bu || ""; break;
-                    case "razao": valorCampo = reg.razao || ""; break;
-                    case "solicitante": valorCampo = reg.solicitante || ""; break;
-                    case "status": valorCampo = reg.status || ""; break;
-                    case "oferta": valorCampo = reg.oferta || ""; break;
-                    default: valorCampo = ""; break;
-                }
-                if (!valorCampo.toLowerCase().includes(term)) {
-                    return false;
-                }
-            }
+            const texto = Object.values(reg)
+                .join(" ")
+                .toLowerCase();
+            if (!texto.includes(term)) return false;
         }
 
-        // Filtro status
-        if (statusFilter) {
-            if (!reg.status || !reg.status.toLowerCase().includes(statusFilter)) {
-                return false;
-            }
-        }
-
-        // Filtro pedido
-        if (pedidoFilter === "com" && reg.possuiPedido !== "sim") {
+        if (statusFilter && !reg.status?.toLowerCase().includes(statusFilter))
             return false;
-        }
-        if (pedidoFilter === "sem" && reg.possuiPedido !== "nao") {
+
+        if (pedidoFilter === "com" && reg.possuiPedido !== "sim")
             return false;
-        }
+
+        if (pedidoFilter === "sem" && reg.possuiPedido !== "nao")
+            return false;
 
         return true;
     });
 }
 
-// ====== TABELA + PAGINAÇÃO ======
+// ====== TABELA ======
 function renderTabela() {
     const tbody = document.querySelector("#tabelaRegistros tbody");
-    const pageInfo = document.getElementById("pageInfo");
-
-    if (!tbody) return;
-
     tbody.innerHTML = "";
 
     const filtrados = getRegistrosFiltrados();
-    const total = filtrados.length;
-    const totalPages = Math.max(1, Math.ceil(total / pageSize));
+    const totalPages = Math.ceil(filtrados.length / pageSize) || 1;
 
-    if (currentPage > totalPages) {
-        currentPage = totalPages;
-    }
+    if (currentPage > totalPages) currentPage = totalPages;
 
     const start = (currentPage - 1) * pageSize;
-    const end = start + pageSize;
-    const pageData = filtrados.slice(start, end);
+    const pageData = filtrados.slice(start, start + pageSize);
 
-    if (pageData.length === 0) {
-        const tr = document.createElement("tr");
-        const td = document.createElement("td");
-        td.colSpan = 9;
-        td.textContent = "Nenhum registro encontrado.";
-        tr.appendChild(td);
-        tbody.appendChild(tr);
+    if (!pageData.length) {
+        tbody.innerHTML =
+            "<tr><td colspan='9'>Nenhum registro encontrado.</td></tr>";
     } else {
         pageData.forEach((reg, index) => {
-            const tr = document.createElement("tr");
-
-            tr.innerHTML = `
-                <td>${start + index + 1}</td>
-                <td>${reg.bu || ""}</td>
-                <td>${reg.razao || ""}</td>
-                <td>${reg.solicitante || ""}</td>
-                <td>${reg.oferta || ""}</td>
-                <td>${reg.status || ""}</td>
-                <td>${reg.valor_total || ""}</td>
-                <td>${reg.possuiPedido === "sim" ? "Sim" : "Não"}</td>
-                <td>
-                    <button class="btn-sm" onclick="editarRegistro('${reg.id}')">Editar</button>
-                    <button class="btn-sm btn-danger" onclick="excluirRegistro('${reg.id}')">Excluir</button>
-                </td>
+            tbody.innerHTML += `
+                <tr>
+                    <td>${start + index + 1}</td>
+                    <td>${reg.bu}</td>
+                    <td>${reg.razao}</td>
+                    <td>${reg.solicitante}</td>
+                    <td>${reg.oferta}</td>
+                    <td>${reg.ref_proposta || ""}</td>
+                    <td>${reg.status}</td>
+                    <td>${reg.valor_total}</td>
+                    <td>${reg.possuiPedido === "sim" ? "Sim" : "Não"}</td>
+                    <td>
+                        <button class="btn-sm" onclick="editarRegistro('${reg.id}')">Editar</button>
+                        <button class="btn-sm btn-danger" onclick="excluirRegistro('${reg.id}')">Excluir</button>
+                    </td>
+                </tr>
             `;
-
-            tbody.appendChild(tr);
         });
     }
 
-    if (pageInfo) {
-        pageInfo.textContent = `Página ${currentPage} de ${totalPages}`;
-    }
+    document.getElementById("pageInfo").textContent =
+        `Página ${currentPage} de ${totalPages}`;
 }
 
 // ====== EDITAR / EXCLUIR ======
 function editarRegistro(id) {
     const reg = registros.find(r => r.id === id);
-    if (!reg) return;
-
     editId = id;
 
-    document.getElementById("bu").value = reg.bu || "";
-    document.getElementById("razao").value = reg.razao || "";
-    document.getElementById("solicitante").value = reg.solicitante || "";
-    document.getElementById("telefone").value = reg.telefone || "";
-    document.getElementById("email").value = reg.email || "";
-    document.getElementById("oferta").value = reg.oferta || "";
-    document.getElementById("valor_total").value = reg.valor_total || "";
-    document.getElementById("oportunidade").value = reg.oportunidade || "";
-    document.getElementById("data_entrada").value = reg.data_entrada || "";
-    document.getElementById("status").value = reg.status || "";
-    document.getElementById("data_envio").value = reg.data_envio || "";
+    Object.keys(reg).forEach(key => {
+        const el = document.getElementById(key);
+        if (el) el.value = reg[key];
+    });
 
-    const radio = document.querySelector(`input[name="pedido"][value="${reg.possuiPedido}"]`);
-    if (radio) radio.checked = true;
+    document.querySelector(`input[name="pedido"][value="${reg.possuiPedido}"]`).checked = true;
 
-    if (reg.possuiPedido === "sim" && reg.pedido) {
+    if (reg.pedido) {
         document.getElementById("secaoPedido").classList.remove("hidden");
-        document.getElementById("numero_pedido").value = reg.pedido.numero_pedido || "";
-        document.getElementById("data_po").value = reg.pedido.data_po || "";
-        document.getElementById("valor_pedido").value = reg.pedido.valor_pedido || "";
-        document.getElementById("ref_projeto").value = reg.pedido.ref_projeto || "";
-        document.getElementById("tipo_produto").value = reg.pedido.tipo_produto || "";
-        document.getElementById("obs").value = reg.pedido.obs || "";
-    } else {
-        document.getElementById("secaoPedido").classList.add("hidden");
-        document.getElementById("numero_pedido").value = "";
-        document.getElementById("data_po").value = "";
-        document.getElementById("valor_pedido").value = "";
-        document.getElementById("ref_projeto").value = "";
-        document.getElementById("tipo_produto").value = "";
-        document.getElementById("obs").value = "";
+        Object.keys(reg.pedido).forEach(key => {
+            const el = document.getElementById(key);
+            if (el) el.value = reg.pedido[key];
+        });
     }
 
     document.getElementById("btnAdicionar").textContent = "Salvar Edição";
-
     window.scrollTo({ top: 0, behavior: "smooth" });
 }
 
 function excluirRegistro(id) {
     if (!confirm("Tem certeza que deseja excluir este registro?")) return;
 
-    const idx = registros.findIndex(r => r.id === id);
-    if (idx !== -1) {
-        registros.splice(idx, 1);
-        salvarRegistros();
-        renderTabela();
-    }
+    registros = registros.filter(r => r.id !== id);
+    salvarRegistros();
+    renderTabela();
 }
 
-// ====== EXPORTAR EXCEL (CSV) ======
+// ====== EXPORTAR ======
 function exportExcel() {
     const filtrados = getRegistrosFiltrados();
-    if (filtrados.length === 0) {
+    if (!filtrados.length) {
         alert("Nenhum registro para exportar.");
         return;
     }
 
-    let csv = "B.U;Razão Social;Solicitante;Telefone;E-mail;N° Oferta;Vl. Total;Oportunidade;Data Entrada;Status;Data Envio;Possui Pedido;N° Pedido;Vl. Total Pedido;Ref./Projeto;Tipo Produto;Obs\n";
+    let csv = "B.U;Razão Social;Solicitante;Telefone;E-mail;N° Oferta;Ref./Projeto;Vl. Total;Status;Pedido?;N° Pedido;Cond Pagamento\n";
 
     filtrados.forEach(reg => {
-        const pedido = reg.pedido || {};
-        const linha = [
-            reg.bu || "",
-            reg.razao || "",
-            reg.solicitante || "",
-            reg.telefone || "",
-            reg.email || "",
-            reg.oferta || "",
-            reg.valor_total || "",
-            reg.oportunidade || "",
-            reg.data_entrada || "",
-            reg.status || "",
-            reg.data_envio || "",
-            reg.possuiPedido || "",
-            pedido.numero_pedido || "",
-            pedido.valor_pedido || "",
-            pedido.ref_projeto || "",
-            pedido.tipo_produto || "",
-            (pedido.obs || "").replace(/(\r\n|\n|\r)/gm, " ")
-        ].join(";");
-
-        csv += linha + "\n";
+        csv += [
+            reg.bu,
+            reg.razao,
+            reg.solicitante,
+            reg.telefone,
+            reg.email,
+            reg.oferta,
+            reg.ref_proposta,
+            reg.valor_total,
+            reg.status,
+            reg.possuiPedido,
+            reg.pedido?.numero_pedido || "",
+            reg.pedido?.cond_pagamento || ""
+        ].join(";") + "\n";
     });
 
     const blob = new Blob(["\uFEFF" + csv], { type: "text/csv;charset=utf-8;" });
@@ -514,95 +365,10 @@ function exportExcel() {
     document.body.appendChild(a);
     a.click();
     a.remove();
-    URL.revokeObjectURL(url);
 }
 
-// ====== GERAR PDF (via impressão) ======
 function exportPdf() {
-    const filtrados = getRegistrosFiltrados();
-    if (filtrados.length === 0) {
-        alert("Nenhum registro para exportar.");
-        return;
-    }
-
-    let html = `
-        <html>
-        <head>
-            <title>Registros de Ofertas</title>
-            <style>
-                body { font-family: Arial, sans-serif; font-size: 12px; }
-                h2 { text-align: center; }
-                table { width: 100%; border-collapse: collapse; margin-top: 10px; }
-                th, td { border: 1px solid #000; padding: 4px; }
-                th { background: #eee; }
-            </style>
-        </head>
-        <body>
-            <h2>Registros de Ofertas</h2>
-            <table>
-                <thead>
-                    <tr>
-                        <th>#</th>
-                        <th>B.U</th>
-                        <th>Razão Social</th>
-                        <th>Solicitante</th>
-                        <th>Telefone</th>
-                        <th>E-mail</th>
-                        <th>N° Oferta</th>
-                        <th>Vl. Total</th>
-                        <th>Oportunidade</th>
-                        <th>Data Entrada</th>
-                        <th>Status</th>
-                        <th>Data Envio</th>
-                        <th>Pedido?</th>
-                        <th>N° Pedido</th>
-                        <th>Vl. Total Pedido</th>
-                        <th>Ref./Projeto</th>
-                        <th>Tipo Produto</th>
-                        <th>Obs</th>
-                    </tr>
-                </thead>
-                <tbody>
-    `;
-
-    filtrados.forEach((reg, i) => {
-        const pedido = reg.pedido || {};
-        html += `
-            <tr>
-                <td>${i + 1}</td>
-                <td>${reg.bu || ""}</td>
-                <td>${reg.razao || ""}</td>
-                <td>${reg.solicitante || ""}</td>
-                <td>${reg.telefone || ""}</td>
-                <td>${reg.email || ""}</td>
-                <td>${reg.oferta || ""}</td>
-                <td>${reg.valor_total || ""}</td>
-                <td>${reg.oportunidade || ""}</td>
-                <td>${reg.data_entrada || ""}</td>
-                <td>${reg.status || ""}</td>
-                <td>${reg.data_envio || ""}</td>
-                <td>${reg.possuiPedido === "sim" ? "Sim" : "Não"}</td>
-                <td>${pedido.numero_pedido || ""}</td>
-                <td>${pedido.valor_pedido || ""}</td>
-                <td>${pedido.ref_projeto || ""}</td>
-                <td>${pedido.tipo_produto || ""}</td>
-                <td>${pedido.obs || ""}</td>
-            </tr>
-        `;
-    });
-
-    html += `
-                </tbody>
-            </table>
-        </body>
-        </html>
-    `;
-
-    const win = window.open("", "_blank");
-    win.document.write(html);
-    win.document.close();
-    win.focus();
-    win.print(); // usuário escolhe "Salvar como PDF"
+    window.print();
 }
 
 // ====== UTIL ======
@@ -614,12 +380,6 @@ function salvarRegistros() {
     localStorage.setItem("registros", JSON.stringify(registros));
 }
 
-// Navegação via sidebar
 function irPara(tela) {
-    if (tela === "cadastro") {
-        document.getElementById("secCadastro").scrollIntoView({ behavior: "smooth" });
-    }
-    if (tela === "registros") {
-        document.getElementById("secRegistros").scrollIntoView({ behavior: "smooth" });
-    }
+    document.getElementById(tela)?.scrollIntoView({ behavior: "smooth" });
 }

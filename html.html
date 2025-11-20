@@ -8,16 +8,14 @@
 </head>
 <body>
 
-    <!-- Botão mobile para abrir/fechar sidebar -->
     <div class="mobile-toggle" onclick="toggleSidebar()">☰</div>
 
     <!-- SIDEBAR -->
     <aside class="sidebar collapsed" id="sidebar">
-<div class="sidebar-header">
-    <img src="Logo.png" class="logo-img" alt="logo">
-    <h2 class="sidebar-title">CRM-Threear</h2>
-</div>
-
+        <div class="sidebar-header">
+            <img src="Logo.png" class="logo-img" alt="logo">
+            <h2 class="sidebar-title">CRM-Threear</h2>
+        </div>
 
         <nav class="sidebar-menu">
             <button type="button" class="menu-item" onclick="irPara('cadastro')">
@@ -46,11 +44,9 @@
             </button>
         </nav>
 
-        <!-- Botão para colapsar/expandir sidebar (desktop) -->
         <button class="collapse-btn" type="button" onclick="toggleSidebar()">⮜</button>
     </aside>
 
-    <!-- CONTEÚDO PRINCIPAL -->
     <div class="main-content">
 
         <!-- LOGIN -->
@@ -99,7 +95,7 @@
                             <input type="text" id="solicitante">
 
                             <label for="telefone">Telefone</label>
-                            <input type="text" id="telefone">
+                            <input type="text" id="telefone" placeholder="(11) 98888-7777">
 
                             <label for="email">E-mail</label>
                             <input type="email" id="email">
@@ -111,8 +107,11 @@
 
                         <div class="form-col">
 
+                            <label for="ref_proposta">Ref. / Projeto</label>
+                            <input type="text" id="ref_proposta">
+
                             <label for="valor_total">Vl. Total</label>
-                            <input type="number" step="0.01" id="valor_total">
+                            <input type="text" id="valor_total" class="money">
 
                             <label for="oportunidade">Oportunidade</label>
                             <input type="text" id="oportunidade">
@@ -146,7 +145,10 @@
                                 <input type="date" id="data_po">
 
                                 <label for="valor_pedido">VL. Total Pedido</label>
-                                <input type="number" step="0.01" id="valor_pedido">
+                                <input type="text" id="valor_pedido" class="money">
+
+                                <label for="cond_pagamento">Condição de Pagamento</label>
+                                <input type="text" id="cond_pagamento">
                             </div>
 
                             <div class="form-col">
@@ -205,15 +207,14 @@
                             <th>Razão Social</th>
                             <th>Solicitante</th>
                             <th>N° Oferta</th>
+                            <th>Ref./Projeto</th>
                             <th>Status</th>
                             <th>Vl. Total</th>
                             <th>Pedido?</th>
                             <th>Ações</th>
                         </tr>
                     </thead>
-                    <tbody>
-                        <!-- linhas via JS -->
-                    </tbody>
+                    <tbody></tbody>
                 </table>
 
                 <div class="paginacao">
@@ -224,7 +225,7 @@
             </section>
         </div>
 
-    </div> <!-- main-content -->
+    </div>
 
     <script src="script.js"></script>
 </body>
