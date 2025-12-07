@@ -736,3 +736,129 @@ body.dark .chart-container {
     page-break-inside: avoid;
     break-inside: avoid;
 }
+
+        .contatos-lista .contato-item {
+            margin-bottom: 8px;
+            font-size: 13px;
+        }
+        .contatos-lista .contato-item strong {
+            font-weight: 600;
+        }
+        .contatos-lista .tag-principal {
+            font-size: 11px;
+            color: var(--primary);
+            margin-left: 4px;
+        }
+        .side-panel {
+            position: fixed;
+            top: 0;
+            right: 0;
+            width: 320px;
+            height: 100vh;
+            background: var(--bg-container);
+            box-shadow: -4px 0 20px rgba(0,0,0,0.15);
+            padding: 16px;
+            z-index: 100;
+            overflow-y: auto;
+        }
+        .side-panel.hidden {
+            display: none !important;
+        }
+        .side-panel-header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            margin-bottom: 10px;
+        }
+        .side-panel-header h3 {
+            margin: 0;
+            font-size: 18px;
+        }
+        .side-panel-body p {
+            margin-bottom: 4px;
+            font-size: 13px;
+        }
+        .side-panel-body h4 {
+            margin-top: 10px;
+            margin-bottom: 6px;
+            font-size: 14px;
+        }
+
+        .checkbox-inline {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    margin-top: 10px;
+    font-size: 13px;
+    color: var(--text-main);
+}
+.checkbox-inline input {
+    width: auto;
+    margin: 0;
+}
+/* ===== MODAL DETALHES ===== */
+
+.modal {
+    position: fixed;
+    inset: 0;
+    background: rgba(15, 23, 42, 0.65);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    z-index: 60;
+}
+
+.modal.hidden {
+    display: none !important;
+}
+
+.modal-content {
+    position: relative;
+    background: var(--bg-container);
+    color: var(--text-main);
+    max-width: 720px;
+    width: calc(100% - 40px);
+    max-height: 80vh;
+    overflow-y: auto;
+    border-radius: 18px;
+    padding: 20px 22px;
+    box-shadow: var(--shadow-soft);
+}
+
+.modal-close {
+    border: none;
+    background: transparent;
+    color: var(--text-muted);
+    font-size: 18px;
+    cursor: pointer;
+    position: absolute;
+    top: 12px;
+    right: 16px;
+}
+
+.modal-content h3 {
+    margin-bottom: 10px;
+    font-size: 18px;
+}
+
+.modal-section {
+    font-size: 13px;
+    margin-bottom: 10px;
+}
+
+.modal-section strong {
+    color: var(--text-strong);
+}
+
+.modal-badge {
+    display: inline-block;
+    padding: 2px 8px;
+    border-radius: 999px;
+    background: #e5e7eb;
+    font-size: 11px;
+    margin-left: 6px;
+}
+
+body.dark .modal {
+    background: rgba(15, 23, 42, 0.85);
+}
