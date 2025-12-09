@@ -796,15 +796,15 @@ body.dark .chart-container {
     width: auto;
     margin: 0;
 }
-/* ===== MODAL DETALHES ===== */
+/* ===== MODAL – MODELO 2: PAINEL CORPORATIVO ===== */
 
 .modal {
     position: fixed;
     inset: 0;
-    background: rgba(15, 23, 42, 0.65);
     display: flex;
     align-items: center;
     justify-content: center;
+    background: rgba(15, 23, 42, 0.40);
     z-index: 60;
 }
 
@@ -812,53 +812,122 @@ body.dark .chart-container {
     display: none !important;
 }
 
-.modal-content {
+.modal-header {
     position: relative;
-    background: var(--bg-container);
-    color: var(--text-main);
-    max-width: 720px;
-    width: calc(100% - 40px);
-    max-height: 80vh;
-    overflow-y: auto;
-    border-radius: 18px;
-    padding: 20px 22px;
-    box-shadow: var(--shadow-soft);
+    width: 100%;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    padding: 1px 60px;        /* <<< padding lateral maior (resolve as sobras) */
+    min-height: 45px;
+    background: linear-gradient(135deg, var(--primary), #1d4ed8);
+    border-bottom: 1px solid var(--border-soft);
+    color: #fff;
+}
+
+.modal-header h3 {
+    margin: 0;
+    font-size: 19px;
+    font-weight: 600;
+    white-space: nowrap;
+    max-width: 80%;            
+
+    overflow: hidden;           /* impede encostar na borda */
+    text-overflow: ellipsis;   /* adiciona "..." caso seja gigante */
+    text-align: center;
 }
 
 .modal-close {
-    border: none;
-    background: transparent;
-    color: var(--text-muted);
-    font-size: 18px;
-    cursor: pointer;
     position: absolute;
-    top: 12px;
-    right: 16px;
+    right: 18px;
+    top: 4%;
+    transform: translateY(-50%);
+    width: 38px;
+    height: 38px;
+    border-radius: 999px;
+    border: none;
+    background: rgba(255, 255, 255, 0.12);
+    color: #fff;
+    font-size: 20px;
+    cursor: pointer;
+
+    display: flex;
+    align-items: center;
+    justify-content: center;
+
+    transition: background 0.15s ease, transform 0.1s ease, opacity 0.12s ease;
 }
 
-.modal-content h3 {
+.modal-close:hover {
+    background: rgba(255, 255, 255, 0.20);
+    transform: translateY(-50%) scale(1.03);
+}
+
+
+
+/* Corpo em "painel" */
+.modal-body {
+    padding: 14px 20px 18px 20px;
+    overflow-y: auto;
+    font-size: 13px;
+    background: var(--bg-body);
+}
+
+/* Layout em duas colunas em tela grande */
+@media (min-width: 720px) {
+    .modal-grid {
+        display: grid;
+        grid-template-columns: 1.2fr 1fr;
+        gap: 16px;
+    }
+}
+
+/* Cada bloco de informação */
+.modal-card {
+    background: var(--bg-container);
+    border-radius: 14px;
+    padding: 10px 12px 12px 12px;
+    border: 1px solid var(--border-soft);
     margin-bottom: 10px;
-    font-size: 18px;
+}
+
+.modal-card-title {
+    font-size: 12px;
+    font-weight: 600;
+    text-transform: uppercase;
+    letter-spacing: 0.06em;
+    color: var(--text-muted);
+    margin-bottom: 6px;
 }
 
 .modal-section {
-    font-size: 13px;
-    margin-bottom: 10px;
+    margin-bottom: 6px;
+    line-height: 1.5;
 }
 
 .modal-section strong {
     color: var(--text-strong);
 }
 
+/* Linha fina */
+.modal-divider {
+    height: 1px;
+    background: var(--border-soft);
+    margin: 8px 0 10px 0;
+}
+
+/* Badge de destaque */
 .modal-badge {
     display: inline-block;
     padding: 2px 8px;
     border-radius: 999px;
-    background: #e5e7eb;
+    background: rgba(37, 99, 235, 0.12);
+    color: var(--primary);
     font-size: 11px;
     margin-left: 6px;
 }
 
+/* Dark: overlay mais forte */
 body.dark .modal {
-    background: rgba(15, 23, 42, 0.85);
+    background: rgba(15, 23, 42, 0.80);
 }

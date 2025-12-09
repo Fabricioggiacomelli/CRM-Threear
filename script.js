@@ -113,35 +113,35 @@ function verOferta(id) {
     const usuario = reg.atualizadoPor || reg.criadoPor || "-";
 
     let html = `
-        <div class="modal-section">
-            <strong>Cliente:</strong> ${reg.razao || "-"}<br>
-            <strong>CNPJ:</strong> ${reg.cnpj_cliente || "-"}<br>
-            <strong>B.U:</strong> ${reg.bu || "-"}
-        </div>
+  <div class="modal-grid">
+    <div class="modal-card">
+      <div class="modal-card-title">Dados do Cliente</div>
+      <div class="modal-section"><strong>Razão Social:</strong> ${reg.razao || "-"}</div>
+      <div class="modal-section"><strong>CNPJ:</strong> ${reg.cnpj_cliente || "-"}</div>
+      <div class="modal-section"><strong>B.U:</strong> ${reg.bu || "-"}</div>
+    </div>
 
-        <div class="modal-section">
-            <strong>Projeto:</strong> ${reg.nome_projeto || "-"}<br>
-            <strong>Representada:</strong> ${reg.representadaNome || "-"}
-        </div>
+    <div class="modal-card">
+      <div class="modal-card-title">Projeto & Representada</div>
+      <div class="modal-section"><strong>Projeto:</strong> ${reg.nome_projeto || "-"}</div>
+      <div class="modal-section"><strong>Representada:</strong> ${reg.representadaNome || "-"}</div>
+    </div>
+  </div>
 
-        <div class="modal-section">
-            <strong>Solicitante:</strong> ${reg.solicitante || "-"}<br>
-            <strong>Telefone:</strong> ${reg.telefone || "-"}<br>
-            <strong>E-mail:</strong> ${reg.email || "-"}
-        </div>
+  <div class="modal-card">
+    <div class="modal-card-title">Oferta</div>
+    <div class="modal-section"><strong>N° Oferta:</strong> ${reg.oferta || "-"}</div>
+    <div class="modal-section"><strong>Valor Total:</strong> ${reg.valor_total || "-"}</div>
+    <div class="modal-section"><strong>Oportunidade:</strong> ${reg.oportunidade || "-"}</div>
+    <div class="modal-section"><strong>Status:</strong> ${reg.status || "-"}</div>
+  </div>
 
-        <div class="modal-section">
-            <strong>N° Oferta:</strong> ${reg.oferta || "-"}<br>
-            <strong>Valor Total:</strong> ${reg.valor_total || "-"}<br>
-            <strong>Oportunidade:</strong> ${reg.oportunidade || "-"}
-        </div>
+  <div class="modal-card">
+    <div class="modal-card-title">Usuário</div>
+    <div class="modal-section"><strong>Responsável:</strong> ${usuario}</div>
+  </div>
+`;
 
-        <div class="modal-section">
-            <strong>Data Entrada:</strong> ${reg.data_entrada || "-"}<br>
-            <strong>Status:</strong> ${reg.status || "-"}<br>
-            <strong>Data Envio:</strong> ${reg.data_envio || "-"}
-        </div>
-    `;
 
     if (reg.possuiPedido === "sim") {
         html += `

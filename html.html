@@ -15,11 +15,17 @@
 <!-- MODAL DE DETALHES (OFERTA / CLIENTE / REPRESENTADA) -->
 <div id="modalDetalhes" class="modal hidden">
     <div class="modal-content">
-        <button type="button" class="modal-close" onclick="fecharModalDetalhes()">✕</button>
-        <h3 id="modalTitulo"></h3>
-        <div id="modalCorpo"></div>
+        <div class="modal-header">
+            <h3 id="modalTitulo"></h3>
+            <button type="button" class="modal-close" onclick="fecharModalDetalhes()">✕</button>
+        </div>
+
+        <div class="modal-body" id="modalCorpo">
+            <!-- conteúdo preenchido via JS -->
+        </div>
     </div>
 </div>
+
 
 <body>
 
