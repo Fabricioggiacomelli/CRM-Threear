@@ -12,6 +12,8 @@ let clientes = [];
 let representadas = [];
 let contatosTemp = [];
 
+
+
 // Paginação de clientes
 let clientesCurrentPage = 1;
 const clientesPageSize = 5;
