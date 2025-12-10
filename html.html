@@ -1,12 +1,11 @@
 <!DOCTYPE html>
 <html lang="pt-BR">
-<head>
 
+<head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Gestão de Ofertas</title>
     <link rel="stylesheet" href="style.css">
-
     <link rel="manifest" href="manifest.json">
     <meta name="theme-color" content="#2563eb">
 </head>
@@ -26,19 +25,15 @@
     </div>
 </div>
 
-
 <body>
-
     <!-- Botão mobile para abrir/fechar sidebar -->
     <div class="mobile-toggle" onclick="toggleSidebar()">☰</div>
-
     <!-- SIDEBAR -->
     <aside class="sidebar collapsed" id="sidebar">
         <div class="sidebar-header">
             <img src="Logo.png" class="logo-img" alt="logo">
             <h2 class="sidebar-title">CRM-Three Ar</h2>
         </div>
-
         <nav class="sidebar-menu">
             <button type="button" class="menu-item" onclick="irPara('cadastro')">
                 <span class="icon">📝</span>
@@ -56,7 +51,7 @@
                 <span class="icon">🏭</span>
                 <span class="label">Representadas</span>
             </button>
-            
+
             <button type="button" class="menu-item" onclick="toggleTheme()">
                 <span class="icon">🌙</span>
                 <span class="label" id="themeLabel">Modo escuro</span>
@@ -228,34 +223,34 @@
                 </div>
 
                 <div class="actions-row">
-    <button id="btnVerTudo" class="secondary" type="button">Atualizar Lista</button>
-    <button id="btnExportExcel" class="secondary" type="button">Exportar Registros (Excel)</button>
-    <button id="btnExportPdf" class="secondary" type="button">Gerar PDF</button>
+                    <button id="btnVerTudo" class="secondary" type="button">Atualizar Lista</button>
+                    <button id="btnExportExcel" class="secondary" type="button">Exportar Registros (Excel)</button>
+                    <button id="btnExportPdf" class="secondary" type="button">Gerar PDF</button>
 
-    <button id="btnBackupExport" class="secondary" type="button">Backup - Exportar</button>
-    <button id="btnBackupImport" class="secondary" type="button">Backup - Importar</button>
-    <input type="file" id="inputBackupFile" style="display:none;">
-</div>
+                    <button id="btnBackupExport" class="secondary" type="button">Backup - Exportar</button>
+                    <button id="btnBackupImport" class="secondary" type="button">Backup - Importar</button>
+                    <input type="file" id="inputBackupFile" style="display:none;">
+                </div>
 
                 <table id="tabelaRegistros">
-    <thead>
-        <tr>
-            <th>#</th>
-            <th>B.U</th>
-            <th>Razão Social</th>
-            <th>CNPJ</th>
-            <th>Projeto</th>
-            <th>Representada</th>
-            <th>N° Oferta</th>
-            <th>Status</th>
-            <th>Vl. Total</th>
-            <th>Pedido?</th>
-            <th>Usuário</th>
-            <th>Ações</th>
-        </tr>
-    </thead>
-    <tbody></tbody>
-</table>
+                    <thead>
+                        <tr>
+                            <th>#</th>
+                            <th>B.U</th>
+                            <th>Razão Social</th>
+                            <th>CNPJ</th>
+                            <th>Projeto</th>
+                            <th>Representada</th>
+                            <th>N° Oferta</th>
+                            <th>Status</th>
+                            <th>Vl. Total</th>
+                            <th>Pedido?</th>
+                            <th>Usuário</th>
+                            <th>Ações</th>
+                        </tr>
+                    </thead>
+                    <tbody></tbody>
+                </table>
 
 
                 <div class="paginacao">
@@ -302,10 +297,10 @@
                         <label for="ct_funcao">Função / Cargo</label>
                         <input type="text" id="ct_funcao">
 
-                     <div class="checkbox-inline">
-    <input type="checkbox" id="ct_principal">
-    <span>Definir como contato principal</span>
-</div>
+                        <div class="checkbox-inline">
+                            <input type="checkbox" id="ct_principal">
+                            <span>Definir como contato principal</span>
+                        </div>
 
 
                         <button type="button" class="secondary" id="btnAddContato">Adicionar Contato</button>
@@ -318,18 +313,23 @@
 
                 <h4 style="margin-top:20px;">Clientes Cadastrados</h4>
                 <table id="tabelaClientes">
-    <thead>
-        <tr>
-            <th>Razão Social</th>
-            <th>CNPJ</th>
-            <th>Segmento</th>
-            <th>Qtd. Contatos</th>
-            <th>Usuário</th>
-            <th>Ações</th>
-        </tr>
-    </thead>
-    <tbody></tbody>
-</table>
+                    <thead>
+                        <tr>
+                            <th>Razão Social</th>
+                            <th>CNPJ</th>
+                            <th>Segmento</th>
+                            <th>Qtd. Contatos</th>
+                            <th>Usuário</th>
+                            <th>Ações</th>
+                        </tr>
+                    </thead>
+                    <tbody></tbody>
+                </table>
+                <div class="paginacao" id="paginacaoClientes">
+                    <button id="btnPrevClientes" class="secondary" type="button">Anterior</button>
+                    <span id="pageInfoClientes">Página 1 de 1</span>
+                    <button id="btnNextClientes" class="secondary" type="button">Próxima</button>
+                </div>
 
             </section>
 
@@ -344,15 +344,15 @@
 
                 <h4 style="margin-top:20px;">Representadas Cadastradas</h4>
                 <table id="tabelaRepresentadas">
-    <thead>
-        <tr>
-            <th>Nome</th>
-            <th>Usuário</th>
-            <th>Ações</th>
-        </tr>
-    </thead>
-    <tbody></tbody>
-</table>
+                    <thead>
+                        <tr>
+                            <th>Nome</th>
+                            <th>Usuário</th>
+                            <th>Ações</th>
+                        </tr>
+                    </thead>
+                    <tbody></tbody>
+                </table>
 
             </section>
 
@@ -380,4 +380,5 @@
 
     <script src="script.js"></script>
 </body>
+
 </html>
