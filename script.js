@@ -1,10 +1,10 @@
-// ====== CONFIG LOGIN MULTIUSUÁRIO ======
-const USERS = [
-  { user: "Ricardo", pass: "Ricardo" },
-  { user: "Kondo", pass: "Kondo" },
-  { user: "Ronaldo", pass: "Ronaldo" },
-  { user: "Fabricio", pass: "Fabricio" },
-];
+// ====== LOGIN VIA FIREBASE AUTH ======
+let currentUserName = null; // nome/email do usuário logado (para "criadoPor", etc.)
+
+function getCurrentUserName() {
+  return currentUserName || "Desconhecido";
+}
+
 
 // Dados principais
 let registros = [];
@@ -28,10 +28,6 @@ let backupImportMode = null; // "json" ou "excel"
 
 // ====== INICIALIZAÇÃO GERAL ======
 window.addEventListener("load", () => {
-  registros = JSON.parse(localStorage.getItem("registros")) || [];
-  clientes = JSON.parse(localStorage.getItem("clientes")) || [];
-  representadas = JSON.parse(localStorage.getItem("representadas")) || [];
-
   const savedTheme = localStorage.getItem("theme") || "light";
   applyTheme(savedTheme);
 
@@ -46,29 +42,90 @@ window.addEventListener("load", () => {
   initLigacaoClienteOferta();
   initBackupUI();
 
-  if (localStorage.getItem("loggedUser")) {
-    mostrarApp();
-  }
+  // OUVIR LOGIN DO FIREBASE
+  auth.onAuthStateChanged(async (user) => {
+    if (user) {
+      currentUserName = user.displayName || user.email || "Desconhecido";
+      await carregarDadosDoFirebase();  // carrega ofertas / clientes / representadas
+      mostrarApp();
+    } else {
+      currentUserName = null;
+      mostrarLogin();
+    }
+  });
 });
+async function carregarDadosDoFirebase() {
+  await Promise.all([
+    carregarClientesFirebase(),
+    carregarRepresentadasFirebase(),
+    carregarRegistrosFirebase(),
+  ]);
+
+  renderTabela();
+  renderTabelaClientes();
+  renderTabelaRepresentadas();
+  preencherSelectRepresentadas();
+}
+
+// Carrega CLIENTES do Firestore
+async function carregarClientesFirebase() {
+  const snap = await db.collection("clientes").get();
+  clientes = snap.docs.map((doc) => ({
+    id: doc.id,
+    ...doc.data(),
+  }));
+}
+
+// Carrega REPRESENTADAS do Firestore
+async function carregarRepresentadasFirebase() {
+  const snap = await db.collection("representadas").get();
+  representadas = snap.docs.map((doc) => ({
+    id: doc.id,
+    ...doc.data(),
+  }));
+}
+
+// Carrega OFERTAS do Firestore
+async function carregarRegistrosFirebase() {
+  const snap = await db.collection("ofertas").get();
+  registros = snap.docs.map((doc) => ({
+    id: doc.id,
+    ...doc.data(),
+  }));
+}
+
+function mostrarLogin() {
+  const loginContainer = document.getElementById("loginContainer");
+  const appContainer = document.getElementById("appContainer");
+
+  if (appContainer) appContainer.classList.add("hidden");
+  if (loginContainer) loginContainer.classList.remove("hidden");
+}
 
 // ====== LOGIN ======
 function initLogin() {
   const btnLogin = document.getElementById("btnLogin");
   if (!btnLogin) return;
 
-  btnLogin.addEventListener("click", () => {
+  btnLogin.addEventListener("click", async () => {
     const u = document.getElementById("loginUser").value.trim();
     const p = document.getElementById("loginPass").value.trim();
 
-    const encontrado = USERS.find((x) => x.user === u && x.pass === p);
-
-    if (!encontrado) {
-      alert("Usuário ou senha incorretos.");
+    if (!u || !p) {
+      alert("Preencha usuário (email) e senha.");
       return;
     }
 
-    localStorage.setItem("loggedUser", encontrado.user);
-    mostrarApp();
+    try {
+      // AQUI: loginUser deve ser o EMAIL cadastrado no Firebase
+      const cred = await auth.signInWithEmailAndPassword(u, p);
+      const user = cred.user;
+      currentUserName = user.displayName || user.email || "Desconhecido";
+      // onAuthStateChanged já vai chamar mostrarApp() e carregar dados
+    } catch (err) {
+      console.error(err);
+      alert("Erro ao fazer login: " + err.message);
+    }
   });
 }
 
@@ -79,10 +136,9 @@ function mostrarApp() {
   if (loginContainer) loginContainer.classList.add("hidden");
   if (appContainer) appContainer.classList.remove("hidden");
 
-  const user = localStorage.getItem("loggedUser");
   const userInfo = document.getElementById("userInfo");
   if (userInfo) {
-    userInfo.textContent = "Logado como: " + user;
+    userInfo.textContent = "Logado como: " + getCurrentUserName();
   }
 
   preencherSelectRepresentadas();
@@ -91,10 +147,14 @@ function mostrarApp() {
   renderTabelaRepresentadas();
 }
 
+
 function logout() {
-  localStorage.removeItem("loggedUser");
-  location.reload();
+  auth.signOut().catch((err) => {
+    console.error(err);
+    alert("Erro ao sair: " + err.message);
+  });
 }
+
 
 // ===== MODAL GENÉRICO =====
 function abrirModal(titulo, html) {
@@ -453,7 +513,7 @@ function initForm() {
   const btnAdicionar = document.getElementById("btnAdicionar");
   if (!btnAdicionar) return;
 
-  btnAdicionar.addEventListener("click", () => {
+  btnAdicionar.addEventListener("click", async () => {
     const bu = document.getElementById("bu");
     const razao = document.getElementById("razao");
     const cnpj_cliente = document.getElementById("cnpj_cliente");
@@ -472,9 +532,9 @@ function initForm() {
     const possuiPedido = document.querySelector(
       "input[name='pedido']:checked"
     ).value;
-    const currentUser = localStorage.getItem("loggedUser") || "Desconhecido";
+    const currentUser = getCurrentUserName();
 
-    // Validação CNPJ (se preenchido, tem que ter 14 dígitos)
+    // validações (iguais às suas)
     const cnpjDigits = cnpj_cliente.value.replace(/\D/g, "");
     if (cnpjDigits && cnpjDigits.length !== 14) {
       alert("CNPJ inválido. Verifique antes de salvar.");
@@ -482,7 +542,6 @@ function initForm() {
       return;
     }
 
-    // Validação telefone (se preenchido, mínimo DDD + 8 dígitos = 10)
     const telDigits = telefone.value.replace(/\D/g, "");
     if (telDigits && telDigits.length < 10) {
       alert("Telefone inválido. Informe DDD + 8 ou 9 dígitos.");
@@ -534,32 +593,38 @@ function initForm() {
       registroBase.pedido = null;
     }
 
+    // ===== NOVO: SALVAR NO FIRESTORE =====
     if (!editId) {
+      const id = gerarId();
       const registro = {
-        id: gerarId(),
+        id,
         ...registroBase,
         criadoPor: currentUser,
         atualizadoPor: currentUser,
       };
+      await db.collection("ofertas").doc(id).set(registro);
       registros.push(registro);
       alert("Registro adicionado!");
     } else {
       const idx = registros.findIndex((r) => r.id === editId);
       const antigo = registros[idx] || {};
       if (idx !== -1) {
-        registros[idx] = {
+        const registro = {
           id: editId,
           ...registroBase,
           criadoPor: antigo.criadoPor || currentUser,
           atualizadoPor: currentUser,
         };
+        await db.collection("ofertas").doc(editId).set(registro);
+        registros[idx] = registro;
         alert("Registro atualizado!");
       }
       editId = null;
       btnAdicionar.textContent = "Adicionar";
     }
+    // ====================================
 
-    salvarRegistros();
+    salvarRegistros(); // continua usando localStorage como backup
 
     document.getElementById("formOferta").reset();
     document.getElementById("secaoPedido").classList.add("hidden");
@@ -581,6 +646,7 @@ function initClientesUI() {
 
   if (!btnAddContato || !btnSalvarCliente) return;
 
+  // Adicionar / editar CONTATO (igual era antes)
   btnAddContato.addEventListener("click", () => {
     const nome = document.getElementById("ct_nome").value.trim();
     const telefone = document.getElementById("ct_tel").value.trim();
@@ -593,7 +659,6 @@ function initClientesUI() {
       return;
     }
 
-    // Validação telefone contato (se preenchido, min 10 dígitos)
     const telDigits = telefone.replace(/\D/g, "");
     if (telefone && telDigits.length < 10) {
       alert("Telefone do contato inválido. Informe DDD + 8 ou 9 dígitos.");
@@ -630,13 +695,14 @@ function initClientesUI() {
     renderListaContatos();
   });
 
-  btnSalvarCliente.addEventListener("click", () => {
+  // Salvar CLIENTE (agora usando Firebase)
+  btnSalvarCliente.addEventListener("click", async () => {
     const razao = document.getElementById("cli_razao").value.trim();
     const cnpj = document.getElementById("cli_cnpj").value.trim();
     const ie = document.getElementById("cli_ie").value.trim();
     const endereco = document.getElementById("cli_endereco").value.trim();
     const segmento = document.getElementById("cli_segmento").value.trim();
-    const currentUser = localStorage.getItem("loggedUser") || "Desconhecido";
+    const currentUser = getCurrentUserName();
 
     if (!razao || !cnpj) {
       alert("Razão Social e CNPJ são obrigatórios.");
@@ -664,24 +730,28 @@ function initClientesUI() {
     };
 
     if (!editClienteId) {
+      const id = gerarId();
       const cliente = {
-        id: gerarId(),
+        id,
         ...clienteBase,
         criadoPor: currentUser,
         atualizadoPor: currentUser,
       };
+      await db.collection("clientes").doc(id).set(cliente);
       clientes.push(cliente);
       alert("Cliente salvo!");
     } else {
       const idx = clientes.findIndex((c) => c.id === editClienteId);
       const antigo = clientes[idx] || {};
       if (idx !== -1) {
-        clientes[idx] = {
+        const cliente = {
           id: editClienteId,
           ...clienteBase,
           criadoPor: antigo.criadoPor || currentUser,
           atualizadoPor: currentUser,
         };
+        await db.collection("clientes").doc(editClienteId).set(cliente);
+        clientes[idx] = cliente;
       }
       alert("Cliente atualizado!");
       editClienteId = null;
@@ -691,7 +761,7 @@ function initClientesUI() {
     salvarClientes();
     contatosTemp = [];
     editContatoIndex = null;
-    document.getElementById("btnAddContato").textContent = "Adicionar Contato";
+    btnAddContato.textContent = "Adicionar Contato";
     renderListaContatos();
     renderTabelaClientes();
 
@@ -878,13 +948,21 @@ function editarCliente(id) {
   document.getElementById("secClientes").scrollIntoView({ behavior: "smooth" });
 }
 
-function excluirCliente(id) {
+async function excluirCliente(id) {
   if (!confirm("Tem certeza que deseja excluir este cliente?")) return;
+
+  try {
+    await db.collection("clientes").doc(id).delete();
+  } catch (e) {
+    console.error(e);
+    alert("Erro ao excluir cliente no Firebase.");
+  }
 
   clientes = clientes.filter((c) => c.id !== id);
   salvarClientes();
   renderTabelaClientes();
 }
+
 
 function salvarClientes() {
   localStorage.setItem("clientes", JSON.stringify(clientes));
@@ -972,9 +1050,9 @@ function initRepresentadasUI() {
   const btn = document.getElementById("btnSalvarRepresentada");
   if (!btn) return;
 
-  btn.addEventListener("click", () => {
+  btn.addEventListener("click", async () => {
     const nome = document.getElementById("rep_nome").value.trim();
-    const currentUser = localStorage.getItem("loggedUser") || "Desconhecido";
+    const currentUser = getCurrentUserName();
 
     if (!nome) {
       alert("Informe o nome da representada.");
@@ -982,23 +1060,28 @@ function initRepresentadasUI() {
     }
 
     if (!editRepresentadaId) {
-      representadas.push({
-        id: gerarId(),
+      const id = gerarId();
+      const rep = {
+        id,
         nome,
         criadoPor: currentUser,
         atualizadoPor: currentUser,
-      });
+      };
+      await db.collection("representadas").doc(id).set(rep); // FIREBASE
+      representadas.push(rep);
       alert("Representada salva!");
     } else {
       const idx = representadas.findIndex((r) => r.id === editRepresentadaId);
       const antigo = representadas[idx] || {};
       if (idx !== -1) {
-        representadas[idx] = {
+        const rep = {
           id: editRepresentadaId,
           nome,
           criadoPor: antigo.criadoPor || currentUser,
           atualizadoPor: currentUser,
         };
+        await db.collection("representadas").doc(editRepresentadaId).set(rep); // FIREBASE
+        representadas[idx] = rep;
       }
 
       registros.forEach((reg) => {
@@ -1018,9 +1101,6 @@ function initRepresentadasUI() {
     renderTabelaRepresentadas();
     preencherSelectRepresentadas();
   });
-
-  renderTabelaRepresentadas();
-  preencherSelectRepresentadas();
 }
 
 function renderTabelaRepresentadas() {
@@ -1072,8 +1152,15 @@ function editarRepresentada(id) {
     .scrollIntoView({ behavior: "smooth" });
 }
 
-function excluirRepresentada(id) {
+async function excluirRepresentada(id) {
   if (!confirm("Tem certeza que deseja excluir esta representada?")) return;
+
+  try {
+    await db.collection("representadas").doc(id).delete();
+  } catch (e) {
+    console.error(e);
+    alert("Erro ao excluir representada no Firebase.");
+  }
 
   representadas = representadas.filter((r) => r.id !== id);
   salvarRepresentadas();
@@ -1089,6 +1176,7 @@ function excluirRepresentada(id) {
   renderTabelaRepresentadas();
   preencherSelectRepresentadas();
 }
+
 
 function salvarRepresentadas() {
   localStorage.setItem("representadas", JSON.stringify(representadas));
@@ -1402,8 +1490,15 @@ function editarRegistro(id) {
   window.scrollTo({ top: 0, behavior: "smooth" });
 }
 
-function excluirRegistro(id) {
+async function excluirRegistro(id) {
   if (!confirm("Tem certeza que deseja excluir este registro?")) return;
+
+  try {
+    await db.collection("ofertas").doc(id).delete();
+  } catch (e) {
+    console.error(e);
+    alert("Erro ao excluir do Firebase (ofertas).");
+  }
 
   const idx = registros.findIndex((r) => r.id === id);
   if (idx !== -1) {
