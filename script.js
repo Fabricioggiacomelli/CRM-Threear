@@ -179,7 +179,7 @@ function verOferta(id) {
   if (!reg) return;
 
   const pedido = reg.pedido || {};
-  const usuario = reg.atualizadoPor || reg.criadoPor || "-";
+const usuario = formatarNomeUsuario(reg.atualizadoPor || reg.criadoPor || "-");
 
   let html = `
   <div class="modal-grid">
@@ -267,7 +267,7 @@ function verCliente(id) {
   const cli = clientes.find((c) => c.id === id);
   if (!cli) return;
 
-  const usuario = cli.atualizadoPor || cli.criadoPor || "-";
+const usuario = formatarNomeUsuario(cli.atualizadoPor || cli.criadoPor || "-");
 
   let html = `
         <div class="modal-section">
@@ -892,7 +892,7 @@ function renderTabelaClientes() {
       const tr = document.createElement("tr");
 
       const qtdContatos = cli.contatos ? cli.contatos.length : 0;
-      const usuario = cli.atualizadoPor || cli.criadoPor || "-";
+const usuario = formatarNomeUsuario(cli.atualizadoPor || cli.criadoPor || "-");
 
       tr.innerHTML = `
                 <td>${cli.razao || ""}</td>
@@ -1109,7 +1109,7 @@ function renderTabelaRepresentadas() {
 
   tbody.innerHTML = "";
   representadas.forEach((rep) => {
-    const usuario = rep.atualizadoPor || rep.criadoPor || "";
+const usuario = formatarNomeUsuario(rep.atualizadoPor || rep.criadoPor || "");
     const tr = document.createElement("tr");
     tr.innerHTML = `
             <td>${rep.nome}</td>
@@ -1389,7 +1389,7 @@ function renderTabela() {
     tbody.appendChild(tr);
   } else {
     pageData.forEach((reg, index) => {
-      const usuario = reg.atualizadoPor || reg.criadoPor || "";
+const usuario = formatarNomeUsuario(reg.atualizadoPor || reg.criadoPor || "");
       const tr = document.createElement("tr");
 
       tr.innerHTML = `
@@ -1979,6 +1979,19 @@ function importBackupExcel(file) {
 // ====== UTIL ======
 function gerarId() {
   return Date.now().toString() + "_" + Math.random().toString(16).slice(2);
+}
+function formatarNomeUsuario(usuario) {
+    if (!usuario) return "";
+
+    let nome = usuario;
+
+    // Se for e-mail, pega só antes do @ e antes do ponto
+    if (usuario.includes("@")) {
+        nome = usuario.split("@")[0].split(".")[0];
+    }
+
+    // Capitaliza (Renan, Araujo, Fabricio)
+    return nome.charAt(0).toUpperCase() + nome.slice(1).toLowerCase();
 }
 
 function salvarRegistros() {
