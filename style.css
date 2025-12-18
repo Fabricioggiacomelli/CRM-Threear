@@ -930,3 +930,29 @@ body.dark .chart-container {
 body.dark .modal {
   background: rgba(15, 23, 42, 0.8);
 }
+.form-card{
+  border: 1px dashed rgba(255,255,255,.15);
+  border-radius: 16px;
+  padding: 18px;
+  margin-top: 14px;
+  background: rgba(255,255,255,.03);
+}
+
+.form-card h3{
+  margin: 0 0 14px 0;
+  font-size: 16px;
+  font-weight: 700;
+}
+
+.form-card input,
+.form-card textarea,
+.form-card select{
+  width: 100%;
+}
+.form-card {
+  border: 1px dashed rgba(255,255,255,.15);
+  border-radius: 16px;
+  padding: 18px;
+  margin-top: 14px;
+  background: rgba(255,255,255,.03);
+}

@@ -1,33 +1,41 @@
-// ====== LOGIN VIA FIREBASE AUTH ======
-let currentUserName = null; // nome/email do usuário logado (para "criadoPor", etc.)
+/* =========================
+   CRM-Three Ar - script.js
+   (Ofertas + Clientes + Representadas + Revisão + Obs Geral)
+   + Tipo (Compra/Orçamento)
+   + Campos extras no Pedido (NF/Entrega/OC)
+   + Itens por página (5/10)
+   + Export Excel/PDF + Backup Excel/JSON com todas infos
+   ========================= */
 
+/* ====== LOGIN VIA FIREBASE AUTH ====== */
+let currentUserName = null; // nome/email do usuário logado
 function getCurrentUserName() {
   return currentUserName || "Desconhecido";
 }
 
-
-// Dados principais
+/* ====== DADOS PRINCIPAIS ====== */
 let registros = [];
 let clientes = [];
+let usuarios = [];
 let representadas = [];
 let contatosTemp = [];
 
-
-
-// Paginação de clientes
+/* ====== PAGINAÇÃO ====== */
 let clientesCurrentPage = 1;
-const clientesPageSize = 5;
+let clientesPageSize = 5;
 
 let editId = null; // oferta
 let editClienteId = null; // cliente
 let editRepresentadaId = null; // representada
 let editContatoIndex = null; // contato do cliente
+
 let currentPage = 1;
-const pageSize = 5;
+let pageSize = 5; // ✅ agora é variável (5 ou 10)
+
 let backupImportMode = null; // "json" ou "excel"
 
-// ====== INICIALIZAÇÃO GERAL ======
-window.addEventListener("load", () => {
+/* ====== INICIALIZAÇÃO GERAL ====== */
+window.addEventListener("load", async () => {
   const savedTheme = localStorage.getItem("theme") || "light";
   applyTheme(savedTheme);
 
@@ -42,91 +50,111 @@ window.addEventListener("load", () => {
   initLigacaoClienteOferta();
   initBackupUI();
 
-  // OUVIR LOGIN DO FIREBASE
+  // ✅ espera firebase carregar
+  await esperarFirebase();
+
+  console.log("Firebase OK:", { temAuth: !!window.auth, temDb: !!window.db });
+
   auth.onAuthStateChanged(async (user) => {
-    if (user) {
-      currentUserName = user.displayName || user.email || "Desconhecido";
-      await carregarDadosDoFirebase();  // carrega ofertas / clientes / representadas
-      mostrarApp();
-    } else {
-      currentUserName = null;
-      mostrarLogin();
+    try {
+      if (user) {
+        currentUserName = user.displayName || user.email || "Desconhecido";
+
+        await db.collection("usuarios").doc(user.uid).set(
+          {
+            uid: user.uid,
+            nome: user.displayName || (user.email ? user.email.split(".")[0] : "Usuário"),
+            email: user.email || "",
+            ativo: true,
+            atualizadoEm: new Date().toISOString(),
+          },
+          { merge: true }
+        );
+
+        await carregarDadosDoFirebase();
+        mostrarApp();
+      } else {
+        currentUserName = null;
+        mostrarLogin();
+      }
+    } catch (e) {
+      console.error("Erro no onAuthStateChanged:", e);
+      alert("Erro ao inicializar login. Veja o console.");
     }
   });
 });
-async function carregarDadosDoFirebase() {
-  await Promise.all([
-    carregarClientesFirebase(),
-    carregarRepresentadasFirebase(),
-    carregarRegistrosFirebase(),
-  ]);
 
-  renderTabela();
-  renderTabelaClientes();
-  renderTabelaRepresentadas();
-  preencherSelectRepresentadas();
+function esperarFirebase(timeoutMs = 8000) {
+  return new Promise((resolve, reject) => {
+    const start = Date.now();
+    const t = setInterval(() => {
+      if (window.auth && window.db) {
+        clearInterval(t);
+        resolve(true);
+      } else if (Date.now() - start > timeoutMs) {
+        clearInterval(t);
+        reject(new Error("Firebase não carregou: auth/db indefinidos (ordem dos scripts)."));
+      }
+    }, 50);
+  });
 }
 
-// Carrega CLIENTES do Firestore
+async function carregarDadosDoFirebase() {
+  try {
+    await Promise.all([
+      carregarClientesFirebase(),
+      carregarRepresentadasFirebase(),
+      carregarRegistrosFirebase(),
+      carregarUsuariosFirebase(),
+    ]);
+
+    console.log("Depois do load, usuarios =", usuarios.length, usuarios);
+
+    preencherSelectRepresentadas();
+    if (typeof preencherSelectResponsaveisContato === "function") preencherSelectResponsaveisContato();
+
+    renderTabela();
+    renderTabelaClientes();
+    renderTabelaRepresentadas();
+  } catch (err) {
+    console.error("carregarDadosDoFirebase falhou:", err);
+    throw err;
+  }
+}
+
+/* ====== FIRESTORE LOAD ====== */
 async function carregarClientesFirebase() {
   const snap = await db.collection("clientes").get();
-  clientes = snap.docs.map((doc) => ({
-    id: doc.id,
-    ...doc.data(),
-  }));
+  clientes = snap.docs.map((doc) => ({ id: doc.id, ...doc.data() }));
 }
 
-// Carrega REPRESENTADAS do Firestore
+async function carregarUsuariosFirebase() {
+  try {
+    const snap = await db.collection("usuarios").get();
+    usuarios = snap.docs.map((doc) => ({ id: doc.id, ...doc.data() }));
+    console.log("Usuarios carregados:", usuarios.length, usuarios);
+  } catch (e) {
+    console.error("ERRO ao carregar usuarios:", e);
+    usuarios = [];
+  }
+}
+
 async function carregarRepresentadasFirebase() {
   const snap = await db.collection("representadas").get();
-  representadas = snap.docs.map((doc) => ({
-    id: doc.id,
-    ...doc.data(),
-  }));
+  representadas = snap.docs.map((doc) => ({ id: doc.id, ...doc.data() }));
 }
 
-// Carrega OFERTAS do Firestore
 async function carregarRegistrosFirebase() {
   const snap = await db.collection("ofertas").get();
-  registros = snap.docs.map((doc) => ({
-    id: doc.id,
-    ...doc.data(),
-  }));
+  registros = snap.docs.map((doc) => ({ id: doc.id, ...doc.data() }));
 }
 
+/* ====== MOSTRAR / ESCONDER TELAS ====== */
 function mostrarLogin() {
   const loginContainer = document.getElementById("loginContainer");
   const appContainer = document.getElementById("appContainer");
-
   if (appContainer) appContainer.classList.add("hidden");
   if (loginContainer) loginContainer.classList.remove("hidden");
-}
-
-// ====== LOGIN ======
-function initLogin() {
-  const btnLogin = document.getElementById("btnLogin");
-  if (!btnLogin) return;
-
-  btnLogin.addEventListener("click", async () => {
-    const u = document.getElementById("loginUser").value.trim();
-    const p = document.getElementById("loginPass").value.trim();
-
-    if (!u || !p) {
-      alert("Preencha usuário (email) e senha.");
-      return;
-    }
-
-    try {
-      // AQUI: loginUser deve ser o EMAIL cadastrado no Firebase
-      const cred = await auth.signInWithEmailAndPassword(u, p);
-      const user = cred.user;
-      currentUserName = user.displayName || user.email || "Desconhecido";
-      // onAuthStateChanged já vai chamar mostrarApp() e carregar dados
-    } catch (err) {
-      console.error(err);
-      alert("Erro ao fazer login: " + err.message);
-    }
-  });
 }
 
 function mostrarApp() {
@@ -137,9 +165,7 @@ function mostrarApp() {
   if (appContainer) appContainer.classList.remove("hidden");
 
   const userInfo = document.getElementById("userInfo");
-  if (userInfo) {
-    userInfo.textContent = "Logado como: " + getCurrentUserName();
-  }
+  if (userInfo) userInfo.textContent = "Logado como: " + getCurrentUserName();
 
   preencherSelectRepresentadas();
   renderTabela();
@@ -147,6 +173,48 @@ function mostrarApp() {
   renderTabelaRepresentadas();
 }
 
+/* ====== LOGIN ====== */
+function initLogin() {
+  const btnLogin = document.getElementById("btnLogin");
+  if (!btnLogin) {
+    console.warn("btnLogin não encontrado no DOM.");
+    return;
+  }
+
+  btnLogin.addEventListener("click", async () => {
+    const uEl = document.getElementById("loginUser");
+    const pEl = document.getElementById("loginPass");
+    const u = (uEl?.value || "").trim();
+    const p = (pEl?.value || "").trim();
+
+    if (!u || !p) {
+      alert("Preencha usuário (email) e senha.");
+      return;
+    }
+
+    try {
+      btnLogin.disabled = true;
+      btnLogin.textContent = "Entrando...";
+      const cred = await auth.signInWithEmailAndPassword(u, p);
+      console.log("Login OK:", cred.user?.uid);
+    } catch (err) {
+      console.error("Erro no login:", err);
+      const msg =
+        err?.code === "auth/user-not-found"
+          ? "Usuário não encontrado. Use o EMAIL cadastrado no Firebase Auth."
+          : err?.code === "auth/wrong-password"
+          ? "Senha incorreta."
+          : err?.code === "auth/invalid-email"
+          ? "Email inválido. Digite um email válido."
+          : "Erro ao fazer login: " + (err?.message || err);
+
+      alert(msg);
+    } finally {
+      btnLogin.disabled = false;
+      btnLogin.textContent = "Entrar";
+    }
+  });
+}
 
 function logout() {
   auth.signOut().catch((err) => {
@@ -155,15 +223,12 @@ function logout() {
   });
 }
 
-
-// ===== MODAL GENÉRICO =====
+/* ===== MODAL GENÉRICO ===== */
 function abrirModal(titulo, html) {
   const modal = document.getElementById("modalDetalhes");
   const tituloEl = document.getElementById("modalTitulo");
   const corpoEl = document.getElementById("modalCorpo");
-
   if (!modal || !tituloEl || !corpoEl) return;
-
   tituloEl.textContent = titulo;
   corpoEl.innerHTML = html;
   modal.classList.remove("hidden");
@@ -174,92 +239,100 @@ function fecharModalDetalhes() {
   if (modal) modal.classList.add("hidden");
 }
 
+/* ====== VER DETALHES ====== */
 function verOferta(id) {
   const reg = registros.find((r) => r.id === id);
   if (!reg) return;
 
   const pedido = reg.pedido || {};
-const usuario = formatarNomeUsuario(reg.atualizadoPor || reg.criadoPor || "-");
+  const revisao = reg.revisao || {};
+  const usuario = formatarNomeUsuario(reg.atualizadoPor || reg.criadoPor || "-");
+
+  const tipoTexto =
+    reg.tipo_negocio === "compra" ? "Compra" : reg.tipo_negocio === "orcamento" ? "Orçamento" : "-";
 
   let html = `
-  <div class="modal-grid">
-    <div class="modal-card">
-      <div class="modal-card-title">Dados do Cliente</div>
-      <div class="modal-section"><strong>Razão Social:</strong> ${
-        reg.razao || "-"
-      }</div>
-      <div class="modal-section"><strong>CNPJ:</strong> ${
-        reg.cnpj_cliente || "-"
-      }</div>
-      <div class="modal-section"><strong>B.U:</strong> ${reg.bu || "-"}</div>
+    <div class="modal-grid">
+      <div class="modal-card">
+        <div class="modal-card-title">Dados do Cliente</div>
+        <div class="modal-section"><strong>Razão Social:</strong> ${reg.razao || "-"}</div>
+        <div class="modal-section"><strong>CNPJ:</strong> ${reg.cnpj_cliente || "-"}</div>
+        <div class="modal-section"><strong>B.U:</strong> ${reg.bu || "-"}</div>
+      </div>
+
+      <div class="modal-card">
+        <div class="modal-card-title">Projeto & Representada</div>
+        <div class="modal-section"><strong>Projeto:</strong> ${reg.nome_projeto || "-"}</div>
+        <div class="modal-section"><strong>Representada:</strong> ${reg.representadaNome || "-"}</div>
+      </div>
     </div>
 
     <div class="modal-card">
-      <div class="modal-card-title">Projeto & Representada</div>
-      <div class="modal-section"><strong>Projeto:</strong> ${
-        reg.nome_projeto || "-"
-      }</div>
-      <div class="modal-section"><strong>Representada:</strong> ${
-        reg.representadaNome || "-"
-      }</div>
+      <div class="modal-card-title">Oferta</div>
+      <div class="modal-section"><strong>N° Oferta:</strong> ${reg.oferta || "-"}</div>
+      <div class="modal-section"><strong>Tipo:</strong> ${tipoTexto}</div>
+      <div class="modal-section"><strong>Valor Total:</strong> ${reg.valor_total || "-"}</div>
+      <div class="modal-section"><strong>Oportunidade:</strong> ${reg.oportunidade || "-"}</div>
+      <div class="modal-section"><strong>Status:</strong> ${reg.status || "-"}</div>
     </div>
-  </div>
 
-  <div class="modal-card">
-    <div class="modal-card-title">Oferta</div>
-    <div class="modal-section"><strong>N° Oferta:</strong> ${
-      reg.oferta || "-"
-    }</div>
-    <div class="modal-section"><strong>Valor Total:</strong> ${
-      reg.valor_total || "-"
-    }</div>
-    <div class="modal-section"><strong>Oportunidade:</strong> ${
-      reg.oportunidade || "-"
-    }</div>
-    <div class="modal-section"><strong>Status:</strong> ${
-      reg.status || "-"
-    }</div>
-  </div>
+    <div class="modal-card">
+      <div class="modal-card-title">Usuário</div>
+      <div class="modal-section"><strong>Responsável:</strong> ${usuario}</div>
+    </div>
+  `;
 
-  <div class="modal-card">
-    <div class="modal-card-title">Usuário</div>
-    <div class="modal-section"><strong>Responsável:</strong> ${usuario}</div>
-  </div>
-`;
+  if (reg.obs_geral && String(reg.obs_geral).trim()) {
+    html += `
+      <div class="modal-card">
+        <div class="modal-card-title">Observações Gerais</div>
+        <div class="modal-section">${String(reg.obs_geral).replace(/\n/g, "<br>")}</div>
+      </div>
+    `;
+  }
 
   if (reg.possuiPedido === "sim") {
     html += `
-            <hr>
-            <div class="modal-section">
-                <strong>Pedido?</strong> Sim<br>
-                <strong>N° Pedido:</strong> ${pedido.numero_pedido || "-"}<br>
-                <strong>Data P.O:</strong> ${pedido.data_po || "-"}<br>
-                <strong>Valor Pedido:</strong> ${pedido.valor_pedido || "-"}<br>
-                <strong>Condição de Pagamento:</strong> ${
-                  pedido.cond_pagamento || "-"
-                }<br>
-                <strong>Ref./Projeto:</strong> ${pedido.ref_projeto || "-"}<br>
-                <strong>Tipo de Produto:</strong> ${
-                  pedido.tipo_produto || "-"
-                }<br>
-                <strong>Obs:</strong> ${pedido.obs || "-"}
-            </div>
-        `;
+      <hr>
+      <div class="modal-card">
+        <div class="modal-card-title">Pedido</div>
+        <div class="modal-section">
+          <strong>N° Pedido:</strong> ${pedido.numero_pedido || "-"}<br>
+          <strong>Data P.O:</strong> ${pedido.data_po || "-"}<br>
+          <strong>Valor Pedido:</strong> ${pedido.valor_pedido || "-"}<br>
+          <strong>Condição de Pagamento:</strong> ${pedido.cond_pagamento || "-"}<br>
+          <strong>Ref./Projeto:</strong> ${pedido.ref_projeto || "-"}<br>
+          <strong>Tipo de Produto:</strong> ${pedido.tipo_produto || "-"}<br>
+          <strong>Obs:</strong> ${pedido.obs || "-"}<br><br>
+
+          <strong>Data NF:</strong> ${pedido.data_nf || "-"}<br>
+          <strong>Valor NF:</strong> ${pedido.valor_nf || "-"}<br>
+          <strong>Prazo entrega contratual:</strong> ${pedido.prazo_entrega_contratual || "-"}<br>
+          <strong>Solicitação OC?</strong> ${pedido.solicitacao_oc === "sim" ? "Sim" : "Não"}<br>
+          <strong>Ref. OC:</strong> ${pedido.ref_oc || "-"}
+        </div>
+      </div>
+    `;
   } else {
     html += `
-            <div class="modal-section">
-                <strong>Pedido?</strong> Não
-            </div>
-        `;
+      <div class="modal-section">
+        <strong>Pedido?</strong> Não
+      </div>
+    `;
   }
 
-  html += `
-        <hr>
-        <div class="modal-section">
-            <strong>Usuário :</strong> ${usuario}
-        </div>
+  if (reg.possuiRevisao === "sim") {
+    html += `
+      <hr>
+      <div class="modal-card">
+        <div class="modal-card-title">Revisão</div>
+        <div class="modal-section"><strong>Oferta anterior:</strong> ${revisao.numero_oferta_anterior || "-"}</div>
+        <div class="modal-section"><strong>O que mudou:</strong> ${(revisao.mudou || "-").toString().replace(/\n/g, "<br>")}</div>
+      </div>
     `;
+  }
 
+  html += `<hr><div class="modal-section"><strong>Usuário:</strong> ${usuario}</div>`;
   abrirModal(`Oferta ${reg.oferta || ""}`, html);
 }
 
@@ -267,52 +340,39 @@ function verCliente(id) {
   const cli = clientes.find((c) => c.id === id);
   if (!cli) return;
 
-const usuario = formatarNomeUsuario(cli.atualizadoPor || cli.criadoPor || "-");
+  const usuario = formatarNomeUsuario(cli.atualizadoPor || cli.criadoPor || "-");
 
   let html = `
-        <div class="modal-section">
-            <strong>Razão Social:</strong> ${cli.razao || "-"}<br>
-            <strong>CNPJ:</strong> ${cli.cnpj || "-"}<br>
-            <strong>Inscrição Estadual:</strong> ${cli.ie || "-"}<br>
-            <strong>Segmento:</strong> ${cli.segmento || "-"}<br>
-            <strong>Endereço:</strong> ${cli.endereco || "-"}
-        </div>
-    `;
+    <div class="modal-section">
+      <strong>Razão Social:</strong> ${cli.razao || "-"}<br>
+      <strong>CNPJ:</strong> ${cli.cnpj || "-"}<br>
+      <strong>Inscrição Estadual:</strong> ${cli.ie || "-"}<br>
+      <strong>Segmento:</strong> ${cli.segmento || "-"}<br>
+      <strong>Endereço:</strong> ${cli.endereco || "-"}
+    </div>
+  `;
 
   if (cli.contatos && cli.contatos.length) {
     html += `<hr><div class="modal-section"><strong>Contatos:</strong><br><br>`;
     cli.contatos.forEach((ct) => {
       html += `
-                <div style="margin-bottom:6px;">
-                    <strong>${ct.nome || "-"}</strong>
-                    ${
-                      ct.principal
-                        ? '<span class="modal-badge">Principal</span>'
-                        : ""
-                    }
-                    <br>
-                    Função: ${ct.funcao || "-"}<br>
-                    Tel: ${ct.telefone || "-"}<br>
-                    E-mail: ${ct.email || "-"}
-                </div>
-            `;
+        <div style="margin-bottom:6px;">
+          <strong>${ct.nome || "-"}</strong>
+          ${ct.principal ? '<span class="modal-badge">Principal</span>' : ""}
+          <br>
+          Função: ${ct.funcao || "-"}<br>
+          Tel: ${ct.telefone || "-"}<br>
+          E-mail: ${ct.email || "-"}
+          ${ct.responsavelNome ? `<br><strong>Responsável:</strong> ${primeiroNome(ct.responsavelNome)}` : ""}
+        </div>
+      `;
     });
     html += `</div>`;
   } else {
-    html += `
-            <div class="modal-section">
-                <strong>Contatos:</strong> nenhum cadastrado.
-            </div>
-        `;
+    html += `<div class="modal-section"><strong>Contatos:</strong> nenhum cadastrado.</div>`;
   }
 
-  html += `
-        <hr>
-        <div class="modal-section">
-            <strong>Usuário :</strong> ${usuario}
-        </div>
-    `;
-
+  html += `<hr><div class="modal-section"><strong>Usuário:</strong> ${usuario}</div>`;
   abrirModal(`Cliente - ${cli.razao || ""}`, html);
 }
 
@@ -320,24 +380,20 @@ function verRepresentada(id) {
   const rep = representadas.find((r) => r.id === id);
   if (!rep) return;
 
-  const usuario = rep.atualizadoPor || rep.criadoPor || "-";
+  const usuario = formatarNomeUsuario(rep.atualizadoPor || rep.criadoPor || "-");
   const qtdOfertas = registros.filter((r) => r.representadaId === id).length;
 
   let html = `
-        <div class="modal-section">
-            <strong>Nome da Representada:</strong> ${rep.nome || "-"}</div>
-        <div class="modal-section">
-            <strong>Ofertas vinculadas:</strong> ${qtdOfertas}</div>
-        <hr>
-        <div class="modal-section">
-            <strong>Usuário :</strong> ${usuario}
-        </div>
-    `;
+    <div class="modal-section"><strong>Nome da Representada:</strong> ${rep.nome || "-"}</div>
+    <div class="modal-section"><strong>Ofertas vinculadas:</strong> ${qtdOfertas}</div>
+    <hr>
+    <div class="modal-section"><strong>Usuário:</strong> ${usuario}</div>
+  `;
 
   abrirModal(`Representada - ${rep.nome || ""}`, html);
 }
 
-// ====== TEMA (DARK/LIGHT) ======
+/* ====== TEMA ====== */
 function applyTheme(theme) {
   const body = document.body;
   const label = document.getElementById("themeLabel");
@@ -358,19 +414,16 @@ function toggleTheme() {
   applyTheme(newTheme);
 }
 
-// ====== SIDEBAR (COLAPSÁVEL / MOBILE) ======
+/* ====== SIDEBAR ====== */
 function toggleSidebar() {
   const sidebar = document.getElementById("sidebar");
   if (!sidebar) return;
 
-  if (window.innerWidth <= 780) {
-    sidebar.classList.toggle("open");
-  } else {
-    sidebar.classList.toggle("collapsed");
-  }
+  if (window.innerWidth <= 780) sidebar.classList.toggle("open");
+  else sidebar.classList.toggle("collapsed");
 }
 
-// ====== MÁSCARA MONETÁRIA ======
+/* ====== MÁSCARA MONETÁRIA ====== */
 function initMoneyMask() {
   document.querySelectorAll(".money").forEach((input) => {
     input.addEventListener("input", formatMoney);
@@ -389,18 +442,7 @@ function formatMoney(e) {
   e.target.value = "R$ " + value;
 }
 
-function parseMoneyToNumber(str) {
-  if (!str) return 0;
-  let clean = String(str)
-    .replace(/R\$/g, "")
-    .replace(/\s/g, "")
-    .replace(/\./g, "")
-    .replace(",", ".");
-  const n = parseFloat(clean);
-  return isNaN(n) ? 0 : n;
-}
-
-// ====== MÁSCARA DE TELEFONE ======
+/* ====== MÁSCARA DE TELEFONE ====== */
 function initPhoneMask() {
   const telPrincipal = document.getElementById("telefone");
   const telContato = document.getElementById("ct_tel");
@@ -444,12 +486,9 @@ function onPhonePaste(e) {
   onPhoneInput(e);
 }
 
-// ====== MÁSCARA DE CNPJ ======
+/* ====== MÁSCARA DE CNPJ ====== */
 function initCnpjMask() {
-  const campos = [
-    document.getElementById("cli_cnpj"),
-    document.getElementById("cnpj_cliente"),
-  ].filter(Boolean);
+  const campos = [document.getElementById("cli_cnpj"), document.getElementById("cnpj_cliente")].filter(Boolean);
 
   campos.forEach((input) => {
     input.addEventListener("input", onCnpjInput);
@@ -462,21 +501,10 @@ function formatCnpjValue(value) {
   value = value.replace(/\D/g, "");
   value = value.slice(0, 14);
 
-  if (value.length >= 3) {
-    value = value.replace(/^(\d{2})(\d)/, "$1.$2");
-  }
-  if (value.length >= 7) {
-    value = value.replace(/^(\d{2})\.(\d{3})(\d)/, "$1.$2.$3");
-  }
-  if (value.length >= 11) {
-    value = value.replace(/^(\d{2})\.(\d{3})\.(\d{3})(\d)/, "$1.$2.$3/$4");
-  }
-  if (value.length >= 15) {
-    value = value.replace(
-      /^(\d{2})\.(\d{3})\.(\d{3})\/(\d{4})(\d)/,
-      "$1.$2.$3/$4-$5"
-    );
-  }
+  if (value.length >= 3) value = value.replace(/^(\d{2})(\d)/, "$1.$2");
+  if (value.length >= 7) value = value.replace(/^(\d{2})\.(\d{3})(\d)/, "$1.$2.$3");
+  if (value.length >= 11) value = value.replace(/^(\d{2})\.(\d{3})\.(\d{3})(\d)/, "$1.$2.$3/$4");
+  if (value.length >= 15) value = value.replace(/^(\d{2})\.(\d{3})\.(\d{3})\/(\d{4})(\d)/, "$1.$2.$3/$4-$5");
 
   return value;
 }
@@ -499,14 +527,21 @@ function onCnpjBlur(e) {
   }
 }
 
-// ====== FORMULÁRIO PRINCIPAL (OFERTA) ======
+/* ====== FORM (OFERTA) ====== */
 function initForm() {
+  // Pedido: mostrar/esconder seção
   const radiosPedido = document.querySelectorAll("input[name='pedido']");
   radiosPedido.forEach((radio) => {
     radio.addEventListener("change", () => {
-      document
-        .getElementById("secaoPedido")
-        .classList.toggle("hidden", radio.value !== "sim");
+      document.getElementById("secaoPedido").classList.toggle("hidden", radio.value !== "sim");
+    });
+  });
+
+  // Revisão: mostrar/esconder seção
+  const radiosRevisao = document.querySelectorAll("input[name='revisao']");
+  radiosRevisao.forEach((radio) => {
+    radio.addEventListener("change", () => {
+      document.getElementById("secaoRevisao").classList.toggle("hidden", radio.value !== "sim");
     });
   });
 
@@ -528,13 +563,16 @@ function initForm() {
     const data_entrada = document.getElementById("data_entrada");
     const status = document.getElementById("status");
     const data_envio = document.getElementById("data_envio");
+    const obsGeral = document.getElementById("obs_geral");
 
-    const possuiPedido = document.querySelector(
-      "input[name='pedido']:checked"
-    ).value;
+    // ✅ NOVO (Oferta)
+    const tipoNegocio = document.getElementById("tipo_negocio");
+
+    const possuiPedido = document.querySelector("input[name='pedido']:checked")?.value || "nao";
+    const possuiRevisao = document.querySelector("input[name='revisao']:checked")?.value || "nao";
     const currentUser = getCurrentUserName();
 
-    // validações (iguais às suas)
+    // validações
     const cnpjDigits = cnpj_cliente.value.replace(/\D/g, "");
     if (cnpjDigits && cnpjDigits.length !== 14) {
       alert("CNPJ inválido. Verifique antes de salvar.");
@@ -549,6 +587,7 @@ function initForm() {
       return;
     }
 
+    // base
     const registroBase = {
       bu: bu.value,
       razao: razao.value,
@@ -560,17 +599,22 @@ function initForm() {
       oferta: oferta.value,
       nome_projeto: nome_projeto.value,
       representadaId: representadaSelect.value || null,
-      representadaNome:
-        representadaSelect.options[representadaSelect.selectedIndex]?.text ||
-        "",
+      representadaNome: representadaSelect.options[representadaSelect.selectedIndex]?.text || "",
       valor_total: valor_total.value,
       oportunidade: oportunidade.value,
       data_entrada: data_entrada.value,
       status: status.value,
       data_envio: data_envio.value,
       possuiPedido,
+      possuiRevisao,
+
+      // ✅ NOVOS
+      tipo_negocio: tipoNegocio ? tipoNegocio.value : "",
+
+      obs_geral: obsGeral ? obsGeral.value.trim() : "",
     };
 
+    // pedido
     if (possuiPedido === "sim") {
       const numero_pedido = document.getElementById("numero_pedido");
       const data_po = document.getElementById("data_po");
@@ -580,28 +624,60 @@ function initForm() {
       const tipo_produto = document.getElementById("tipo_produto");
       const obs = document.getElementById("obs");
 
+      // ✅ NOVOS (Pedido)
+      const data_nf = document.getElementById("data_nf");
+      const valor_nf = document.getElementById("valor_nf");
+      const prazo_entrega_contratual = document.getElementById("prazo_entrega_contratual");
+      const solicitacao_oc = document.querySelector("input[name='sol_oc']:checked")?.value || "nao";
+      const ref_oc = document.getElementById("ref_oc");
+
       registroBase.pedido = {
-        numero_pedido: numero_pedido.value,
-        data_po: data_po.value,
-        valor_pedido: valor_pedido.value,
-        cond_pagamento: cond_pagamento.value,
-        ref_projeto: ref_projeto.value,
-        tipo_produto: tipo_produto.value,
-        obs: obs.value,
+        numero_pedido: numero_pedido?.value || "",
+        data_po: data_po?.value || "",
+        valor_pedido: valor_pedido?.value || "",
+        cond_pagamento: cond_pagamento?.value || "",
+        ref_projeto: ref_projeto?.value || "",
+        tipo_produto: tipo_produto?.value || "",
+        obs: obs?.value || "",
+
+        data_nf: data_nf?.value || "",
+        valor_nf: valor_nf?.value || "",
+        prazo_entrega_contratual: prazo_entrega_contratual?.value || "",
+        solicitacao_oc,
+        ref_oc: ref_oc?.value || "",
       };
     } else {
       registroBase.pedido = null;
     }
 
-    // ===== NOVO: SALVAR NO FIRESTORE =====
+    // revisão
+    if (possuiRevisao === "sim") {
+      const rev_num_oferta = document.getElementById("rev_num_oferta");
+      const rev_mudou = document.getElementById("rev_mudou");
+
+      if (!rev_num_oferta.value.trim()) {
+        alert("Informe o número da oferta anterior (revisão).");
+        rev_num_oferta.focus();
+        return;
+      }
+      if (!rev_mudou.value.trim()) {
+        alert("Descreva o que mudou na revisão.");
+        rev_mudou.focus();
+        return;
+      }
+
+      registroBase.revisao = {
+        numero_oferta_anterior: rev_num_oferta.value.trim(),
+        mudou: rev_mudou.value.trim(),
+      };
+    } else {
+      registroBase.revisao = null;
+    }
+
+    // ===== SALVAR NO FIRESTORE =====
     if (!editId) {
       const id = gerarId();
-      const registro = {
-        id,
-        ...registroBase,
-        criadoPor: currentUser,
-        atualizadoPor: currentUser,
-      };
+      const registro = { id, ...registroBase, criadoPor: currentUser, atualizadoPor: currentUser };
       await db.collection("ofertas").doc(id).set(registro);
       registros.push(registro);
       alert("Registro adicionado!");
@@ -624,565 +700,29 @@ function initForm() {
     }
     // ====================================
 
-    salvarRegistros(); // continua usando localStorage como backup
+    salvarRegistros(); // localStorage backup
 
     document.getElementById("formOferta").reset();
     document.getElementById("secaoPedido").classList.add("hidden");
-    const radioNao = document.querySelector(
-      "input[name='pedido'][value='nao']"
-    );
-    if (radioNao) radioNao.checked = true;
-    cnpj_cliente.dataset.clienteId = "";
+    document.getElementById("secaoRevisao").classList.add("hidden");
 
+    const radioRevNao = document.querySelector("input[name='revisao'][value='nao']");
+    if (radioRevNao) radioRevNao.checked = true;
+
+    const radioNao = document.querySelector("input[name='pedido'][value='nao']");
+    if (radioNao) radioNao.checked = true;
+
+    // reset radio OC (se existir)
+    const rOcNao = document.querySelector(`input[name="sol_oc"][value="nao"]`);
+    if (rOcNao) rOcNao.checked = true;
+
+    cnpj_cliente.dataset.clienteId = "";
     currentPage = 1;
     renderTabela();
   });
 }
 
-// ====== CLIENTES ======
-function initClientesUI() {
-  const btnAddContato = document.getElementById("btnAddContato");
-  const btnSalvarCliente = document.getElementById("btnSalvarCliente");
-
-  if (!btnAddContato || !btnSalvarCliente) return;
-
-  // Adicionar / editar CONTATO (igual era antes)
-  btnAddContato.addEventListener("click", () => {
-    const nome = document.getElementById("ct_nome").value.trim();
-    const telefone = document.getElementById("ct_tel").value.trim();
-    const email = document.getElementById("ct_email").value.trim();
-    const funcao = document.getElementById("ct_funcao").value.trim();
-    const principalChecked = document.getElementById("ct_principal").checked;
-
-    if (!nome) {
-      alert("Informe pelo menos o nome do contato.");
-      return;
-    }
-
-    const telDigits = telefone.replace(/\D/g, "");
-    if (telefone && telDigits.length < 10) {
-      alert("Telefone do contato inválido. Informe DDD + 8 ou 9 dígitos.");
-      document.getElementById("ct_tel").focus();
-      return;
-    }
-
-    const contatoBase = {
-      nome,
-      telefone,
-      email,
-      funcao,
-      principal: principalChecked,
-    };
-
-    if (contatoBase.principal) {
-      contatosTemp = contatosTemp.map((c) => ({ ...c, principal: false }));
-    }
-
-    if (editContatoIndex === null) {
-      contatosTemp.push(contatoBase);
-    } else {
-      contatosTemp[editContatoIndex] = contatoBase;
-      editContatoIndex = null;
-      btnAddContato.textContent = "Adicionar Contato";
-    }
-
-    document.getElementById("ct_nome").value = "";
-    document.getElementById("ct_tel").value = "";
-    document.getElementById("ct_email").value = "";
-    document.getElementById("ct_funcao").value = "";
-    document.getElementById("ct_principal").checked = false;
-
-    renderListaContatos();
-  });
-
-  // Salvar CLIENTE (agora usando Firebase)
-  btnSalvarCliente.addEventListener("click", async () => {
-    const razao = document.getElementById("cli_razao").value.trim();
-    const cnpj = document.getElementById("cli_cnpj").value.trim();
-    const ie = document.getElementById("cli_ie").value.trim();
-    const endereco = document.getElementById("cli_endereco").value.trim();
-    const segmento = document.getElementById("cli_segmento").value.trim();
-    const currentUser = getCurrentUserName();
-
-    if (!razao || !cnpj) {
-      alert("Razão Social e CNPJ são obrigatórios.");
-      return;
-    }
-
-    const cnpjDigits = cnpj.replace(/\D/g, "");
-    if (cnpjDigits.length !== 14) {
-      alert("CNPJ do cliente inválido. Deve conter 14 dígitos.");
-      document.getElementById("cli_cnpj").focus();
-      return;
-    }
-
-    if (contatosTemp.length > 0 && !contatosTemp.some((c) => c.principal)) {
-      contatosTemp[0].principal = true;
-    }
-
-    const clienteBase = {
-      razao,
-      cnpj,
-      ie,
-      endereco,
-      segmento,
-      contatos: contatosTemp.slice(),
-    };
-
-    if (!editClienteId) {
-      const id = gerarId();
-      const cliente = {
-        id,
-        ...clienteBase,
-        criadoPor: currentUser,
-        atualizadoPor: currentUser,
-      };
-      await db.collection("clientes").doc(id).set(cliente);
-      clientes.push(cliente);
-      alert("Cliente salvo!");
-    } else {
-      const idx = clientes.findIndex((c) => c.id === editClienteId);
-      const antigo = clientes[idx] || {};
-      if (idx !== -1) {
-        const cliente = {
-          id: editClienteId,
-          ...clienteBase,
-          criadoPor: antigo.criadoPor || currentUser,
-          atualizadoPor: currentUser,
-        };
-        await db.collection("clientes").doc(editClienteId).set(cliente);
-        clientes[idx] = cliente;
-      }
-      alert("Cliente atualizado!");
-      editClienteId = null;
-      btnSalvarCliente.textContent = "Salvar Cliente";
-    }
-
-    salvarClientes();
-    contatosTemp = [];
-    editContatoIndex = null;
-    btnAddContato.textContent = "Adicionar Contato";
-    renderListaContatos();
-    renderTabelaClientes();
-
-    document.getElementById("cli_razao").value = "";
-    document.getElementById("cli_cnpj").value = "";
-    document.getElementById("cli_ie").value = "";
-    document.getElementById("cli_endereco").value = "";
-    document.getElementById("cli_segmento").value = "";
-  });
-
-  // Render inicial
-  renderTabelaClientes();
-
-  // === PAGINAÇÃO DOS CLIENTES ===
-  const btnPrevClientes = document.getElementById("btnPrevClientes");
-  const btnNextClientes = document.getElementById("btnNextClientes");
-
-  if (btnPrevClientes) {
-    btnPrevClientes.addEventListener("click", () => {
-      if (clientesCurrentPage > 1) {
-        clientesCurrentPage--;
-        renderTabelaClientes();
-      }
-    });
-  }
-
-  if (btnNextClientes) {
-    btnNextClientes.addEventListener("click", () => {
-      const total = clientes.length;
-      const totalPages = Math.max(1, Math.ceil(total / clientesPageSize));
-      if (clientesCurrentPage < totalPages) {
-        clientesCurrentPage++;
-        renderTabelaClientes();
-      }
-    });
-  }
-}
-
-function renderListaContatos() {
-  const lista = document.getElementById("listaContatos");
-  if (!lista) return;
-
-  lista.innerHTML = "";
-
-  if (contatosTemp.length === 0) {
-    lista.innerHTML = "<p>Nenhum contato adicionado.</p>";
-    return;
-  }
-
-  contatosTemp.forEach((ct, index) => {
-    const div = document.createElement("div");
-    div.className = "contato-item";
-
-    div.innerHTML = `
-            <strong>${ct.nome}</strong>
-            ${
-              ct.principal
-                ? '<span class="tag-principal">(Principal)</span>'
-                : ""
-            }
-            <br>
-            ${ct.funcao || ""}
-            <br>
-            Tel: ${ct.telefone || ""} • E-mail: ${ct.email || ""}
-            <br>
-            <button class="btn-sm" onclick="editarContato(${index})">Editar</button>
-            <button class="btn-sm btn-danger" onclick="excluirContato(${index})">Excluir</button>
-            <hr>
-        `;
-
-    lista.appendChild(div);
-  });
-}
-
-function editarContato(index) {
-  const ct = contatosTemp[index];
-  if (!ct) return;
-
-  document.getElementById("ct_nome").value = ct.nome || "";
-  document.getElementById("ct_tel").value = ct.telefone || "";
-  document.getElementById("ct_email").value = ct.email || "";
-  document.getElementById("ct_funcao").value = ct.funcao || "";
-  document.getElementById("ct_principal").checked = !!ct.principal;
-
-  editContatoIndex = index;
-
-  const btnAdd = document.getElementById("btnAddContato");
-  btnAdd.textContent = "Salvar Edição";
-}
-
-function excluirContato(index) {
-  if (!confirm("Tem certeza que deseja excluir este contato?")) return;
-
-  contatosTemp.splice(index, 1);
-  editContatoIndex = null;
-  document.getElementById("btnAddContato").textContent = "Adicionar Contato";
-  renderListaContatos();
-}
-
-function renderTabelaClientes() {
-  const tbody = document.querySelector("#tabelaClientes tbody");
-  const pageInfoClientes = document.getElementById("pageInfoClientes");
-
-  if (!tbody) return;
-
-  tbody.innerHTML = "";
-
-  const total = clientes.length;
-  const totalPages = Math.max(1, Math.ceil(total / clientesPageSize));
-
-  if (clientesCurrentPage > totalPages) {
-    clientesCurrentPage = totalPages;
-  }
-
-  const start = (clientesCurrentPage - 1) * clientesPageSize;
-  const end = start + clientesPageSize;
-  const pageData = clientes.slice(start, end);
-
-  if (pageData.length === 0) {
-    const tr = document.createElement("tr");
-    const td = document.createElement("td");
-    td.colSpan = 6; // qtde de colunas da tabela de clientes
-    td.textContent = "Nenhum cliente encontrado.";
-    tr.appendChild(td);
-    tbody.appendChild(tr);
-  } else {
-    pageData.forEach((cli) => {
-      const tr = document.createElement("tr");
-
-      const qtdContatos = cli.contatos ? cli.contatos.length : 0;
-const usuario = formatarNomeUsuario(cli.atualizadoPor || cli.criadoPor || "-");
-
-      tr.innerHTML = `
-                <td>${cli.razao || ""}</td>
-                <td>${cli.cnpj || ""}</td>
-                <td>${cli.segmento || ""}</td>
-                <td>${qtdContatos}</td>
-                <td>${usuario}</td>
-                <td>
-                    <button class="btn-sm" onclick="verCliente('${
-                      cli.id
-                    }')">Ver</button>
-                    <button class="btn-sm" onclick="abrirPainelCliente('${
-                      cli.id
-                    }')">Contatos</button>
-                    <button class="btn-sm" onclick="editarCliente('${
-                      cli.id
-                    }')">Editar</button>
-                    <button class="btn-sm btn-danger" onclick="excluirCliente('${
-                      cli.id
-                    }')">Excluir</button>
-                </td>
-            `;
-
-      tbody.appendChild(tr);
-    });
-  }
-
-  if (pageInfoClientes) {
-    pageInfoClientes.textContent = `Página ${clientesCurrentPage} de ${totalPages}`;
-  }
-}
-
-function editarCliente(id) {
-  const cli = clientes.find((c) => c.id === id);
-  if (!cli) return;
-
-  editClienteId = id;
-
-  document.getElementById("cli_razao").value = cli.razao || "";
-  document.getElementById("cli_cnpj").value = cli.cnpj || "";
-  document.getElementById("cli_ie").value = cli.ie || "";
-  document.getElementById("cli_endereco").value = cli.endereco || "";
-  document.getElementById("cli_segmento").value = cli.segmento || "";
-
-  contatosTemp = (cli.contatos || []).map((ct) => ({ ...ct }));
-  editContatoIndex = null;
-  document.getElementById("btnAddContato").textContent = "Adicionar Contato";
-  renderListaContatos();
-
-  const btnSalvarCliente = document.getElementById("btnSalvarCliente");
-  if (btnSalvarCliente) btnSalvarCliente.textContent = "Salvar Edição";
-
-  document.getElementById("secClientes").scrollIntoView({ behavior: "smooth" });
-}
-
-async function excluirCliente(id) {
-  if (!confirm("Tem certeza que deseja excluir este cliente?")) return;
-
-  try {
-    await db.collection("clientes").doc(id).delete();
-  } catch (e) {
-    console.error(e);
-    alert("Erro ao excluir cliente no Firebase.");
-  }
-
-  clientes = clientes.filter((c) => c.id !== id);
-  salvarClientes();
-  renderTabelaClientes();
-}
-
-
-function salvarClientes() {
-  localStorage.setItem("clientes", JSON.stringify(clientes));
-}
-
-// Painel lateral do cliente
-function abrirPainelCliente(id) {
-  const cli = clientes.find((c) => c.id === id);
-  if (!cli) return;
-
-  const painel = document.getElementById("painelCliente");
-  document.getElementById("painelClienteNome").textContent = cli.razao || "";
-  document.getElementById("painelClienteCnpj").textContent = cli.cnpj || "";
-  document.getElementById("painelClienteSegmento").textContent =
-    cli.segmento || "";
-  document.getElementById("painelClienteEndereco").textContent =
-    cli.endereco || "";
-
-  const divContatos = document.getElementById("painelClienteContatos");
-  divContatos.innerHTML = "";
-
-  (cli.contatos || []).forEach((ct) => {
-    const div = document.createElement("div");
-    div.className = "contato-item";
-    div.innerHTML = `
-            <strong>${ct.nome}</strong>
-            ${
-              ct.principal
-                ? '<span class="tag-principal">(Principal)</span>'
-                : ""
-            }
-            <br>
-            ${ct.funcao || ""}
-            <br>
-            Tel: ${ct.telefone || ""} • E-mail: ${ct.email || ""}
-            <hr>
-        `;
-    divContatos.appendChild(div);
-  });
-
-  painel.classList.remove("hidden");
-}
-
-function fecharPainelCliente() {
-  const painel = document.getElementById("painelCliente");
-  if (painel) painel.classList.add("hidden");
-}
-
-function buscarClientePorCnpj(cnpj) {
-  const clean = (cnpj || "").replace(/\D/g, "");
-  return clientes.find((c) => (c.cnpj || "").replace(/\D/g, "") === clean);
-}
-
-function initLigacaoClienteOferta() {
-  const cnpjInput = document.getElementById("cnpj_cliente");
-  if (!cnpjInput) return;
-
-  cnpjInput.addEventListener("blur", () => {
-    const cli = buscarClientePorCnpj(cnpjInput.value);
-    if (!cli) {
-      cnpjInput.dataset.clienteId = "";
-      return;
-    }
-
-    cnpjInput.dataset.clienteId = cli.id;
-
-    const razao = document.getElementById("razao");
-    const telefone = document.getElementById("telefone");
-    const email = document.getElementById("email");
-    const solicitante = document.getElementById("solicitante");
-
-    razao.value = cli.razao;
-    if (cli.contatos && cli.contatos.length > 0) {
-      const principal =
-        cli.contatos.find((c) => c.principal) || cli.contatos[0];
-      telefone.value = principal.telefone || "";
-      email.value = principal.email || "";
-      solicitante.value = principal.nome || "";
-    }
-  });
-}
-
-// ====== REPRESENTADAS ======
-function initRepresentadasUI() {
-  const btn = document.getElementById("btnSalvarRepresentada");
-  if (!btn) return;
-
-  btn.addEventListener("click", async () => {
-    const nome = document.getElementById("rep_nome").value.trim();
-    const currentUser = getCurrentUserName();
-
-    if (!nome) {
-      alert("Informe o nome da representada.");
-      return;
-    }
-
-    if (!editRepresentadaId) {
-      const id = gerarId();
-      const rep = {
-        id,
-        nome,
-        criadoPor: currentUser,
-        atualizadoPor: currentUser,
-      };
-      await db.collection("representadas").doc(id).set(rep); // FIREBASE
-      representadas.push(rep);
-      alert("Representada salva!");
-    } else {
-      const idx = representadas.findIndex((r) => r.id === editRepresentadaId);
-      const antigo = representadas[idx] || {};
-      if (idx !== -1) {
-        const rep = {
-          id: editRepresentadaId,
-          nome,
-          criadoPor: antigo.criadoPor || currentUser,
-          atualizadoPor: currentUser,
-        };
-        await db.collection("representadas").doc(editRepresentadaId).set(rep); // FIREBASE
-        representadas[idx] = rep;
-      }
-
-      registros.forEach((reg) => {
-        if (reg.representadaId === editRepresentadaId) {
-          reg.representadaNome = nome;
-        }
-      });
-      salvarRegistros();
-
-      alert("Representada atualizada!");
-      editRepresentadaId = null;
-      btn.textContent = "Salvar Representada";
-    }
-
-    salvarRepresentadas();
-    document.getElementById("rep_nome").value = "";
-    renderTabelaRepresentadas();
-    preencherSelectRepresentadas();
-  });
-}
-
-function renderTabelaRepresentadas() {
-  const tbody = document.querySelector("#tabelaRepresentadas tbody");
-  if (!tbody) return;
-
-  tbody.innerHTML = "";
-  representadas.forEach((rep) => {
-const usuario = formatarNomeUsuario(rep.atualizadoPor || rep.criadoPor || "");
-    const tr = document.createElement("tr");
-    tr.innerHTML = `
-            <td>${rep.nome}</td>
-            <td>${usuario}</td>
-            <td>
-                <button class="btn-sm" onclick="verRepresentada('${rep.id}')">Ver</button>
-                <button class="btn-sm" onclick="editarRepresentada('${rep.id}')">Editar</button>
-                <button class="btn-sm btn-danger" onclick="excluirRepresentada('${rep.id}')">Excluir</button>
-            </td>
-        `;
-    tbody.appendChild(tr);
-  });
-}
-
-function preencherSelectRepresentadas() {
-  const select = document.getElementById("representada");
-  if (!select) return;
-
-  select.innerHTML = '<option value="">Selecione</option>';
-  representadas.forEach((rep) => {
-    const opt = document.createElement("option");
-    opt.value = rep.id;
-    opt.textContent = rep.nome;
-    select.appendChild(opt);
-  });
-}
-
-function editarRepresentada(id) {
-  const rep = representadas.find((r) => r.id === id);
-  if (!rep) return;
-
-  editRepresentadaId = id;
-  document.getElementById("rep_nome").value = rep.nome || "";
-
-  const btn = document.getElementById("btnSalvarRepresentada");
-  if (btn) btn.textContent = "Salvar Edição";
-
-  document
-    .getElementById("secRepresentadas")
-    .scrollIntoView({ behavior: "smooth" });
-}
-
-async function excluirRepresentada(id) {
-  if (!confirm("Tem certeza que deseja excluir esta representada?")) return;
-
-  try {
-    await db.collection("representadas").doc(id).delete();
-  } catch (e) {
-    console.error(e);
-    alert("Erro ao excluir representada no Firebase.");
-  }
-
-  representadas = representadas.filter((r) => r.id !== id);
-  salvarRepresentadas();
-
-  registros.forEach((reg) => {
-    if (reg.representadaId === id) {
-      reg.representadaId = null;
-      reg.representadaNome = "";
-    }
-  });
-  salvarRegistros();
-  renderTabela();
-  renderTabelaRepresentadas();
-  preencherSelectRepresentadas();
-}
-
-
-function salvarRepresentadas() {
-  localStorage.setItem("representadas", JSON.stringify(representadas));
-}
-
-// ====== FILTROS, PAGINAÇÃO, EXPORT ======
+/* ====== FILTROS (OFERTAS) ====== */
 function initFiltrosEPaginacao() {
   const searchTerm = document.getElementById("searchTerm");
   const filterField = document.getElementById("filterField");
@@ -1194,33 +734,21 @@ function initFiltrosEPaginacao() {
   const btnExportExcel = document.getElementById("btnExportExcel");
   const btnExportPdf = document.getElementById("btnExportPdf");
 
-  if (searchTerm) {
-    searchTerm.addEventListener("input", () => {
+  // ✅ NOVO: Itens por página (5/10)
+  const pageSizeSelect = document.getElementById("pageSizeSelect");
+  if (pageSizeSelect) {
+    pageSizeSelect.value = String(pageSize);
+    pageSizeSelect.addEventListener("change", () => {
+      pageSize = parseInt(pageSizeSelect.value, 10) || 5;
       currentPage = 1;
       renderTabela();
     });
   }
 
-  if (filterField) {
-    filterField.addEventListener("change", () => {
-      currentPage = 1;
-      renderTabela();
-    });
-  }
-
-  if (statusFilter) {
-    statusFilter.addEventListener("input", () => {
-      currentPage = 1;
-      renderTabela();
-    });
-  }
-
-  if (pedidoFilter) {
-    pedidoFilter.addEventListener("change", () => {
-      currentPage = 1;
-      renderTabela();
-    });
-  }
+  if (searchTerm) searchTerm.addEventListener("input", () => ((currentPage = 1), renderTabela()));
+  if (filterField) filterField.addEventListener("change", () => ((currentPage = 1), renderTabela()));
+  if (statusFilter) statusFilter.addEventListener("input", () => ((currentPage = 1), renderTabela()));
+  if (pedidoFilter) pedidoFilter.addEventListener("change", () => ((currentPage = 1), renderTabela()));
 
   if (btnVerTudo) {
     btnVerTudo.addEventListener("click", () => {
@@ -1253,16 +781,10 @@ function initFiltrosEPaginacao() {
     });
   }
 
-  if (btnExportExcel) {
-    btnExportExcel.addEventListener("click", exportExcel);
-  }
-
-  if (btnExportPdf) {
-    btnExportPdf.addEventListener("click", exportPdf);
-  }
+  if (btnExportExcel) btnExportExcel.addEventListener("click", exportExcel);
+  if (btnExportPdf) btnExportPdf.addEventListener("click", exportPdf);
 }
 
-// ====== FILTRO DE REGISTROS ======
 function getRegistrosFiltrados() {
   const termInput = document.getElementById("searchTerm");
   const fieldSelect = document.getElementById("filterField");
@@ -1271,9 +793,7 @@ function getRegistrosFiltrados() {
 
   const term = termInput ? termInput.value.trim().toLowerCase() : "";
   const field = fieldSelect ? fieldSelect.value : "todos";
-  const statusFilter = statusFilterInput
-    ? statusFilterInput.value.trim().toLowerCase()
-    : "";
+  const statusFilter = statusFilterInput ? statusFilterInput.value.trim().toLowerCase() : "";
   const pedidoFilter = pedidoFilterSelect ? pedidoFilterSelect.value : "todos";
 
   return registros.filter((reg) => {
@@ -1294,6 +814,8 @@ function getRegistrosFiltrados() {
           reg.data_entrada,
           reg.status,
           reg.data_envio,
+          reg.obs_geral,
+          reg.tipo_negocio, // ✅ novo
         ];
 
         if (reg.pedido) {
@@ -1302,15 +824,18 @@ function getRegistrosFiltrados() {
             reg.pedido.valor_pedido,
             reg.pedido.ref_projeto,
             reg.pedido.tipo_produto,
-            reg.pedido.obs
+            reg.pedido.obs,
+            reg.pedido.data_nf,
+            reg.pedido.valor_nf,
+            reg.pedido.prazo_entrega_contratual,
+            reg.pedido.solicitacao_oc,
+            reg.pedido.ref_oc
           );
         }
+        if (reg.revisao) textos.push(reg.revisao.numero_oferta_anterior, reg.revisao.mudou);
 
         const textoUnico = textos.filter(Boolean).join(" ").toLowerCase();
-
-        if (!textoUnico.includes(term)) {
-          return false;
-        }
+        if (!textoUnico.includes(term)) return false;
       } else {
         let valorCampo = "";
         switch (field) {
@@ -1336,34 +861,25 @@ function getRegistrosFiltrados() {
             valorCampo = "";
             break;
         }
-        if (!valorCampo.toLowerCase().includes(term)) {
-          return false;
-        }
+        if (!valorCampo.toLowerCase().includes(term)) return false;
       }
     }
 
     if (statusFilter) {
-      if (!reg.status || !reg.status.toLowerCase().includes(statusFilter)) {
-        return false;
-      }
+      if (!reg.status || !reg.status.toLowerCase().includes(statusFilter)) return false;
     }
 
-    if (pedidoFilter === "com" && reg.possuiPedido !== "sim") {
-      return false;
-    }
-    if (pedidoFilter === "sem" && reg.possuiPedido !== "nao") {
-      return false;
-    }
+    if (pedidoFilter === "com" && reg.possuiPedido !== "sim") return false;
+    if (pedidoFilter === "sem" && reg.possuiPedido !== "nao") return false;
 
     return true;
   });
 }
 
-// ====== TABELA + PAGINAÇÃO (OFERTAS) ======
+/* ====== TABELA OFERTAS ====== */
 function renderTabela() {
   const tbody = document.querySelector("#tabelaRegistros tbody");
   const pageInfo = document.getElementById("pageInfo");
-
   if (!tbody) return;
 
   tbody.innerHTML = "";
@@ -1372,9 +888,7 @@ function renderTabela() {
   const total = filtrados.length;
   const totalPages = Math.max(1, Math.ceil(total / pageSize));
 
-  if (currentPage > totalPages) {
-    currentPage = totalPages;
-  }
+  if (currentPage > totalPages) currentPage = totalPages;
 
   const start = (currentPage - 1) * pageSize;
   const end = start + pageSize;
@@ -1383,50 +897,44 @@ function renderTabela() {
   if (pageData.length === 0) {
     const tr = document.createElement("tr");
     const td = document.createElement("td");
-    td.colSpan = 12;
+    td.colSpan = 13;
     td.textContent = "Nenhum registro encontrado.";
     tr.appendChild(td);
     tbody.appendChild(tr);
   } else {
     pageData.forEach((reg, index) => {
-const usuario = formatarNomeUsuario(reg.atualizadoPor || reg.criadoPor || "");
+      const usuario = formatarNomeUsuario(reg.atualizadoPor || reg.criadoPor || "");
+      const pedidoIcon = reg.possuiPedido === "sim" ? "✅" : "—";
+      const revisaoIcon = reg.possuiRevisao === "sim" ? "✅" : "—";
+
       const tr = document.createElement("tr");
-
       tr.innerHTML = `
-                <td>${start + index + 1}</td>
-                <td>${reg.bu || ""}</td>
-                <td>${reg.razao || ""}</td>
-                <td>${reg.cnpj_cliente || ""}</td>
-                <td>${reg.nome_projeto || ""}</td>
-                <td>${reg.representadaNome || ""}</td>
-                <td>${reg.oferta || ""}</td>
-                <td>${reg.status || ""}</td>
-                <td>${reg.valor_total || ""}</td>
-                <td>${reg.possuiPedido === "sim" ? "Sim" : "Não"}</td>
-                <td>${usuario}</td>
-                <td>
-                    <button class="btn-sm" onclick="verOferta('${
-                      reg.id
-                    }')">Ver</button>
-                    <button class="btn-sm" onclick="editarRegistro('${
-                      reg.id
-                    }')">Editar</button>
-                    <button class="btn-sm btn-danger" onclick="excluirRegistro('${
-                      reg.id
-                    }')">Excluir</button>
-                </td>
-            `;
-
+        <td>${start + index + 1}</td>
+        <td>${reg.bu || ""}</td>
+        <td>${reg.razao || ""}</td>
+        <td>${reg.cnpj_cliente || ""}</td>
+        <td>${reg.nome_projeto || ""}</td>
+        <td>${reg.representadaNome || ""}</td>
+        <td>${reg.oferta || ""}</td>
+        <td>${reg.status || ""}</td>
+        <td>${reg.valor_total || ""}</td>
+        <td>${pedidoIcon}</td>
+        <td>${revisaoIcon}</td>
+        <td>${usuario}</td>
+        <td>
+          <button class="btn-sm" onclick="verOferta('${reg.id}')">Ver</button>
+          <button class="btn-sm" onclick="editarRegistro('${reg.id}')">Editar</button>
+          <button class="btn-sm btn-danger" onclick="excluirRegistro('${reg.id}')">Excluir</button>
+        </td>
+      `;
       tbody.appendChild(tr);
     });
   }
 
-  if (pageInfo) {
-    pageInfo.textContent = `Página ${currentPage} de ${totalPages}`;
-  }
+  if (pageInfo) pageInfo.textContent = `Página ${currentPage} de ${totalPages}`;
 }
 
-// ====== EDITAR / EXCLUIR OFERTA ======
+/* ====== EDITAR / EXCLUIR OFERTA ====== */
 function editarRegistro(id) {
   const reg = registros.find((r) => r.id === id);
   if (!reg) return;
@@ -1435,9 +943,11 @@ function editarRegistro(id) {
 
   document.getElementById("bu").value = reg.bu || "";
   document.getElementById("razao").value = reg.razao || "";
+
   const cnpjInput = document.getElementById("cnpj_cliente");
   cnpjInput.value = reg.cnpj_cliente || "";
   cnpjInput.dataset.clienteId = reg.clienteId || "";
+
   document.getElementById("solicitante").value = reg.solicitante || "";
   document.getElementById("telefone").value = reg.telefone || "";
   document.getElementById("email").value = reg.email || "";
@@ -1449,31 +959,44 @@ function editarRegistro(id) {
   document.getElementById("status").value = reg.status || "";
   document.getElementById("data_envio").value = reg.data_envio || "";
 
-  const representadaSelect = document.getElementById("representada");
-  if (representadaSelect && reg.representadaId) {
-    representadaSelect.value = reg.representadaId;
-  } else if (representadaSelect) {
-    representadaSelect.value = "";
-  }
+  const obsGeral = document.getElementById("obs_geral");
+  if (obsGeral) obsGeral.value = reg.obs_geral || "";
 
-  const radio = document.querySelector(
-    `input[name="pedido"][value="${reg.possuiPedido}"]`
-  );
-  if (radio) radio.checked = true;
+  // ✅ Tipo (Compra/Orçamento)
+  const tipoNegocio = document.getElementById("tipo_negocio");
+  if (tipoNegocio) tipoNegocio.value = reg.tipo_negocio || "";
+
+  const representadaSelect = document.getElementById("representada");
+  if (representadaSelect && reg.representadaId) representadaSelect.value = reg.representadaId;
+  else if (representadaSelect) representadaSelect.value = "";
+
+  // Pedido
+  const radioPedido = document.querySelector(`input[name="pedido"][value="${reg.possuiPedido || "nao"}"]`);
+  if (radioPedido) radioPedido.checked = true;
 
   if (reg.possuiPedido === "sim" && reg.pedido) {
     document.getElementById("secaoPedido").classList.remove("hidden");
-    document.getElementById("numero_pedido").value =
-      reg.pedido.numero_pedido || "";
+    document.getElementById("numero_pedido").value = reg.pedido.numero_pedido || "";
     document.getElementById("data_po").value = reg.pedido.data_po || "";
-    document.getElementById("valor_pedido").value =
-      reg.pedido.valor_pedido || "";
-    document.getElementById("cond_pagamento").value =
-      reg.pedido.cond_pagamento || "";
+    document.getElementById("valor_pedido").value = reg.pedido.valor_pedido || "";
+    document.getElementById("cond_pagamento").value = reg.pedido.cond_pagamento || "";
     document.getElementById("ref_projeto").value = reg.pedido.ref_projeto || "";
-    document.getElementById("tipo_produto").value =
-      reg.pedido.tipo_produto || "";
+    document.getElementById("tipo_produto").value = reg.pedido.tipo_produto || "";
     document.getElementById("obs").value = reg.pedido.obs || "";
+
+    // ✅ novos campos pedido
+    const elDataNf = document.getElementById("data_nf");
+    const elValorNf = document.getElementById("valor_nf");
+    const elPrazo = document.getElementById("prazo_entrega_contratual");
+    const elRefOc = document.getElementById("ref_oc");
+
+    if (elDataNf) elDataNf.value = reg.pedido.data_nf || "";
+    if (elValorNf) elValorNf.value = reg.pedido.valor_nf || "";
+    if (elPrazo) elPrazo.value = reg.pedido.prazo_entrega_contratual || "";
+    if (elRefOc) elRefOc.value = reg.pedido.ref_oc || "";
+
+    const rOc = document.querySelector(`input[name="sol_oc"][value="${reg.pedido.solicitacao_oc || "nao"}"]`);
+    if (rOc) rOc.checked = true;
   } else {
     document.getElementById("secaoPedido").classList.add("hidden");
     document.getElementById("numero_pedido").value = "";
@@ -1483,10 +1006,37 @@ function editarRegistro(id) {
     document.getElementById("ref_projeto").value = "";
     document.getElementById("tipo_produto").value = "";
     document.getElementById("obs").value = "";
+
+    // limpa novos campos pedido
+    const elDataNf = document.getElementById("data_nf");
+    const elValorNf = document.getElementById("valor_nf");
+    const elPrazo = document.getElementById("prazo_entrega_contratual");
+    const elRefOc = document.getElementById("ref_oc");
+
+    if (elDataNf) elDataNf.value = "";
+    if (elValorNf) elValorNf.value = "";
+    if (elPrazo) elPrazo.value = "";
+    if (elRefOc) elRefOc.value = "";
+
+    const rOcNao = document.querySelector(`input[name="sol_oc"][value="nao"]`);
+    if (rOcNao) rOcNao.checked = true;
+  }
+
+  // Revisão
+  const radioRev = document.querySelector(`input[name="revisao"][value="${reg.possuiRevisao || "nao"}"]`);
+  if (radioRev) radioRev.checked = true;
+
+  if (reg.possuiRevisao === "sim" && reg.revisao) {
+    document.getElementById("secaoRevisao").classList.remove("hidden");
+    document.getElementById("rev_num_oferta").value = reg.revisao.numero_oferta_anterior || "";
+    document.getElementById("rev_mudou").value = reg.revisao.mudou || "";
+  } else {
+    document.getElementById("secaoRevisao").classList.add("hidden");
+    document.getElementById("rev_num_oferta").value = "";
+    document.getElementById("rev_mudou").value = "";
   }
 
   document.getElementById("btnAdicionar").textContent = "Salvar Edição";
-
   window.scrollTo({ top: 0, behavior: "smooth" });
 }
 
@@ -1500,15 +1050,12 @@ async function excluirRegistro(id) {
     alert("Erro ao excluir do Firebase (ofertas).");
   }
 
-  const idx = registros.findIndex((r) => r.id === id);
-  if (idx !== -1) {
-    registros.splice(idx, 1);
-    salvarRegistros();
-    renderTabela();
-  }
+  registros = registros.filter((r) => r.id !== id);
+  salvarRegistros();
+  renderTabela();
 }
 
-// ====== EXPORTAR REGISTROS PARA EXCEL ======
+/* ====== EXCEL (REGISTROS) ====== */
 function exportExcel() {
   const filtrados = getRegistrosFiltrados();
   if (filtrados.length === 0) {
@@ -1518,7 +1065,12 @@ function exportExcel() {
 
   const dados = filtrados.map((reg, i) => {
     const pedido = reg.pedido || {};
+    const revisao = reg.revisao || {};
     const usuario = reg.atualizadoPor || reg.criadoPor || "";
+
+    const tipoTexto =
+      reg.tipo_negocio === "compra" ? "Compra" : reg.tipo_negocio === "orcamento" ? "Orçamento" : "";
+
     return {
       "#": i + 1,
       "B.U": reg.bu || "",
@@ -1530,18 +1082,33 @@ function exportExcel() {
       Telefone: reg.telefone || "",
       "E-mail": reg.email || "",
       "N° Oferta": reg.oferta || "",
+      "Tipo (Compra/Orçamento)": tipoTexto,
       "Vl. Total": reg.valor_total || "",
       Oportunidade: reg.oportunidade || "",
       "Data Entrada": reg.data_entrada || "",
       Status: reg.status || "",
       "Data Envio": reg.data_envio || "",
-      "Pedido?": reg.possuiPedido === "sim" ? "Sim" : "Não",
+      "Pedido?": reg.possuiPedido === "sim" ? "✅" : "—",
+      "Observações Gerais": reg.obs_geral || "",
+
+      "Revisão?": reg.possuiRevisao === "sim" ? "✅" : "—",
+      "Oferta anterior (revisão)": revisao.numero_oferta_anterior || "",
+      "O que mudou (revisão)": revisao.mudou || "",
+
       "N° Pedido": pedido.numero_pedido || "",
       "Vl. Total Pedido": pedido.valor_pedido || "",
-      "Ref./Projeto": pedido.ref_projeto || "",
-      "Tipo Produto": pedido.tipo_produto || "",
+      "Data P.O": pedido.data_po || "",
       "Cond. Pagamento": pedido.cond_pagamento || "",
-      Obs: pedido.obs || "",
+      "Ref./Projeto (Pedido)": pedido.ref_projeto || "",
+      "Tipo Produto": pedido.tipo_produto || "",
+      "Obs Pedido": pedido.obs || "",
+
+      "Data NF": pedido.data_nf || "",
+      "Valor NF": pedido.valor_nf || "",
+      "Prazo entrega contratual": pedido.prazo_entrega_contratual || "",
+      "Solicitação OC?": pedido.solicitacao_oc ? (pedido.solicitacao_oc === "sim" ? "Sim" : "Não") : "",
+      "Ref. OC": pedido.ref_oc || "",
+
       Usuário: usuario,
     };
   });
@@ -1552,7 +1119,7 @@ function exportExcel() {
   XLSX.writeFile(wb, "registros_ofertas.xlsx");
 }
 
-// ====== GERAR PDF (via impressão) ======
+/* ====== PDF (IMPRESSÃO) ====== */
 function exportPdf() {
   const filtrados = getRegistrosFiltrados();
   if (filtrados.length === 0) {
@@ -1561,88 +1128,115 @@ function exportPdf() {
   }
 
   let html = `
-        <html>
-        <head>
-            <title>Registros de Ofertas</title>
-            <style>
-                body { font-family: Arial, sans-serif; font-size: 11px; }
-                h2 { text-align: center; }
-                table { width: 100%; border-collapse: collapse; margin-top: 10px; }
-                th, td { border: 1px solid #000; padding: 3px; }
-                th { background: #eee; }
-            </style>
-        </head>
-        <body>
-            <h2>Registros de Ofertas</h2>
-            <table>
-                <thead>
-                    <tr>
-                        <th>#</th>
-                        <th>B.U</th>
-                        <th>Razão Social</th>
-                        <th>CNPJ</th>
-                        <th>Projeto</th>
-                        <th>Representada</th>
-                        <th>Solicitante</th>
-                        <th>Telefone</th>
-                        <th>E-mail</th>
-                        <th>N° Oferta</th>
-                        <th>Vl. Total</th>
-                        <th>Oportunidade</th>
-                        <th>Data Entrada</th>
-                        <th>Status</th>
-                        <th>Data Envio</th>
-                        <th>Pedido?</th>
-                        <th>N° Pedido</th>
-                        <th>Vl. Total Pedido</th>
-                        <th>Ref./Projeto</th>
-                        <th>Tipo Produto</th>
-                        <th>Cond. Pagamento</th>
-                        <th>Obs</th>
-                        <th>Usuário</th>
-                    </tr>
-                </thead>
-                <tbody>
-    `;
+    <html>
+      <head>
+        <title>Registros de Ofertas</title>
+        <style>
+          body { font-family: Arial, sans-serif; font-size: 10px; }
+          h2 { text-align: center; }
+          table { width: 100%; border-collapse: collapse; margin-top: 10px; }
+          th, td { border: 1px solid #000; padding: 3px; vertical-align: top; }
+          th { background: #eee; }
+        </style>
+      </head>
+      <body>
+        <h2>Registros de Ofertas</h2>
+        <table>
+          <thead>
+            <tr>
+              <th>#</th>
+              <th>B.U</th>
+              <th>Razão Social</th>
+              <th>CNPJ</th>
+              <th>Projeto</th>
+              <th>Representada</th>
+              <th>N° Oferta</th>
+              <th>Tipo</th>
+              <th>Vl. Total</th>
+              <th>Status</th>
+              <th>Pedido?</th>
+              <th>Revisão?</th>
+              <th>Obs Geral</th>
+              <th>Usuário</th>
+            </tr>
+          </thead>
+          <tbody>
+  `;
 
   filtrados.forEach((reg, i) => {
-    const pedido = reg.pedido || {};
     const usuario = reg.atualizadoPor || reg.criadoPor || "";
+    const tipoTexto =
+      reg.tipo_negocio === "compra" ? "Compra" : reg.tipo_negocio === "orcamento" ? "Orçamento" : "";
+
     html += `
-            <tr>
-                <td>${i + 1}</td>
-                <td>${reg.bu || ""}</td>
-                <td>${reg.razao || ""}</td>
-                <td>${reg.cnpj_cliente || ""}</td>
-                <td>${reg.nome_projeto || ""}</td>
-                <td>${reg.representadaNome || ""}</td>
-                <td>${reg.solicitante || ""}</td>
-                <td>${reg.telefone || ""}</td>
-                <td>${reg.email || ""}</td>
-                <td>${reg.oferta || ""}</td>
-                <td>${reg.valor_total || ""}</td>
-                <td>${reg.oportunidade || ""}</td>
-                <td>${reg.data_entrada || ""}</td>
-                <td>${reg.status || ""}</td>
-                <td>${reg.data_envio || ""}</td>
-                <td>${reg.possuiPedido === "sim" ? "Sim" : "Não"}</td>
-                <td>${pedido.numero_pedido || ""}</td>
-                <td>${pedido.valor_pedido || ""}</td>
-                <td>${pedido.ref_projeto || ""}</td>
-                <td>${pedido.tipo_produto || ""}</td>
-                <td>${pedido.cond_pagamento || ""}</td>
-                <td>${pedido.obs || ""}</td>
-                <td>${usuario}</td>
-            </tr>
-        `;
+      <tr>
+        <td>${i + 1}</td>
+        <td>${reg.bu || ""}</td>
+        <td>${reg.razao || ""}</td>
+        <td>${reg.cnpj_cliente || ""}</td>
+        <td>${reg.nome_projeto || ""}</td>
+        <td>${reg.representadaNome || ""}</td>
+        <td>${reg.oferta || ""}</td>
+        <td>${tipoTexto}</td>
+        <td>${reg.valor_total || ""}</td>
+        <td>${reg.status || ""}</td>
+        <td>${reg.possuiPedido === "sim" ? "Sim" : "Não"}</td>
+        <td>${reg.possuiRevisao === "sim" ? "Sim" : "Não"}</td>
+        <td>${(reg.obs_geral || "").toString().replace(/\n/g, "<br>")}</td>
+        <td>${usuario}</td>
+      </tr>
+    `;
   });
 
   html += `
-                </tbody>
-            </table>
-        </body>
-        </html>
+          </tbody>
+        </table>
+
+        <br><br>
+        <h2>Detalhes de Pedido (quando existir)</h2>
+        <table>
+          <thead>
+            <tr>
+              <th>N° Oferta</th>
+              <th>Razão Social</th>
+              <th>N° Pedido</th>
+              <th>Data P.O</th>
+              <th>Valor Pedido</th>
+              <th>Data NF</th>
+              <th>Valor NF</th>
+              <th>Prazo Entrega</th>
+              <th>Solicitação OC</th>
+              <th>Ref. OC</th>
+            </tr>
+          </thead>
+          <tbody>
+  `;
+
+  filtrados.forEach((reg) => {
+    const p = reg.pedido || null;
+    if (!p) return;
+    html += `
+      <tr>
+        <td>${reg.oferta || ""}</td>
+        <td>${reg.razao || ""}</td>
+        <td>${p.numero_pedido || ""}</td>
+        <td>${p.data_po || ""}</td>
+        <td>${p.valor_pedido || ""}</td>
+        <td>${p.data_nf || ""}</td>
+        <td>${p.valor_nf || ""}</td>
+        <td>${p.prazo_entrega_contratual || ""}</td>
+        <td>${p.solicitacao_oc === "sim" ? "Sim" : "Não"}</td>
+        <td>${p.ref_oc || ""}</td>
+      </tr>
     `;
+  });
+
+  html += `
+          </tbody>
+        </table>
+      </body>
+    </html>
+  `;
 
   const win = window.open("", "_blank");
   win.document.write(html);
@@ -1651,7 +1245,7 @@ function exportPdf() {
   win.print();
 }
 
-// ====== BACKUP (JSON + EXCEL) UNIFICADO ======
+/* ====== BACKUP (JSON + EXCEL) ====== */
 function initBackupUI() {
   const btnBackupExport = document.getElementById("btnBackupExport");
   const btnBackupImport = document.getElementById("btnBackupImport");
@@ -1659,18 +1253,11 @@ function initBackupUI() {
 
   if (btnBackupExport) {
     btnBackupExport.addEventListener("click", () => {
-      const tipo = (
-        prompt("Exportar backup em qual formato? Digite 'json' ou 'excel':") ||
-        ""
-      )
-        .trim()
-        .toLowerCase();
+      const tipo = (prompt("Exportar backup em qual formato? Digite 'json' ou 'excel':") || "").trim().toLowerCase();
 
       if (tipo === "json") {
         const data = { registros, clientes, representadas };
-        const blob = new Blob([JSON.stringify(data, null, 2)], {
-          type: "application/json",
-        });
+        const blob = new Blob([JSON.stringify(data, null, 2)], { type: "application/json" });
         const url = URL.createObjectURL(blob);
         const a = document.createElement("a");
         a.href = url;
@@ -1689,12 +1276,7 @@ function initBackupUI() {
 
   if (btnBackupImport && inputBackupFile) {
     btnBackupImport.addEventListener("click", () => {
-      const tipo = (
-        prompt("Importar backup de qual formato? Digite 'json' ou 'excel':") ||
-        ""
-      )
-        .trim()
-        .toLowerCase();
+      const tipo = (prompt("Importar backup de qual formato? Digite 'json' ou 'excel':") || "").trim().toLowerCase();
 
       if (tipo !== "json" && tipo !== "excel") {
         if (tipo) alert("Opção inválida. Use 'json' ou 'excel'.");
@@ -1745,7 +1327,6 @@ function initBackupUI() {
   }
 }
 
-// ====== BACKUP EXCEL (4 ABAS) ======
 function exportBackupExcel() {
   const wb = XLSX.utils.book_new();
 
@@ -1760,11 +1341,7 @@ function exportBackupExcel() {
     CriadoPor: c.criadoPor || "",
     AtualizadoPor: c.atualizadoPor || "",
   }));
-  const wsClientes = XLSX.utils.json_to_sheet(
-    clientesSheetData.length
-      ? clientesSheetData
-      : [{ Mensagem: "Sem clientes" }]
-  );
+  const wsClientes = XLSX.utils.json_to_sheet(clientesSheetData.length ? clientesSheetData : [{ Mensagem: "Sem clientes" }]);
   XLSX.utils.book_append_sheet(wb, wsClientes, "Clientes");
 
   // Contatos
@@ -1779,14 +1356,12 @@ function exportBackupExcel() {
         Email: ct.email,
         Funcao: ct.funcao,
         Principal: ct.principal ? "Sim" : "Não",
+        ResponsavelId: ct.responsavelId || "",
+        ResponsavelNome: ct.responsavelNome || "",
       });
     });
   });
-  const wsContatos = XLSX.utils.json_to_sheet(
-    contatosSheetData.length
-      ? contatosSheetData
-      : [{ Mensagem: "Sem contatos" }]
-  );
+  const wsContatos = XLSX.utils.json_to_sheet(contatosSheetData.length ? contatosSheetData : [{ Mensagem: "Sem contatos" }]);
   XLSX.utils.book_append_sheet(wb, wsContatos, "Contatos");
 
   // Representadas
@@ -1796,50 +1371,61 @@ function exportBackupExcel() {
     CriadoPor: r.criadoPor || "",
     AtualizadoPor: r.atualizadoPor || "",
   }));
-  const wsRep = XLSX.utils.json_to_sheet(
-    repsData.length ? repsData : [{ Mensagem: "Sem representadas" }]
-  );
+  const wsRep = XLSX.utils.json_to_sheet(repsData.length ? repsData : [{ Mensagem: "Sem representadas" }]);
   XLSX.utils.book_append_sheet(wb, wsRep, "Representadas");
 
-  // Ofertas
+  // Ofertas (com tudo)
   const ofertasData = registros.map((r) => ({
     ID: r.id,
-    ClienteID: r.clienteId,
-    ClienteCNPJ: r.cnpj_cliente,
-    RazaoSocial: r.razao,
-    BU: r.bu,
-    Projeto: r.nome_projeto,
-    RepresentadaID: r.representadaId,
-    RepresentadaNome: r.representadaNome,
-    Solicitante: r.solicitante,
-    Telefone: r.telefone,
-    Email: r.email,
-    NumeroOferta: r.oferta,
-    ValorTotal: r.valor_total,
-    Oportunidade: r.oportunidade,
-    DataEntrada: r.data_entrada,
-    Status: r.status,
-    DataEnvio: r.data_envio,
-    PossuiPedido: r.possuiPedido,
+    ClienteID: r.clienteId || null,
+    ClienteCNPJ: r.cnpj_cliente || "",
+    RazaoSocial: r.razao || "",
+    BU: r.bu || "",
+    Projeto: r.nome_projeto || "",
+    RepresentadaID: r.representadaId || null,
+    RepresentadaNome: r.representadaNome || "",
+    Solicitante: r.solicitante || "",
+    Telefone: r.telefone || "",
+    Email: r.email || "",
+    NumeroOferta: r.oferta || "",
+    TipoNegocio: r.tipo_negocio || "",
+    ValorTotal: r.valor_total || "",
+    Oportunidade: r.oportunidade || "",
+    DataEntrada: r.data_entrada || "",
+    Status: r.status || "",
+    DataEnvio: r.data_envio || "",
+    PossuiPedido: r.possuiPedido || "nao",
+
+    ObservacoesGerais: r.obs_geral || "",
+
+    PossuiRevisao: r.possuiRevisao || "nao",
+    RevisaoOfertaAnterior: r.revisao?.numero_oferta_anterior || "",
+    RevisaoMudou: r.revisao?.mudou || "",
+
     NumeroPedido: r.pedido?.numero_pedido || "",
     ValorPedido: r.pedido?.valor_pedido || "",
     DataPO: r.pedido?.data_po || "",
     CondicaoPagamento: r.pedido?.cond_pagamento || "",
     RefProjetoPedido: r.pedido?.ref_projeto || "",
     TipoProduto: r.pedido?.tipo_produto || "",
-    Obs: r.pedido?.obs || "",
+    ObsPedido: r.pedido?.obs || "",
+
+    DataNF: r.pedido?.data_nf || "",
+    ValorNF: r.pedido?.valor_nf || "",
+    PrazoEntregaContratual: r.pedido?.prazo_entrega_contratual || "",
+    SolicitacaoOC: r.pedido?.solicitacao_oc || "",
+    RefOC: r.pedido?.ref_oc || "",
+
     CriadoPor: r.criadoPor || "",
     AtualizadoPor: r.atualizadoPor || "",
   }));
-  const wsOfertas = XLSX.utils.json_to_sheet(
-    ofertasData.length ? ofertasData : [{ Mensagem: "Sem ofertas" }]
-  );
+
+  const wsOfertas = XLSX.utils.json_to_sheet(ofertasData.length ? ofertasData : [{ Mensagem: "Sem ofertas" }]);
   XLSX.utils.book_append_sheet(wb, wsOfertas, "Ofertas");
 
   XLSX.writeFile(wb, "backup_crm.xlsx");
 }
 
-// ====== IMPORTAR BACKUP EXCEL ======
 function importBackupExcel(file) {
   const reader = new FileReader();
   reader.onload = function (e) {
@@ -1851,6 +1437,7 @@ function importBackupExcel(file) {
       clientes = [];
       representadas = [];
 
+      // Clientes
       const shClientes = wb.Sheets["Clientes"];
       if (shClientes) {
         const dados = XLSX.utils.sheet_to_json(shClientes);
@@ -1869,6 +1456,7 @@ function importBackupExcel(file) {
           }));
       }
 
+      // Representadas
       const shRep = wb.Sheets["Representadas"];
       if (shRep) {
         const dadosRep = XLSX.utils.sheet_to_json(shRep);
@@ -1882,21 +1470,22 @@ function importBackupExcel(file) {
           }));
       }
 
+      // Contatos
       const shContatos = wb.Sheets["Contatos"];
       if (shContatos) {
         const dadosC = XLSX.utils.sheet_to_json(shContatos);
         dadosC.forEach((row) => {
           const cid = row.ClienteID;
           const cnpj = row.ClienteCNPJ ? String(row.ClienteCNPJ) : "";
+
           let cliente = null;
           if (cid) cliente = clientes.find((c) => c.id == cid);
           if (!cliente && cnpj) {
             const clean = cnpj.replace(/\D/g, "");
-            cliente = clientes.find(
-              (c) => (c.cnpj || "").replace(/\D/g, "") === clean
-            );
+            cliente = clientes.find((c) => (c.cnpj || "").replace(/\D/g, "") === clean);
           }
           if (!cliente) return;
+
           if (!cliente.contatos) cliente.contatos = [];
           cliente.contatos.push({
             nome: row.Nome || "",
@@ -1904,33 +1493,57 @@ function importBackupExcel(file) {
             email: row.Email || "",
             funcao: row.Funcao || "",
             principal: String(row.Principal || "").toLowerCase() === "sim",
+            responsavelId: row.ResponsavelId || "",
+            responsavelNome: row.ResponsavelNome || "",
           });
         });
       }
 
+      // Ofertas
       const shOfertas = wb.Sheets["Ofertas"];
       if (shOfertas) {
         const dadosOf = XLSX.utils.sheet_to_json(shOfertas);
         registros = dadosOf
           .filter((row) => row.NumeroOferta || row.RazaoSocial)
           .map((row) => {
-            const pedido =
+            const pedidoExiste =
               row.NumeroPedido ||
               row.ValorPedido ||
               row.RefProjetoPedido ||
               row.TipoProduto ||
               row.CondicaoPagamento ||
-              row.Obs
-                ? {
-                    numero_pedido: row.NumeroPedido || "",
-                    valor_pedido: row.ValorPedido || "",
-                    data_po: row.DataPO || "",
-                    cond_pagamento: row.CondicaoPagamento || "",
-                    ref_projeto: row.RefProjetoPedido || "",
-                    tipo_produto: row.TipoProduto || "",
-                    obs: row.Obs || "",
-                  }
+              row.ObsPedido ||
+              row.DataNF ||
+              row.ValorNF ||
+              row.PrazoEntregaContratual ||
+              row.SolicitacaoOC ||
+              row.RefOC;
+
+            const pedido = pedidoExiste
+              ? {
+                  numero_pedido: row.NumeroPedido || "",
+                  valor_pedido: row.ValorPedido || "",
+                  data_po: row.DataPO || "",
+                  cond_pagamento: row.CondicaoPagamento || "",
+                  ref_projeto: row.RefProjetoPedido || "",
+                  tipo_produto: row.TipoProduto || "",
+                  obs: row.ObsPedido || "",
+
+                  data_nf: row.DataNF || "",
+                  valor_nf: row.ValorNF || "",
+                  prazo_entrega_contratual: row.PrazoEntregaContratual || "",
+                  solicitacao_oc: (row.SolicitacaoOC || "").toString().toLowerCase() || "",
+                  ref_oc: row.RefOC || "",
+                }
+              : null;
+
+            const possuiRevisao = (row.PossuiRevisao || "nao").toString().toLowerCase();
+            const revisao =
+              possuiRevisao === "sim" || row.RevisaoOfertaAnterior || row.RevisaoMudou
+                ? { numero_oferta_anterior: row.RevisaoOfertaAnterior || "", mudou: row.RevisaoMudou || "" }
                 : null;
+
+            const possuiPedido = (row.PossuiPedido || (pedidoExiste ? "sim" : "nao")).toString().toLowerCase();
 
             return {
               id: row.ID || gerarId(),
@@ -1945,13 +1558,21 @@ function importBackupExcel(file) {
               telefone: row.Telefone || "",
               email: row.Email || "",
               oferta: row.NumeroOferta || "",
+              tipo_negocio: row.TipoNegocio || "",
               valor_total: row.ValorTotal || "",
               oportunidade: row.Oportunidade || "",
               data_entrada: row.DataEntrada || "",
               status: row.Status || "",
               data_envio: row.DataEnvio || "",
-              possuiPedido: row.PossuiPedido || "",
-              pedido,
+
+              obs_geral: row.ObservacoesGerais || "",
+
+              possuiPedido,
+              pedido: possuiPedido === "sim" ? pedido : null,
+
+              possuiRevisao,
+              revisao,
+
               criadoPor: row.CriadoPor || "",
               atualizadoPor: row.AtualizadoPor || row.CriadoPor || "",
             };
@@ -1976,46 +1597,537 @@ function importBackupExcel(file) {
   reader.readAsArrayBuffer(file);
 }
 
-// ====== UTIL ======
+/* ====== CLIENTES ====== */
+function initClientesUI() {
+  const btnAddContato = document.getElementById("btnAddContato");
+  const btnSalvarCliente = document.getElementById("btnSalvarCliente");
+  if (!btnAddContato || !btnSalvarCliente) return;
+
+  btnAddContato.addEventListener("click", () => {
+    const nome = document.getElementById("ct_nome").value.trim();
+    const telefone = document.getElementById("ct_tel").value.trim();
+    const email = document.getElementById("ct_email").value.trim();
+    const funcao = document.getElementById("ct_funcao").value.trim();
+    const principalChecked = document.getElementById("ct_principal").checked;
+
+    const selResp = document.getElementById("ct_responsavel");
+    const responsavelId = selResp ? selResp.value : "";
+
+    const respObj = usuarios.find((u) => (u.uid || u.id) === responsavelId);
+    const responsavelNome = primeiroNome(respObj?.nome || respObj?.email || "");
+
+    if (!nome) {
+      alert("Informe pelo menos o nome do contato.");
+      return;
+    }
+
+    const telDigits = telefone.replace(/\D/g, "");
+    if (telefone && telDigits.length < 10) {
+      alert("Telefone do contato inválido. Informe DDD + 8 ou 9 dígitos.");
+      document.getElementById("ct_tel").focus();
+      return;
+    }
+
+    const contatoBase = { nome, telefone, email, funcao, principal: principalChecked, responsavelId, responsavelNome };
+
+    if (contatoBase.principal) contatosTemp = contatosTemp.map((c) => ({ ...c, principal: false }));
+
+    if (editContatoIndex === null) contatosTemp.push(contatoBase);
+    else {
+      contatosTemp[editContatoIndex] = contatoBase;
+      editContatoIndex = null;
+      btnAddContato.textContent = "Adicionar Contato";
+    }
+
+    document.getElementById("ct_nome").value = "";
+    document.getElementById("ct_tel").value = "";
+    document.getElementById("ct_email").value = "";
+    document.getElementById("ct_funcao").value = "";
+    document.getElementById("ct_principal").checked = false;
+    document.getElementById("ct_responsavel").value = "";
+
+    renderListaContatos();
+  });
+
+  btnSalvarCliente.addEventListener("click", async () => {
+    const razao = document.getElementById("cli_razao").value.trim();
+    const cnpj = document.getElementById("cli_cnpj").value.trim();
+    const ie = document.getElementById("cli_ie").value.trim();
+    const endereco = document.getElementById("cli_endereco").value.trim();
+    const segmento = document.getElementById("cli_segmento").value.trim();
+    const currentUser = getCurrentUserName();
+
+    if (!razao || !cnpj) {
+      alert("Razão Social e CNPJ são obrigatórios.");
+      return;
+    }
+
+    const cnpjDigits = cnpj.replace(/\D/g, "");
+    if (cnpjDigits.length !== 14) {
+      alert("CNPJ do cliente inválido. Deve conter 14 dígitos.");
+      document.getElementById("cli_cnpj").focus();
+      return;
+    }
+
+    if (contatosTemp.length > 0 && !contatosTemp.some((c) => c.principal)) contatosTemp[0].principal = true;
+
+    const clienteBase = { razao, cnpj, ie, endereco, segmento, contatos: contatosTemp.slice() };
+
+    if (!editClienteId) {
+      const id = gerarId();
+      const cliente = { id, ...clienteBase, criadoPor: currentUser, atualizadoPor: currentUser };
+      await db.collection("clientes").doc(id).set(cliente);
+      clientes.push(cliente);
+      alert("Cliente salvo!");
+    } else {
+      const idx = clientes.findIndex((c) => c.id === editClienteId);
+      const antigo = clientes[idx] || {};
+      if (idx !== -1) {
+        const cliente = {
+          id: editClienteId,
+          ...clienteBase,
+          criadoPor: antigo.criadoPor || currentUser,
+          atualizadoPor: currentUser,
+        };
+        await db.collection("clientes").doc(editClienteId).set(cliente);
+        clientes[idx] = cliente;
+      }
+      alert("Cliente atualizado!");
+      editClienteId = null;
+      btnSalvarCliente.textContent = "Salvar Cliente";
+    }
+
+    salvarClientes();
+    contatosTemp = [];
+    editContatoIndex = null;
+    btnAddContato.textContent = "Adicionar Contato";
+    renderListaContatos();
+    renderTabelaClientes();
+
+    document.getElementById("cli_razao").value = "";
+    document.getElementById("cli_cnpj").value = "";
+    document.getElementById("cli_ie").value = "";
+    document.getElementById("cli_endereco").value = "";
+    document.getElementById("cli_segmento").value = "";
+  });
+
+  renderTabelaClientes();
+
+  const btnPrevClientes = document.getElementById("btnPrevClientes");
+  const btnNextClientes = document.getElementById("btnNextClientes");
+
+  if (btnPrevClientes) btnPrevClientes.addEventListener("click", () => {
+    if (clientesCurrentPage > 1) {
+      clientesCurrentPage--;
+      renderTabelaClientes();
+    }
+  });
+
+  if (btnNextClientes) btnNextClientes.addEventListener("click", () => {
+    const totalPages = Math.max(1, Math.ceil(clientes.length / clientesPageSize));
+    if (clientesCurrentPage < totalPages) {
+      clientesCurrentPage++;
+      renderTabelaClientes();
+    }
+  });
+}
+
+function renderListaContatos() {
+  const lista = document.getElementById("listaContatos");
+  if (!lista) return;
+
+  lista.innerHTML = "";
+  if (contatosTemp.length === 0) {
+    lista.innerHTML = "<p>Nenhum contato adicionado.</p>";
+    return;
+  }
+
+  contatosTemp.forEach((ct, index) => {
+    const div = document.createElement("div");
+    div.className = "contato-item";
+    div.innerHTML = `
+      <strong>${ct.nome}</strong>
+      ${ct.principal ? '<span class="tag-principal">(Principal)</span>' : ""}
+      <br>
+      ${ct.funcao || ""}
+      <br>
+      Tel: ${ct.telefone || ""} • E-mail: ${ct.email || ""}
+      ${ct.responsavelNome ? `<br><strong>Responsável:</strong> ${primeiroNome(ct.responsavelNome)}` : ""}
+      <br>
+      <button class="btn-sm" onclick="editarContato(${index})">Editar</button>
+      <button class="btn-sm btn-danger" onclick="excluirContato(${index})">Excluir</button>
+      <hr>
+    `;
+    lista.appendChild(div);
+  });
+}
+
+function editarContato(index) {
+  const ct = contatosTemp[index];
+  if (!ct) return;
+
+  document.getElementById("ct_nome").value = ct.nome || "";
+  document.getElementById("ct_tel").value = ct.telefone || "";
+  document.getElementById("ct_email").value = ct.email || "";
+  document.getElementById("ct_funcao").value = ct.funcao || "";
+  document.getElementById("ct_principal").checked = !!ct.principal;
+  document.getElementById("ct_responsavel").value = ct.responsavelId || "";
+
+  editContatoIndex = index;
+  document.getElementById("btnAddContato").textContent = "Salvar Edição";
+}
+
+function excluirContato(index) {
+  if (!confirm("Tem certeza que deseja excluir este contato?")) return;
+  contatosTemp.splice(index, 1);
+  editContatoIndex = null;
+  document.getElementById("btnAddContato").textContent = "Adicionar Contato";
+  renderListaContatos();
+}
+
+function renderTabelaClientes() {
+  const tbody = document.querySelector("#tabelaClientes tbody");
+  const pageInfoClientes = document.getElementById("pageInfoClientes");
+  if (!tbody) return;
+
+  tbody.innerHTML = "";
+
+  const totalPages = Math.max(1, Math.ceil(clientes.length / clientesPageSize));
+  if (clientesCurrentPage > totalPages) clientesCurrentPage = totalPages;
+
+  const start = (clientesCurrentPage - 1) * clientesPageSize;
+  const end = start + clientesPageSize;
+  const pageData = clientes.slice(start, end);
+
+  if (pageData.length === 0) {
+    const tr = document.createElement("tr");
+    const td = document.createElement("td");
+    td.colSpan = 6;
+    td.textContent = "Nenhum cliente encontrado.";
+    tr.appendChild(td);
+    tbody.appendChild(tr);
+  } else {
+    pageData.forEach((cli) => {
+      const tr = document.createElement("tr");
+      const qtdContatos = cli.contatos ? cli.contatos.length : 0;
+      const usuario = formatarNomeUsuario(cli.atualizadoPor || cli.criadoPor || "-");
+
+      tr.innerHTML = `
+        <td>${cli.razao || ""}</td>
+        <td>${cli.cnpj || ""}</td>
+        <td>${cli.segmento || ""}</td>
+        <td>${qtdContatos}</td>
+        <td>${usuario}</td>
+        <td>
+          <button class="btn-sm" onclick="verCliente('${cli.id}')">Ver</button>
+          <button class="btn-sm" onclick="abrirPainelCliente('${cli.id}')">Contatos</button>
+          <button class="btn-sm" onclick="editarCliente('${cli.id}')">Editar</button>
+          <button class="btn-sm btn-danger" onclick="excluirCliente('${cli.id}')">Excluir</button>
+        </td>
+      `;
+      tbody.appendChild(tr);
+    });
+  }
+
+  if (pageInfoClientes) pageInfoClientes.textContent = `Página ${clientesCurrentPage} de ${totalPages}`;
+}
+
+function editarCliente(id) {
+  const cli = clientes.find((c) => c.id === id);
+  if (!cli) return;
+
+  editClienteId = id;
+
+  document.getElementById("cli_razao").value = cli.razao || "";
+  document.getElementById("cli_cnpj").value = cli.cnpj || "";
+  document.getElementById("cli_ie").value = cli.ie || "";
+  document.getElementById("cli_endereco").value = cli.endereco || "";
+  document.getElementById("cli_segmento").value = cli.segmento || "";
+
+  contatosTemp = (cli.contatos || []).map((ct) => ({ ...ct }));
+  editContatoIndex = null;
+
+  document.getElementById("btnAddContato").textContent = "Adicionar Contato";
+  renderListaContatos();
+
+  const btnSalvarCliente = document.getElementById("btnSalvarCliente");
+  if (btnSalvarCliente) btnSalvarCliente.textContent = "Salvar Edição";
+
+  document.getElementById("secClientes").scrollIntoView({ behavior: "smooth" });
+}
+
+async function excluirCliente(id) {
+  if (!confirm("Tem certeza que deseja excluir este cliente?")) return;
+
+  try {
+    await db.collection("clientes").doc(id).delete();
+  } catch (e) {
+    console.error(e);
+    alert("Erro ao excluir cliente no Firebase.");
+  }
+
+  clientes = clientes.filter((c) => c.id !== id);
+  salvarClientes();
+  renderTabelaClientes();
+}
+
+/* ====== PAINEL LATERAL CLIENTE ====== */
+function abrirPainelCliente(id) {
+  const cli = clientes.find((c) => c.id === id);
+  if (!cli) return;
+
+  const painel = document.getElementById("painelCliente");
+  document.getElementById("painelClienteNome").textContent = cli.razao || "";
+  document.getElementById("painelClienteCnpj").textContent = cli.cnpj || "";
+  document.getElementById("painelClienteSegmento").textContent = cli.segmento || "";
+  document.getElementById("painelClienteEndereco").textContent = cli.endereco || "";
+
+  const divContatos = document.getElementById("painelClienteContatos");
+  divContatos.innerHTML = "";
+
+  (cli.contatos || []).forEach((ct) => {
+    const div = document.createElement("div");
+    div.className = "contato-item";
+    div.innerHTML = `
+      <strong>${ct.nome}</strong>
+      ${ct.principal ? '<span class="tag-principal">(Principal)</span>' : ""}
+      <br>
+      ${ct.funcao || ""}
+      <br>
+      Tel: ${ct.telefone || ""} • E-mail: ${ct.email || ""}
+      ${ct.responsavelNome ? `<br><strong>Responsável:</strong> ${primeiroNome(ct.responsavelNome)}` : ""}
+      <hr>
+    `;
+    divContatos.appendChild(div);
+  });
+
+  painel.classList.remove("hidden");
+}
+
+function fecharPainelCliente() {
+  const painel = document.getElementById("painelCliente");
+  if (painel) painel.classList.add("hidden");
+}
+
+/* ====== LIGAÇÃO CLIENTE -> OFERTA ====== */
+function buscarClientePorCnpj(cnpj) {
+  const clean = (cnpj || "").replace(/\D/g, "");
+  return clientes.find((c) => (c.cnpj || "").replace(/\D/g, "") === clean);
+}
+
+function initLigacaoClienteOferta() {
+  const cnpjInput = document.getElementById("cnpj_cliente");
+  if (!cnpjInput) return;
+
+  cnpjInput.addEventListener("blur", () => {
+    const cli = buscarClientePorCnpj(cnpjInput.value);
+    if (!cli) {
+      cnpjInput.dataset.clienteId = "";
+      return;
+    }
+
+    cnpjInput.dataset.clienteId = cli.id;
+
+    const razao = document.getElementById("razao");
+    const telefone = document.getElementById("telefone");
+    const email = document.getElementById("email");
+    const solicitante = document.getElementById("solicitante");
+
+    razao.value = cli.razao || "";
+
+    if (cli.contatos && cli.contatos.length > 0) {
+      const principal = cli.contatos.find((c) => c.principal) || cli.contatos[0];
+      telefone.value = principal.telefone || "";
+      email.value = principal.email || "";
+      solicitante.value = principal.nome || "";
+    }
+  });
+}
+
+/* ====== REPRESENTADAS ====== */
+function initRepresentadasUI() {
+  const btn = document.getElementById("btnSalvarRepresentada");
+  if (!btn) return;
+
+  btn.addEventListener("click", async () => {
+    const nome = document.getElementById("rep_nome").value.trim();
+    const currentUser = getCurrentUserName();
+
+    if (!nome) {
+      alert("Informe o nome da representada.");
+      return;
+    }
+
+    if (!editRepresentadaId) {
+      const id = gerarId();
+      const rep = { id, nome, criadoPor: currentUser, atualizadoPor: currentUser };
+      await db.collection("representadas").doc(id).set(rep);
+      representadas.push(rep);
+      alert("Representada salva!");
+    } else {
+      const idx = representadas.findIndex((r) => r.id === editRepresentadaId);
+      const antigo = representadas[idx] || {};
+      if (idx !== -1) {
+        const rep = { id: editRepresentadaId, nome, criadoPor: antigo.criadoPor || currentUser, atualizadoPor: currentUser };
+        await db.collection("representadas").doc(editRepresentadaId).set(rep);
+        representadas[idx] = rep;
+      }
+
+      // atualizar nome nas ofertas
+      registros.forEach((reg) => {
+        if (reg.representadaId === editRepresentadaId) reg.representadaNome = nome;
+      });
+      salvarRegistros();
+
+      alert("Representada atualizada!");
+      editRepresentadaId = null;
+      btn.textContent = "Salvar Representada";
+    }
+
+    salvarRepresentadas();
+    document.getElementById("rep_nome").value = "";
+    renderTabelaRepresentadas();
+    preencherSelectRepresentadas();
+  });
+}
+
+function renderTabelaRepresentadas() {
+  const tbody = document.querySelector("#tabelaRepresentadas tbody");
+  if (!tbody) return;
+
+  tbody.innerHTML = "";
+  representadas.forEach((rep) => {
+    const usuario = formatarNomeUsuario(rep.atualizadoPor || rep.criadoPor || "");
+    const tr = document.createElement("tr");
+    tr.innerHTML = `
+      <td>${rep.nome}</td>
+      <td>${usuario}</td>
+      <td>
+        <button class="btn-sm" onclick="verRepresentada('${rep.id}')">Ver</button>
+        <button class="btn-sm" onclick="editarRepresentada('${rep.id}')">Editar</button>
+        <button class="btn-sm btn-danger" onclick="excluirRepresentada('${rep.id}')">Excluir</button>
+      </td>
+    `;
+    tbody.appendChild(tr);
+  });
+}
+
+function preencherSelectRepresentadas() {
+  const select = document.getElementById("representada");
+  if (!select) return;
+
+  select.innerHTML = '<option value="">Selecione</option>';
+  representadas.forEach((rep) => {
+    const opt = document.createElement("option");
+    opt.value = rep.id;
+    opt.textContent = rep.nome;
+    select.appendChild(opt);
+  });
+}
+
+function editarRepresentada(id) {
+  const rep = representadas.find((r) => r.id === id);
+  if (!rep) return;
+
+  editRepresentadaId = id;
+  document.getElementById("rep_nome").value = rep.nome || "";
+
+  const btn = document.getElementById("btnSalvarRepresentada");
+  if (btn) btn.textContent = "Salvar Edição";
+
+  document.getElementById("secRepresentadas").scrollIntoView({ behavior: "smooth" });
+}
+
+async function excluirRepresentada(id) {
+  if (!confirm("Tem certeza que deseja excluir esta representada?")) return;
+
+  try {
+    await db.collection("representadas").doc(id).delete();
+  } catch (e) {
+    console.error(e);
+    alert("Erro ao excluir representada no Firebase.");
+  }
+
+  representadas = representadas.filter((r) => r.id !== id);
+  salvarRepresentadas();
+
+  registros.forEach((reg) => {
+    if (reg.representadaId === id) {
+      reg.representadaId = null;
+      reg.representadaNome = "";
+    }
+  });
+  salvarRegistros();
+
+  renderTabela();
+  renderTabelaRepresentadas();
+  preencherSelectRepresentadas();
+}
+
+/* ====== UTIL / STORAGE ====== */
 function gerarId() {
   return Date.now().toString() + "_" + Math.random().toString(16).slice(2);
 }
-function formatarNomeUsuario(usuario) {
-    if (!usuario) return "";
 
-    let nome = usuario;
+function primeiroNome(texto) {
+  if (!texto) return "";
+  let nome = String(texto).trim();
 
-    // Se for e-mail, pega só antes do @ e antes do ponto
-    if (usuario.includes("@")) {
-        nome = usuario.split("@")[0].split(".")[0];
-    }
+  if (nome.includes("@")) {
+    nome = nome.split("@")[0];
+    nome = nome.split(".")[0];
+  }
 
-    // Capitaliza (Renan, Araujo, Fabricio)
-    return nome.charAt(0).toUpperCase() + nome.slice(1).toLowerCase();
+  nome = nome.split(" ")[0];
+  return nome.charAt(0).toUpperCase() + nome.slice(1).toLowerCase();
 }
 
 function salvarRegistros() {
   localStorage.setItem("registros", JSON.stringify(registros));
 }
+function salvarClientes() {
+  localStorage.setItem("clientes", JSON.stringify(clientes));
+}
+function salvarRepresentadas() {
+  localStorage.setItem("representadas", JSON.stringify(representadas));
+}
+
+/* ====== NAVEGAÇÃO ====== */
 function irPara(tela) {
-  if (tela === "cadastro") {
-    document
-      .getElementById("secCadastro")
-      .scrollIntoView({ behavior: "smooth" });
-  }
-  if (tela === "registros") {
-    document
-      .getElementById("secRegistros")
-      .scrollIntoView({ behavior: "smooth" });
-  }
-  if (tela === "clientes") {
-    document
-      .getElementById("secClientes")
-      .scrollIntoView({ behavior: "smooth" });
-  }
-  if (tela === "representadas") {
-    document
-      .getElementById("secRepresentadas")
-      .scrollIntoView({ behavior: "smooth" });
-  }
+  if (tela === "cadastro") document.getElementById("secCadastro").scrollIntoView({ behavior: "smooth" });
+  if (tela === "registros") document.getElementById("secRegistros").scrollIntoView({ behavior: "smooth" });
+  if (tela === "clientes") document.getElementById("secClientes").scrollIntoView({ behavior: "smooth" });
+  if (tela === "representadas") document.getElementById("secRepresentadas").scrollIntoView({ behavior: "smooth" });
+}
+
+function preencherSelectResponsaveisContato() {
+  const sel = document.getElementById("ct_responsavel");
+  if (!sel) return;
+
+  sel.innerHTML = `<option value="">Selecione</option>`;
+
+  usuarios.forEach((u) => {
+    const id = u.uid || u.id;
+    const nomeBase = u.nome || u.email || "";
+    const nomeExibido = primeiroNome(nomeBase);
+
+    const opt = document.createElement("option");
+    opt.value = id;
+    opt.textContent = nomeExibido;
+    sel.appendChild(opt);
+  });
+}
+
+function formatarNomeUsuario(valor) {
+  if (!valor) return "-";
+  const v = String(valor).trim();
+  if (!v) return "-";
+
+  if (!v.includes("@") && v.includes(" ")) return primeiroNome(v);
+  if (v.includes("@")) return primeiroNome(v);
+
+  const u = usuarios.find((x) => (x.uid || x.id) === v);
+  if (u) return primeiroNome(u.nome || u.email || v);
+
+  return v;
 }

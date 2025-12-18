@@ -9,7 +9,6 @@
     <link rel="manifest" href="manifest.json">
     <link rel="icon" type="image/png" href="Imagens/LogoCRM.png">
     <meta name="theme-color" content="#2563eb">
-</head>
 
 </head>
 <!-- MODAL DE DETALHES (OFERTA / CLIENTE / REPRESENTADA) -->
@@ -81,7 +80,7 @@
             <label for="loginPass">Senha</label>
             <input type="password" id="loginPass" placeholder="1234">
 
-            <button id="btnLogin">Entrar</button>
+            <button id="btnLogin" type="button">Entrar</button>
         </div>
 
         <!-- APP -->
@@ -127,6 +126,10 @@
                             <label for="oferta">N° da Oferta</label>
                             <input type="text" id="oferta">
 
+                            <!-- ✅ OBS AQUI (NORMAL, SEM FORM-CARD) -->
+                            <label for="obs_geral">Observações</label>
+                            <textarea id="obs_geral" rows="2"></textarea>
+
                         </div>
 
                         <div class="form-col">
@@ -151,6 +154,14 @@
                             <label for="status">Status</label>
                             <input type="text" id="status">
 
+                            <label for="tipo_negocio">Tipo</label>
+                            <select id="tipo_negocio">
+                                <option value="">Selecione</option>
+                                <option value="compra">Compra</option>
+                                <option value="orcamento">Orçamento</option>
+                            </select>
+
+
                             <label for="data_envio">Data Envio</label>
                             <input type="date" id="data_envio">
 
@@ -159,8 +170,32 @@
                                 <label><input type="radio" name="pedido" value="sim"> Sim</label>
                                 <label><input type="radio" name="pedido" value="nao" checked> Não</label>
                             </div>
+
+                            <label>Revisão?</label>
+                            <div class="radio-group">
+                                <label><input type="radio" name="revisao" value="sim"> Sim</label>
+                                <label><input type="radio" name="revisao" value="nao" checked> Não</label>
+                            </div>
+
+                            <div id="secaoRevisao" class="form-card hidden">
+                                <h3>Informações da Revisão</h3>
+
+                                <div class="form-grid">
+                                    <div class="form-col">
+                                        <label for="rev_num_oferta">Nº da Oferta Anterior</label>
+                                        <input type="text" id="rev_num_oferta" placeholder="Ex: 123456">
+                                    </div>
+
+                                    <div class="form-col">
+                                        <label for="rev_mudou">O que mudou?</label>
+                                        <textarea id="rev_mudou" placeholder="Descreva as alterações..."></textarea>
+                                    </div>
+                                </div>
+                            </div>
+
                         </div>
                     </div>
+
 
                     <div id="secaoPedido" class="hidden">
                         <h3>Informações do Pedido</h3>
@@ -178,20 +213,48 @@
 
                                 <label for="cond_pagamento">Condição de Pagamento</label>
                                 <input type="text" id="cond_pagamento">
+
+                                                                <label for="ref_projeto">Ref./Projeto</label>
+                                <input type="text" id="ref_projeto">
+
+                                                                <label for="obs">Obs</label>
+                                <textarea id="obs"></textarea>
                             </div>
 
                             <div class="form-col">
-                                <label for="ref_projeto">Ref./Projeto</label>
-                                <input type="text" id="ref_projeto">
+
 
                                 <label for="tipo_produto">Tipo de Produto</label>
                                 <input type="text" id="tipo_produto">
 
-                                <label for="obs">Obs</label>
-                                <textarea id="obs"></textarea>
+<label for="data_nf">Data da Nota Fiscal</label>
+<input type="date" id="data_nf">
+
+<label for="valor_nf">Valor da Nota Fiscal</label>
+<input type="text" id="valor_nf" class="money">
+
+<label for="prazo_entrega_contratual">Prazo de entrega contratual</label>
+<input type="date" id="prazo_entrega_contratual">
+
+<label>Solicitação de ordem de compra?</label>
+<div class="radio-group">
+  <label><input type="radio" name="sol_oc" value="sim"> Sim</label>
+  <label><input type="radio" name="sol_oc" value="nao" checked> Não</label>
+</div>
+
+<label for="ref_oc">Ref de ordem de compra</label>
+<input type="text" id="ref_oc">
+
+
+
                             </div>
+
                         </div>
+
                     </div>
+
+
+
 
                     <button type="button" id="btnAdicionar">Adicionar</button>
                 </form>
@@ -245,7 +308,8 @@
                             <th>N° Oferta</th>
                             <th>Status</th>
                             <th>Vl. Total</th>
-                            <th>Pedido?</th>
+                            <th>PEDIDO?</th>
+                            <th>REVISÃO?</th>
                             <th>Usuário</th>
                             <th>Ações</th>
                         </tr>
@@ -255,10 +319,18 @@
 
 
                 <div class="paginacao">
+                    
                     <button id="btnPrev" class="secondary" type="button">Anterior</button>
                     <span id="pageInfo">Página 1 de 1</span>
                     <button id="btnNext" class="secondary" type="button">Próxima</button>
+                    
                 </div>
+                <label style="margin-left:10px;">Itens por página</label>
+<select id="pageSizeSelect">
+  <option value="5" selected>5</option>
+  <option value="10">10</option>
+</select>
+
             </section>
 
             <!-- CADASTRO DE CLIENTES -->
@@ -281,6 +353,8 @@
 
                         <label for="cli_segmento">Segmento</label>
                         <input type="text" id="cli_segmento">
+
+
                     </div>
 
                     <div class="form-col">
@@ -297,6 +371,12 @@
 
                         <label for="ct_funcao">Função / Cargo</label>
                         <input type="text" id="ct_funcao">
+
+                        <label for="ct_responsavel">Responsável pelo contato</label>
+                        <select id="ct_responsavel">
+                            <option value="">Selecione</option>
+                        </select>
+
 
                         <div class="checkbox-inline">
                             <input type="checkbox" id="ct_principal">
@@ -379,13 +459,18 @@
     <!-- SheetJS para Excel -->
     <script src="https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js"></script>
 
+    <!-- HEAD ou antes do seu script.js (recomendado no fim do body com defer) -->
 
-<script src="https://www.gstatic.com/firebasejs/9.6.10/firebase-app-compat.js"></script>
-<script src="https://www.gstatic.com/firebasejs/9.6.10/firebase-firestore-compat.js"></script>
-<script src="https://www.gstatic.com/firebasejs/9.6.10/firebase-auth-compat.js"></script>
+    <script src="https://www.gstatic.com/firebasejs/9.23.0/firebase-app-compat.js"></script>
+    <script src="https://www.gstatic.com/firebasejs/9.23.0/firebase-auth-compat.js"></script>
+    <script src="https://www.gstatic.com/firebasejs/9.23.0/firebase-firestore-compat.js"></script>
 
-<script src="firebase.js"></script>
-<script src="script.js"></script>
+    <!-- seu arquivo que inicializa o firebase -->
+    <script src="./firebase.js"></script>
+
+    <!-- seu script principal -->
+    <script src="./script.js" defer></script>
+
 
 </body>
 

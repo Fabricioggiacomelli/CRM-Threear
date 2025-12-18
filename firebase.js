@@ -13,8 +13,6 @@ const firebaseConfig = {
 // Inicializa Firebase (modo compat)
 firebase.initializeApp(firebaseConfig);
 
-// Firestore (vai ser usado em script.js)
-const db = firebase.firestore();
-
-// Auth (também usado em script.js)
-const auth = firebase.auth();
+// 🔴 IMPORTANTE: expor no window
+window.db = firebase.firestore();
+window.auth = firebase.auth();
