@@ -154,11 +154,11 @@
                             <label for="status">Status</label>
                             <input type="text" id="status">
 
-                            <label for="tipo_negocio">Tipo</label>
-                            <select id="tipo_negocio">
+                            <label for="tipo_oferta">Tipo</label>
+                            <select id="tipo_oferta">
                                 <option value="">Selecione</option>
-                                <option value="compra">Compra</option>
-                                <option value="orcamento">Orçamento</option>
+                                <option value="Compra">Compra</option>
+                                <option value="Orçamento">Orçamento</option>
                             </select>
 
 
@@ -267,15 +267,19 @@
                 <div class="filters">
                     <input type="text" id="searchTerm" placeholder="Buscar por texto...">
 
-                    <select id="filterField">
-                        <option value="todos">Buscar em todos os campos</option>
-                        <option value="bu">B.U</option>
-                        <option value="razao">Razão Social</option>
-                        <option value="solicitante">Solicitante</option>
-                        <option value="status">Status</option>
-                        <option value="oferta">N° Oferta</option>
-                        <option value="representada">Representada</option>
-                    </select>
+<select id="filterField">
+  <option value="todos">Buscar em todos os campos</option>
+
+  <option value="bu">B.U</option>
+  <option value="razao">Razão Social</option>
+  <option value="cnpj">CNPJ</option>
+  <option value="projeto">Projeto</option>
+  <option value="representada">Representada</option>
+  <option value="tipo_oferta">Tipo (Compra/Orçamento)</option>
+  <option value="status">Status</option>
+  <option value="usuario">Usuário</option>
+</select>
+
 
                     <input type="text" id="statusFilter" placeholder="Filtrar por Status">
 
@@ -284,6 +288,12 @@
                         <option value="com">Somente com pedido</option>
                         <option value="sem">Somente sem pedido</option>
                     </select>
+                    <select id="revisaoFilter">
+  <option value="todos">Revisão: todos</option>
+  <option value="com">Somente com revisão</option>
+  <option value="sem">Somente sem revisão</option>
+</select>
+
                 </div>
 
                 <div class="actions-row">
@@ -300,18 +310,18 @@
                     <thead>
                         <tr>
                             <th>#</th>
-                            <th>B.U</th>
-                            <th>Razão Social</th>
-                            <th>CNPJ</th>
-                            <th>Projeto</th>
-                            <th>Representada</th>
-                            <th>N° Oferta</th>
-                            <th>Status</th>
-                            <th>Vl. Total</th>
-                            <th>PEDIDO?</th>
-                            <th>REVISÃO?</th>
-                            <th>Usuário</th>
-                            <th>Ações</th>
+<th>B.U</th>
+<th>RAZÃO SOCIAL</th>
+<th>CNPJ</th>
+<th>PROJETO</th>
+<th>REPRESENTADA</th>
+<th>TIPO</th>
+<th>STATUS</th>
+<th>PEDIDO?</th>
+<th>REVISÃO?</th>
+<th>USUÁRIO</th>
+<th>AÇÕES</th>
+
                         </tr>
                     </thead>
                     <tbody></tbody>

@@ -249,7 +249,7 @@ function verOferta(id) {
   const usuario = formatarNomeUsuario(reg.atualizadoPor || reg.criadoPor || "-");
 
   const tipoTexto =
-    reg.tipo_negocio === "compra" ? "Compra" : reg.tipo_negocio === "orcamento" ? "Orçamento" : "-";
+    reg.tipo_oferta === "compra" ? "Compra" : reg.tipo_oferta === "orcamento" ? "Orçamento" : "-";
 
   let html = `
     <div class="modal-grid">
@@ -566,7 +566,7 @@ function initForm() {
     const obsGeral = document.getElementById("obs_geral");
 
     // ✅ NOVO (Oferta)
-    const tipoNegocio = document.getElementById("tipo_negocio");
+    const tipoNegocio = document.getElementById("tipo_oferta");
 
     const possuiPedido = document.querySelector("input[name='pedido']:checked")?.value || "nao";
     const possuiRevisao = document.querySelector("input[name='revisao']:checked")?.value || "nao";
@@ -609,7 +609,7 @@ function initForm() {
       possuiRevisao,
 
       // ✅ NOVOS
-      tipo_negocio: tipoNegocio ? tipoNegocio.value : "",
+      tipo_oferta: tipoNegocio ? tipoNegocio.value : "",
 
       obs_geral: obsGeral ? obsGeral.value.trim() : "",
     };
@@ -734,6 +734,15 @@ function initFiltrosEPaginacao() {
   const btnExportExcel = document.getElementById("btnExportExcel");
   const btnExportPdf = document.getElementById("btnExportPdf");
 
+  const revisaoFilter = document.getElementById("revisaoFilter");
+
+if (revisaoFilter) {
+  revisaoFilter.addEventListener("change", () => {
+    currentPage = 1;
+    renderTabela();
+  });
+}
+
   // ✅ NOVO: Itens por página (5/10)
   const pageSizeSelect = document.getElementById("pageSizeSelect");
   if (pageSizeSelect) {
@@ -795,6 +804,9 @@ function getRegistrosFiltrados() {
   const field = fieldSelect ? fieldSelect.value : "todos";
   const statusFilter = statusFilterInput ? statusFilterInput.value.trim().toLowerCase() : "";
   const pedidoFilter = pedidoFilterSelect ? pedidoFilterSelect.value : "todos";
+  const revisaoFilterSelect = document.getElementById("revisaoFilter");
+const revisaoFilter = revisaoFilterSelect ? revisaoFilterSelect.value : "todos";
+
 
   return registros.filter((reg) => {
     if (term) {
@@ -815,7 +827,7 @@ function getRegistrosFiltrados() {
           reg.status,
           reg.data_envio,
           reg.obs_geral,
-          reg.tipo_negocio, // ✅ novo
+          reg.tipo_oferta, // ✅ novo
         ];
 
         if (reg.pedido) {
@@ -838,29 +850,19 @@ function getRegistrosFiltrados() {
         if (!textoUnico.includes(term)) return false;
       } else {
         let valorCampo = "";
-        switch (field) {
-          case "bu":
-            valorCampo = reg.bu || "";
-            break;
-          case "razao":
-            valorCampo = reg.razao || "";
-            break;
-          case "solicitante":
-            valorCampo = reg.solicitante || "";
-            break;
-          case "status":
-            valorCampo = reg.status || "";
-            break;
-          case "oferta":
-            valorCampo = reg.oferta || "";
-            break;
-          case "representada":
-            valorCampo = reg.representadaNome || "";
-            break;
-          default:
-            valorCampo = "";
-            break;
-        }
+switch (field) {
+  case "bu": valorCampo = reg.bu || ""; break;
+  case "razao": valorCampo = reg.razao || ""; break;
+  case "cnpj": valorCampo = reg.cnpj_cliente || ""; break;
+  case "projeto": valorCampo = reg.nome_projeto || ""; break;
+  case "representada": valorCampo = reg.representadaNome || ""; break;
+  case "tipo_oferta": valorCampo = reg.tipo_oferta || ""; break;
+  case "status": valorCampo = reg.status || ""; break;
+  case "usuario": valorCampo = formatarNomeUsuario(reg.atualizadoPor || reg.criadoPor || ""); break;
+  default: valorCampo = ""; break;
+}
+
+
         if (!valorCampo.toLowerCase().includes(term)) return false;
       }
     }
@@ -871,6 +873,8 @@ function getRegistrosFiltrados() {
 
     if (pedidoFilter === "com" && reg.possuiPedido !== "sim") return false;
     if (pedidoFilter === "sem" && reg.possuiPedido !== "nao") return false;
+if (revisaoFilter === "com" && reg.possuiRevisao !== "sim") return false;
+if (revisaoFilter === "sem" && reg.possuiRevisao !== "nao") return false;
 
     return true;
   });
@@ -897,7 +901,7 @@ function renderTabela() {
   if (pageData.length === 0) {
     const tr = document.createElement("tr");
     const td = document.createElement("td");
-    td.colSpan = 13;
+    td.colSpan = 12;
     td.textContent = "Nenhum registro encontrado.";
     tr.appendChild(td);
     tbody.appendChild(tr);
@@ -908,25 +912,25 @@ function renderTabela() {
       const revisaoIcon = reg.possuiRevisao === "sim" ? "✅" : "—";
 
       const tr = document.createElement("tr");
-      tr.innerHTML = `
-        <td>${start + index + 1}</td>
-        <td>${reg.bu || ""}</td>
-        <td>${reg.razao || ""}</td>
-        <td>${reg.cnpj_cliente || ""}</td>
-        <td>${reg.nome_projeto || ""}</td>
-        <td>${reg.representadaNome || ""}</td>
-        <td>${reg.oferta || ""}</td>
-        <td>${reg.status || ""}</td>
-        <td>${reg.valor_total || ""}</td>
-        <td>${pedidoIcon}</td>
-        <td>${revisaoIcon}</td>
-        <td>${usuario}</td>
-        <td>
-          <button class="btn-sm" onclick="verOferta('${reg.id}')">Ver</button>
-          <button class="btn-sm" onclick="editarRegistro('${reg.id}')">Editar</button>
-          <button class="btn-sm btn-danger" onclick="excluirRegistro('${reg.id}')">Excluir</button>
-        </td>
-      `;
+tr.innerHTML = `
+  <td>${start + index + 1}</td>
+  <td>${reg.bu || ""}</td>
+  <td>${reg.razao || ""}</td>
+  <td>${reg.cnpj_cliente || ""}</td>
+  <td>${reg.nome_projeto || ""}</td>
+  <td>${reg.representadaNome || ""}</td>
+  <td>${reg.tipo_oferta || ""}</td>
+  <td>${reg.status || ""}</td>
+  <td>${pedidoIcon}</td>
+  <td>${revisaoIcon}</td>
+  <td>${usuario}</td>
+  <td>
+    <button class="btn-sm" onclick="verOferta('${reg.id}')">Ver</button>
+    <button class="btn-sm" onclick="editarRegistro('${reg.id}')">Editar</button>
+    <button class="btn-sm btn-danger" onclick="excluirRegistro('${reg.id}')">Excluir</button>
+  </td>
+`;
+
       tbody.appendChild(tr);
     });
   }
@@ -963,8 +967,8 @@ function editarRegistro(id) {
   if (obsGeral) obsGeral.value = reg.obs_geral || "";
 
   // ✅ Tipo (Compra/Orçamento)
-  const tipoNegocio = document.getElementById("tipo_negocio");
-  if (tipoNegocio) tipoNegocio.value = reg.tipo_negocio || "";
+  const tipoNegocio = document.getElementById("tipo_oferta");
+  if (tipoNegocio) tipoNegocio.value = reg.tipo_oferta || "";
 
   const representadaSelect = document.getElementById("representada");
   if (representadaSelect && reg.representadaId) representadaSelect.value = reg.representadaId;
@@ -1069,7 +1073,7 @@ function exportExcel() {
     const usuario = reg.atualizadoPor || reg.criadoPor || "";
 
     const tipoTexto =
-      reg.tipo_negocio === "compra" ? "Compra" : reg.tipo_negocio === "orcamento" ? "Orçamento" : "";
+      reg.tipo_oferta === "compra" ? "Compra" : reg.tipo_oferta === "orcamento" ? "Orçamento" : "";
 
     return {
       "#": i + 1,
@@ -1166,7 +1170,7 @@ function exportPdf() {
   filtrados.forEach((reg, i) => {
     const usuario = reg.atualizadoPor || reg.criadoPor || "";
     const tipoTexto =
-      reg.tipo_negocio === "compra" ? "Compra" : reg.tipo_negocio === "orcamento" ? "Orçamento" : "";
+      reg.tipo_oferta === "compra" ? "Compra" : reg.tipo_oferta === "orcamento" ? "Orçamento" : "";
 
     html += `
       <tr>
@@ -1388,7 +1392,7 @@ function exportBackupExcel() {
     Telefone: r.telefone || "",
     Email: r.email || "",
     NumeroOferta: r.oferta || "",
-    TipoNegocio: r.tipo_negocio || "",
+    TipoNegocio: r.tipo_oferta || "",
     ValorTotal: r.valor_total || "",
     Oportunidade: r.oportunidade || "",
     DataEntrada: r.data_entrada || "",
@@ -1558,7 +1562,7 @@ function importBackupExcel(file) {
               telefone: row.Telefone || "",
               email: row.Email || "",
               oferta: row.NumeroOferta || "",
-              tipo_negocio: row.TipoNegocio || "",
+              tipo_oferta: row.TipoNegocio || "",
               valor_total: row.ValorTotal || "",
               oportunidade: row.Oportunidade || "",
               data_entrada: row.DataEntrada || "",
