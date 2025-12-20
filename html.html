@@ -112,9 +112,9 @@
                             <input type="text" id="razao">
 
 
-                            <label for="cnpj_cliente">CNPJ</label>
+                            <label for="cnpj_cliente">CNPJ do Cliente</label>
                             <div class="autocomplete-wrap">
-                                <input id="cnpj_cliente" autocomplete="off" />
+                                <input id="cnpj_cliente" autocomplete="off" placeholder="00.000.000/0000-00" />
                                 <div id="cnpjAuto" class="autocomplete-box hidden"></div>
                             </div>
 
@@ -150,7 +150,7 @@
                             </select>
 
                             <label for="valor_total">Vl. Total</label>
-                            <input type="text" id="valor_total" class="money">
+                            <input type="text" id="valor_total" class="money" placeholder="R$">
 
                             <label for="oportunidade">Ref. do Cliente</label>
                             <input type="text" id="oportunidade">
@@ -190,12 +190,12 @@
                                 <div class="form-grid">
                                     <div class="form-col">
                                         <label for="rev_num_oferta">Nº da Oferta Anterior</label>
-                                        <input type="text" id="rev_num_oferta" placeholder="Ex: 123456">
+                                        <input type="text" id="rev_num_oferta">
                                     </div>
 
                                     <div class="form-col">
                                         <label for="rev_mudou">O que mudou?</label>
-                                        <textarea id="rev_mudou" placeholder="Descreva as alterações..."></textarea>
+                                        <textarea id="rev_mudou" ></textarea>
                                     </div>
                                 </div>
                             </div>
@@ -216,7 +216,7 @@
                                 <input type="date" id="data_po">
 
                                 <label for="valor_pedido">VL. Total Pedido</label>
-                                <input type="text" id="valor_pedido" class="money">
+                                <input type="text" id="valor_pedido" class="money" placeholder="R$">
 
                                 <label for="cond_pagamento">Condição de Pagamento</label>
                                 <input type="text" id="cond_pagamento">
@@ -238,7 +238,7 @@
                                 <input type="date" id="data_nf">
 
                                 <label for="valor_nf">Valor da Nota Fiscal</label>
-                                <input type="text" id="valor_nf" class="money">
+                                <input type="text" id="valor_nf" class="money" placeholder="R$">
 
                                 <label for="prazo_entrega_contratual">Prazo de entrega contratual</label>
                                 <input type="date" id="prazo_entrega_contratual">
