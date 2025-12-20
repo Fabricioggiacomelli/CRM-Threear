@@ -111,8 +111,15 @@
                             <label for="razao">Razão Social</label>
                             <input type="text" id="razao">
 
-                            <label for="cnpj_cliente">CNPJ do Cliente</label>
-                            <input type="text" id="cnpj_cliente" placeholder="00.000.000/0000-00">
+
+                            <label for="cnpj_cliente">CNPJ</label>
+                            <div class="autocomplete-wrap">
+                                <input id="cnpj_cliente" autocomplete="off" />
+                                <div id="cnpjAuto" class="autocomplete-box hidden"></div>
+                            </div>
+
+
+
 
                             <label for="solicitante">Solicitante</label>
                             <input type="text" id="solicitante">
@@ -214,10 +221,10 @@
                                 <label for="cond_pagamento">Condição de Pagamento</label>
                                 <input type="text" id="cond_pagamento">
 
-                                                                <label for="ref_projeto">Ref./Projeto</label>
+                                <label for="ref_projeto">Ref./Projeto</label>
                                 <input type="text" id="ref_projeto">
 
-                                                                <label for="obs">Obs</label>
+                                <label for="obs">Obs</label>
                                 <textarea id="obs"></textarea>
                             </div>
 
@@ -227,23 +234,23 @@
                                 <label for="tipo_produto">Tipo de Produto</label>
                                 <input type="text" id="tipo_produto">
 
-<label for="data_nf">Data da Nota Fiscal</label>
-<input type="date" id="data_nf">
+                                <label for="data_nf">Data da Nota Fiscal</label>
+                                <input type="date" id="data_nf">
 
-<label for="valor_nf">Valor da Nota Fiscal</label>
-<input type="text" id="valor_nf" class="money">
+                                <label for="valor_nf">Valor da Nota Fiscal</label>
+                                <input type="text" id="valor_nf" class="money">
 
-<label for="prazo_entrega_contratual">Prazo de entrega contratual</label>
-<input type="date" id="prazo_entrega_contratual">
+                                <label for="prazo_entrega_contratual">Prazo de entrega contratual</label>
+                                <input type="date" id="prazo_entrega_contratual">
 
-<label>Solicitação de ordem de compra?</label>
-<div class="radio-group">
-  <label><input type="radio" name="sol_oc" value="sim"> Sim</label>
-  <label><input type="radio" name="sol_oc" value="nao" checked> Não</label>
-</div>
+                                <label>Solicitação de ordem de compra?</label>
+                                <div class="radio-group">
+                                    <label><input type="radio" name="sol_oc" value="sim"> Sim</label>
+                                    <label><input type="radio" name="sol_oc" value="nao" checked> Não</label>
+                                </div>
 
-<label for="ref_oc">Ref de ordem de compra</label>
-<input type="text" id="ref_oc">
+                                <label for="ref_oc">Ref de ordem de compra</label>
+                                <input type="text" id="ref_oc">
 
 
 
@@ -267,18 +274,18 @@
                 <div class="filters">
                     <input type="text" id="searchTerm" placeholder="Buscar por texto...">
 
-<select id="filterField">
-  <option value="todos">Buscar em todos os campos</option>
+                    <select id="filterField">
+                        <option value="todos">Buscar em todos os campos</option>
 
-  <option value="bu">B.U</option>
-  <option value="razao">Razão Social</option>
-  <option value="cnpj">CNPJ</option>
-  <option value="projeto">Projeto</option>
-  <option value="representada">Representada</option>
-  <option value="tipo_oferta">Tipo (Compra/Orçamento)</option>
-  <option value="status">Status</option>
-  <option value="usuario">Usuário</option>
-</select>
+                        <option value="bu">B.U</option>
+                        <option value="razao">Razão Social</option>
+                        <option value="cnpj">CNPJ</option>
+                        <option value="projeto">Projeto</option>
+                        <option value="representada">Representada</option>
+                        <option value="tipo_oferta">Tipo (Compra/Orçamento)</option>
+                        <option value="status">Status</option>
+                        <option value="usuario">Usuário</option>
+                    </select>
 
 
 
@@ -292,10 +299,10 @@
                         <option value="sem">Somente sem pedido</option>
                     </select>
                     <select id="revisaoFilter">
-  <option value="todos">Revisão: todos</option>
-  <option value="com">Somente com revisão</option>
-  <option value="sem">Somente sem revisão</option>
-</select>
+                        <option value="todos">Revisão: todos</option>
+                        <option value="com">Somente com revisão</option>
+                        <option value="sem">Somente sem revisão</option>
+                    </select>
 
                 </div>
 
@@ -313,17 +320,17 @@
                     <thead>
                         <tr>
                             <th>#</th>
-<th>B.U</th>
-<th>RAZÃO SOCIAL</th>
-<th>CNPJ</th>
-<th>PROJETO</th>
-<th>REPRESENTADA</th>
-<th>TIPO</th>
-<th>STATUS</th>
-<th>PEDIDO?</th>
-<th>REVISÃO?</th>
-<th>USUÁRIO</th>
-<th>AÇÕES</th>
+                            <th>B.U</th>
+                            <th>RAZÃO SOCIAL</th>
+                            <th>CNPJ</th>
+                            <th>PROJETO</th>
+                            <th>REPRESENTADA</th>
+                            <th>TIPO</th>
+                            <th>STATUS</th>
+                            <th>PEDIDO?</th>
+                            <th>REVISÃO?</th>
+                            <th>USUÁRIO</th>
+                            <th>AÇÕES</th>
 
                         </tr>
                     </thead>
@@ -332,17 +339,17 @@
 
 
                 <div class="paginacao">
-                    
+
                     <button id="btnPrev" class="secondary" type="button">Anterior</button>
                     <span id="pageInfo">Página 1 de 1</span>
                     <button id="btnNext" class="secondary" type="button">Próxima</button>
-                    
+
                 </div>
                 <label style="margin-left:10px;">Itens por página</label>
-<select id="pageSizeSelect">
-  <option value="5" selected>5</option>
-  <option value="10">10</option>
-</select>
+                <select id="pageSizeSelect">
+                    <option value="5" selected>5</option>
+                    <option value="10">10</option>
+                </select>
 
             </section>
 

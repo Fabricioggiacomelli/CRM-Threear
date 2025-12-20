@@ -930,15 +930,15 @@ body.dark .chart-container {
 body.dark .modal {
   background: rgba(15, 23, 42, 0.8);
 }
-.form-card{
-  border: 1px dashed rgba(255,255,255,.15);
+.form-card {
+  border: 1px dashed rgba(255, 255, 255, 0.15);
   border-radius: 16px;
   padding: 18px;
   margin-top: 14px;
-  background: rgba(255,255,255,.03);
+  background: rgba(255, 255, 255, 0.03);
 }
 
-.form-card h3{
+.form-card h3 {
   margin: 0 0 14px 0;
   font-size: 16px;
   font-weight: 700;
@@ -946,13 +946,55 @@ body.dark .modal {
 
 .form-card input,
 .form-card textarea,
-.form-card select{
+.form-card select {
   width: 100%;
 }
 .form-card {
-  border: 1px dashed rgba(255,255,255,.15);
+  border: 1px dashed rgba(255, 255, 255, 0.15);
   border-radius: 16px;
   padding: 18px;
   margin-top: 14px;
-  background: rgba(255,255,255,.03);
+  background: rgba(255, 255, 255, 0.03);
+}
+.autocomplete-wrap { position: relative; }
+
+.autocomplete-box{
+  position: absolute;
+  top: calc(100% + 6px);
+  left: 0;
+  right: 0;
+  max-height: 260px;
+  overflow: auto;
+
+  background: #0b1220;
+  border: 1px solid rgba(255,255,255,.10);
+  border-radius: 12px;
+  box-shadow: 0 18px 40px rgba(0,0,0,.35);
+  z-index: 9999;
+}
+
+.autocomplete-box.hidden{ display:none; }
+
+.autocomplete-item{
+  padding: 10px 12px;
+  cursor: pointer;
+  border-bottom: 1px solid rgba(255,255,255,.06);
+}
+
+.autocomplete-item:last-child{ border-bottom: 0; }
+
+.autocomplete-item:hover{
+  background: rgba(255,255,255,.05);
+}
+
+.autocomplete-item .razao{
+  color: #e5e7eb;
+  font-weight: 700;
+  font-size: 13px;
+  margin-bottom: 3px;
+}
+
+.autocomplete-item .cnpj{
+  color: rgba(229,231,235,.75);
+  font-size: 12px;
 }
