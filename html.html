@@ -105,8 +105,29 @@
                     <div class="form-grid">
                         <div class="form-col">
 
-                            <label for="bu">B.U</label>
-                            <input type="text" id="bu">
+                            <!-- B.U -->
+<label for="bu">B.U</label>
+<select id="bu" class="input">
+  <option value="">Selecione</option>
+  <option value="T&I">T&I</option>
+  <option value="OGP">OGP</option>
+  <option value="OEM">OEM</option>
+  <option value="High Voltage">High Voltage</option>
+  <option value="OHTZ">OHTZ</option>
+  <option value="Telecom">Telecom</option>
+  <option value="Power Distribution">Power Distribution</option>
+  <option value="Acessórios">Acessórios</option>
+  <option value="MMS">MMS</option>
+</select>
+
+<!-- Segmento (dependente) -->
+<div id="segmentoWrap" class="hidden">
+  <label for="segmento">Segmento</label>
+  <select id="segmento" class="input">
+    <option value="">Selecione</option>
+  </select>
+</div>
+
 
                             <label for="razao">Razão Social</label>
                             <input type="text" id="razao">

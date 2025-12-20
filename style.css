@@ -998,3 +998,4 @@ body.dark .modal {
   color: rgba(229,231,235,.75);
   font-size: 12px;
 }
+.hidden { display: none !important; }

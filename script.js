@@ -49,6 +49,7 @@ window.addEventListener("load", async () => {
   initRepresentadasUI();
   initLigacaoClienteOferta();
   initBackupUI();
+  initBuSegmento();
 
   // ✅ espera firebase carregar
   await esperarFirebase();
@@ -675,6 +676,7 @@ function initForm() {
     // base
     const registroBase = {
       bu: bu.value,
+      segmento: segmentoEl ? (segmentoEl.value || "") : "", 
       razao: razao.value,
       cnpj_cliente: cnpj_cliente.value,
       clienteId: cnpj_cliente.dataset.clienteId || null,
@@ -1089,6 +1091,28 @@ function editarRegistro(id) {
   editId = id;
 
   document.getElementById("bu").value = reg.bu || "";
+
+// atualiza dropdown de segmento conforme BU
+if (typeof initBuSegmento === "function") {
+  // se você não quiser reinicializar, melhor chamar uma função "renderSegmentos"
+  // mas do jeito simples:
+  setTimeout(() => {
+    const segEl = document.getElementById("segmento");
+    const segWrap = document.getElementById("segmentoWrap");
+
+    // força disparar change pra popular
+    document.getElementById("bu").dispatchEvent(new Event("change"));
+
+    // seta o segmento salvo
+    if (segEl) segEl.value = reg.segmento || "";
+
+    // se BU não tem segmentos, garante escondido
+    if (segWrap && !segEl?.querySelectorAll("option").length) {
+      segWrap.classList.add("hidden");
+    }
+  }, 0);
+}
+
   document.getElementById("razao").value = reg.razao || "";
 
   const cnpjInput = document.getElementById("cnpj_cliente");
@@ -2620,4 +2644,56 @@ box.addEventListener("mousedown", (e) => {
   input.addEventListener("keydown", (e) => {
     if (e.key === "Escape") hide();
   });
+}
+function initBuSegmento() {
+  const buEl = document.getElementById("bu");
+  const segWrap = document.getElementById("segmentoWrap");
+  const segEl = document.getElementById("segmento");
+
+  if (!buEl || !segWrap || !segEl) return;
+
+  // ✅ Mapa de segmentos por B.U (pelo seu print)
+const SEGMENTOS_POR_BU = {
+  "T&I": [],
+  "OGP": ["On Shore", "Off Shore", "DW"],
+  "OEM": ["infra", "Renew (PV)", "Renew (Wind)", "Mining", "Cranes", "Marine", "Rolling Stock", "Raiways", "Water", "Nuclear"],
+  "High Voltage": [],
+  "OHTZ": [],
+  "Telecom": [],
+  "Power Distribution": [],
+  "Acessórios": [],
+  "MMS": [],
+};
+
+  function renderSegmentos(buValue) {
+    const lista = SEGMENTOS_POR_BU[buValue] || [];
+
+    // limpa options atuais
+    segEl.innerHTML = `<option value="">Selecione</option>`;
+
+    if (!lista.length) {
+      // sem segmento => esconde e limpa valor
+      segEl.value = "";
+      segWrap.classList.add("hidden");
+      return;
+    }
+
+    // tem segmento => mostra e popula
+    lista.forEach((seg) => {
+      const opt = document.createElement("option");
+      opt.value = seg;
+      opt.textContent = seg;
+      segEl.appendChild(opt);
+    });
+
+    segWrap.classList.remove("hidden");
+  }
+
+  // quando muda a BU
+  buEl.addEventListener("change", () => {
+    renderSegmentos(buEl.value);
+  });
+
+  // ao carregar (se já tiver BU preenchida em edição)
+  renderSegmentos(buEl.value);
 }
