@@ -22,9 +22,6 @@
   --primary-hover: #1d4ed8;
   --shadow-soft: 0 18px 40px rgba(15, 23, 42, 0.08);
 }
-/* ------------------------------ */
-/*     CORREÇÃO DARK MODE         */
-/* ------------------------------ */
 
 body.dark {
   --bg-body: #0f172a !important;
@@ -45,7 +42,6 @@ body.dark {
   --primary-hover: #60a5fa !important;
 }
 
-/* Sidebar no escuro */
 body.dark .sidebar {
   background: #0f172a !important;
 }
@@ -59,7 +55,6 @@ body.dark .menu-item:hover {
   background: #334155 !important;
 }
 
-/* Inputs no escuro */
 body.dark input,
 body.dark textarea,
 body.dark select {
@@ -73,7 +68,6 @@ body.dark textarea::placeholder {
   color: #94a3b8 !important;
 }
 
-/* Tabela no escuro */
 body.dark table {
   background: #1e293b !important;
   color: #e2e8f0 !important;
@@ -93,7 +87,6 @@ body.dark tbody tr:hover {
   background: #334155 !important;
 }
 
-/* Botões secundários */
 body.dark button.secondary {
   background: #334155 !important;
   color: #e2e8f0 !important;
@@ -103,13 +96,11 @@ body.dark button.secondary:hover {
   background: #475569 !important;
 }
 
-/* Container geral */
 body.dark .container {
   background: #1e293b !important;
   box-shadow: none !important;
 }
 
-/* Topbar */
 body.dark .topbar {
   border-bottom: 1px solid #334155 !important;
 }
@@ -117,8 +108,6 @@ body.dark .topbar {
 body.dark .subtitle {
   color: #cbd5e1 !important;
 }
-
-/* BODY */
 
 body {
   font-family: "Poppins", sans-serif;
@@ -130,8 +119,6 @@ body {
   align-items: flex-start;
   transition: background-color 0.25s ease, color 0.25s ease;
 }
-
-/* MOBILE TOGGLE */
 
 .mobile-toggle {
   display: none;
@@ -147,8 +134,6 @@ body {
   font-size: 16px;
   box-shadow: 0 8px 20px rgba(37, 99, 235, 0.4);
 }
-
-/* SIDEBAR */
 
 .sidebar {
   width: 230px;
@@ -191,7 +176,6 @@ body {
   transform: rotate(180deg);
 }
 
-/* Expande ao passar o mouse (desktop) */
 @media (min-width: 781px) {
   .sidebar.collapsed:hover {
     width: 230px;
@@ -212,8 +196,6 @@ body {
     transform: rotate(0deg);
   }
 }
-
-/* Cabeçalho da sidebar */
 
 .sidebar-header {
   display: flex;
@@ -243,8 +225,6 @@ body {
   white-space: nowrap;
   transition: opacity 0.2s ease;
 }
-
-/* Menu */
 
 .sidebar-menu {
   display: flex;
@@ -294,8 +274,6 @@ body {
   background: var(--bg-sidebar-logout-hover);
 }
 
-/* Botão de colapso */
-
 .collapse-btn {
   margin-top: 12px;
   padding: 8px 0;
@@ -312,21 +290,15 @@ body {
   background: var(--bg-sidebar-item-hover);
 }
 
-/* MAIN CONTENT */
-
 .main-content {
   flex: 1;
   margin-left: 260px;
   transition: margin-left 0.25s ease, transform 0.25s ease;
 }
 
-/* Quando sidebar colapsa */
-
 .sidebar.collapsed + .main-content {
   margin-left: 110px;
 }
-
-/* CONTAINER */
 
 .container {
   background: var(--bg-container);
@@ -348,8 +320,6 @@ body {
   max-width: 420px;
 }
 
-/* Títulos */
-
 h1 {
   font-size: 24px;
   font-weight: 600;
@@ -370,8 +340,6 @@ h3 {
   color: var(--text-muted);
 }
 
-/* Topbar dentro do app */
-
 .topbar {
   display: flex;
   justify-content: space-between;
@@ -389,8 +357,6 @@ h3 {
 #userInfo {
   font-weight: 500;
 }
-
-/* Labels & campos */
 
 label {
   font-size: 13px;
@@ -434,8 +400,6 @@ select:focus {
   box-shadow: 0 0 0 1px rgba(37, 99, 235, 0.15);
 }
 
-/* Radio */
-
 .radio-group {
   display: flex;
   gap: 14px;
@@ -448,8 +412,6 @@ select:focus {
   width: auto;
   margin-right: 6px;
 }
-
-/* Botões */
 
 button {
   border: none;
@@ -487,8 +449,6 @@ button.secondary:hover {
   background: #d1d5db;
 }
 
-/* Grids do formulário */
-
 .form-grid {
   display: flex;
   flex-wrap: wrap;
@@ -500,8 +460,6 @@ button.secondary:hover {
   min-width: 220px;
 }
 
-/* Seção de pedido */
-
 #secaoPedido {
   margin-top: 12px;
   padding: 14px 16px;
@@ -509,8 +467,6 @@ button.secondary:hover {
   border: 1px dashed var(--border-soft);
   background: rgba(59, 130, 246, 0.03);
 }
-
-/* Filtros e ações */
 
 .filters {
   display: flex;
@@ -536,8 +492,6 @@ button.secondary:hover {
   flex: 1;
   margin-top: 0;
 }
-
-/* Tabela */
 
 table {
   width: 100%;
@@ -572,8 +526,6 @@ tbody tr:hover {
   background: rgba(249, 250, 251, 0.7);
 }
 
-/* Botões na tabela */
-
 .btn-sm {
   width: auto;
   padding: 5px 10px;
@@ -599,8 +551,6 @@ tbody tr:hover {
   background: #b91c1c !important;
 }
 
-/* Paginação */
-
 .paginacao {
   margin-top: 16px;
   display: flex;
@@ -621,13 +571,9 @@ tbody tr:hover {
   color: var(--text-muted);
 }
 
-/* Utilidades */
-
 .hidden {
   display: none !important;
 }
-
-/* RESPONSIVO */
 
 @media (max-width: 780px) {
   body {
@@ -680,7 +626,6 @@ tbody tr:hover {
     padding: 7px 8px;
   }
 }
-/* Logo redonda ajustada */
 .logo-img {
   width: 42px;
   height: 42px;
@@ -689,11 +634,9 @@ tbody tr:hover {
   display: block;
 }
 
-/* No modo escuro, manter boa aparência */
 body.dark .logo-img {
   filter: brightness(0.9);
 }
-/* ====== DASHBOARD PAGE ====== */
 .chart-container {
   background: var(--bg-container);
   padding: 20px;
@@ -708,7 +651,6 @@ canvas {
   height: 380px !important;
 }
 
-/* Título centralizado */
 .container h1 {
   text-align: left;
   margin-bottom: 5px;
@@ -718,13 +660,11 @@ canvas {
   margin-bottom: 20px;
 }
 
-/* Modo escuro corrige contraste dos gráficos */
 body.dark .chart-container {
   background: #1e293b !important;
   border: 1px solid #334155 !important;
 }
 
-/* Botão de exportar PDF */
 #btnDownloadPDF {
   padding: 10px 20px;
   display: inline-block;
@@ -733,7 +673,6 @@ body.dark .chart-container {
   border-radius: 12px;
   cursor: pointer;
 }
-/* Impede quebra de página nos gráficos ao exportar PDF */
 .chart-container,
 .container {
   page-break-inside: avoid;
@@ -799,7 +738,6 @@ body.dark .chart-container {
   width: auto;
   margin: 0;
 }
-/* ===== MODAL – MODELO 2: PAINEL CORPORATIVO ===== */
 
 .modal {
   position: fixed;
@@ -821,7 +759,7 @@ body.dark .chart-container {
   display: flex;
   align-items: center;
   justify-content: center;
-  padding: 1px 60px; /* <<< padding lateral maior (resolve as sobras) */
+  padding: 1px 60px;
   min-height: 45px;
   background: linear-gradient(135deg, var(--primary), #1d4ed8);
   border-bottom: 1px solid var(--border-soft);
@@ -834,8 +772,8 @@ body.dark .chart-container {
   white-space: nowrap;
   max-width: 80%;
 
-  overflow: hidden; /* impede encostar na borda */
-  text-overflow: ellipsis; /* adiciona "..." caso seja gigante */
+  overflow: hidden;
+  text-overflow: ellipsis;
   text-align: center;
 }
 
@@ -865,7 +803,6 @@ body.dark .chart-container {
   transform: translateY(-50%) scale(1.03);
 }
 
-/* Corpo em "painel" */
 .modal-body {
   padding: 14px 20px 18px 20px;
   overflow-y: auto;
@@ -873,7 +810,6 @@ body.dark .chart-container {
   background: var(--bg-body);
 }
 
-/* Layout em duas colunas em tela grande */
 @media (min-width: 720px) {
   .modal-grid {
     display: grid;
@@ -882,7 +818,6 @@ body.dark .chart-container {
   }
 }
 
-/* Cada bloco de informação */
 .modal-card {
   background: var(--bg-container);
   border-radius: 14px;
@@ -909,14 +844,12 @@ body.dark .chart-container {
   color: var(--text-strong);
 }
 
-/* Linha fina */
 .modal-divider {
   height: 1px;
   background: var(--border-soft);
   margin: 8px 0 10px 0;
 }
 
-/* Badge de destaque */
 .modal-badge {
   display: inline-block;
   padding: 2px 8px;
@@ -926,7 +859,6 @@ body.dark .chart-container {
   font-size: 11px;
   margin-left: 6px;
 }
-/* Dark: overlay mais forte */
 body.dark .modal {
   background: rgba(15, 23, 42, 0.8);
 }
@@ -956,9 +888,11 @@ body.dark .modal {
   margin-top: 14px;
   background: rgba(255, 255, 255, 0.03);
 }
-.autocomplete-wrap { position: relative; }
+.autocomplete-wrap {
+  position: relative;
+}
 
-.autocomplete-box{
+.autocomplete-box {
   position: absolute;
   top: calc(100% + 6px);
   left: 0;
@@ -967,35 +901,41 @@ body.dark .modal {
   overflow: auto;
 
   background: #0b1220;
-  border: 1px solid rgba(255,255,255,.10);
+  border: 1px solid rgba(255, 255, 255, 0.1);
   border-radius: 12px;
-  box-shadow: 0 18px 40px rgba(0,0,0,.35);
+  box-shadow: 0 18px 40px rgba(0, 0, 0, 0.35);
   z-index: 9999;
 }
 
-.autocomplete-box.hidden{ display:none; }
+.autocomplete-box.hidden {
+  display: none;
+}
 
-.autocomplete-item{
+.autocomplete-item {
   padding: 10px 12px;
   cursor: pointer;
-  border-bottom: 1px solid rgba(255,255,255,.06);
+  border-bottom: 1px solid rgba(255, 255, 255, 0.06);
 }
 
-.autocomplete-item:last-child{ border-bottom: 0; }
-
-.autocomplete-item:hover{
-  background: rgba(255,255,255,.05);
+.autocomplete-item:last-child {
+  border-bottom: 0;
 }
 
-.autocomplete-item .razao{
+.autocomplete-item:hover {
+  background: rgba(255, 255, 255, 0.05);
+}
+
+.autocomplete-item .razao {
   color: #e5e7eb;
   font-weight: 700;
   font-size: 13px;
   margin-bottom: 3px;
 }
 
-.autocomplete-item .cnpj{
-  color: rgba(229,231,235,.75);
+.autocomplete-item .cnpj {
+  color: rgba(229, 231, 235, 0.75);
   font-size: 12px;
 }
-.hidden { display: none !important; }
+.hidden {
+  display: none !important;
+}

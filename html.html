@@ -11,7 +11,6 @@
     <meta name="theme-color" content="#2563eb">
 
 </head>
-<!-- MODAL DE DETALHES (OFERTA / CLIENTE / REPRESENTADA) -->
 <div id="modalDetalhes" class="modal hidden">
     <div class="modal-content">
         <div class="modal-header">
@@ -20,15 +19,12 @@
         </div>
 
         <div class="modal-body" id="modalCorpo">
-            <!-- conteúdo preenchido via JS -->
         </div>
     </div>
 </div>
 
 <body>
-    <!-- Botão mobile para abrir/fechar sidebar -->
     <div class="mobile-toggle" onclick="toggleSidebar()">☰</div>
-    <!-- SIDEBAR -->
     <aside class="sidebar collapsed" id="sidebar">
         <div class="sidebar-header">
             <img src="Imagens/Logo.png" class="logo-img" alt="logo">
@@ -62,20 +58,17 @@
             </button>
         </nav>
 
-        <!-- Botão para colapsar/expandir sidebar (desktop) -->
         <button class="collapse-btn" type="button" onclick="toggleSidebar()">⮜</button>
     </aside>
 
-    <!-- CONTEÚDO PRINCIPAL -->
     <div class="main-content">
 
-        <!-- LOGIN -->
         <div id="loginContainer" class="container">
             <h1>Login</h1>
             <p>Digite seu Usuário e senha.</p>
 
             <label for="loginUser">Usuário</label>
-            <input type="text" id="loginUser" placeholder="admin">
+            <input type="text" id="loginUser" placeholder="User">
 
             <label for="loginPass">Senha</label>
             <input type="password" id="loginPass" placeholder="1234">
@@ -83,7 +76,6 @@
             <button id="btnLogin" type="button">Entrar</button>
         </div>
 
-        <!-- APP -->
         <div id="appContainer" class="container hidden">
 
             <div class="topbar">
@@ -96,7 +88,6 @@
                 </div>
             </div>
 
-            <!-- FORMULÁRIO DE OFERTA -->
             <section id="secCadastro">
                 <h3>Cadastro de Oferta</h3>
 
@@ -105,28 +96,26 @@
                     <div class="form-grid">
                         <div class="form-col">
 
-                            <!-- B.U -->
-<label for="bu">B.U</label>
-<select id="bu" class="input">
-  <option value="">Selecione</option>
-  <option value="T&I">T&I</option>
-  <option value="OGP">OGP</option>
-  <option value="OEM">OEM</option>
-  <option value="High Voltage">High Voltage</option>
-  <option value="OHTZ">OHTZ</option>
-  <option value="Telecom">Telecom</option>
-  <option value="Power Distribution">Power Distribution</option>
-  <option value="Acessórios">Acessórios</option>
-  <option value="MMS">MMS</option>
-</select>
+                            <label for="bu">B.U</label>
+                            <select id="bu" class="input">
+                                <option value="">Selecione</option>
+                                <option value="T&I">T&I</option>
+                                <option value="OGP">OGP</option>
+                                <option value="OEM">OEM</option>
+                                <option value="High Voltage">High Voltage</option>
+                                <option value="OHTZ">OHTZ</option>
+                                <option value="Telecom">Telecom</option>
+                                <option value="Power Distribution">Power Distribution</option>
+                                <option value="Acessórios">Acessórios</option>
+                                <option value="MMS">MMS</option>
+                            </select>
 
-<!-- Segmento (dependente) -->
-<div id="segmentoWrap" class="hidden">
-  <label for="segmento">Segmento</label>
-  <select id="segmento" class="input">
-    <option value="">Selecione</option>
-  </select>
-</div>
+                            <div id="segmentoWrap" class="hidden">
+                                <label for="segmento">Segmento</label>
+                                <select id="segmento" class="input">
+                                    <option value="">Selecione</option>
+                                </select>
+                            </div>
 
 
                             <label for="razao">Razão Social</label>
@@ -154,7 +143,6 @@
                             <label for="oferta">N° da Oferta</label>
                             <input type="text" id="oferta">
 
-                            <!-- ✅ OBS AQUI (NORMAL, SEM FORM-CARD) -->
                             <label for="obs_geral">Observações</label>
                             <textarea id="obs_geral" rows="2"></textarea>
 
@@ -216,7 +204,7 @@
 
                                     <div class="form-col">
                                         <label for="rev_mudou">O que mudou?</label>
-                                        <textarea id="rev_mudou" ></textarea>
+                                        <textarea id="rev_mudou"></textarea>
                                     </div>
                                 </div>
                             </div>
@@ -288,7 +276,6 @@
                 </form>
             </section>
 
-            <!-- CONSULTA DE REGISTROS -->
             <section id="secRegistros">
                 <h3>Consulta de Registros</h3>
 
@@ -374,7 +361,6 @@
 
             </section>
 
-            <!-- CADASTRO DE CLIENTES -->
             <section id="secClientes">
                 <h3>Cadastro de Clientes</h3>
 
@@ -455,7 +441,6 @@
 
             </section>
 
-            <!-- CADASTRO DE REPRESENTADAS -->
             <section id="secRepresentadas">
                 <h3>Cadastro de Representadas</h3>
 
@@ -480,9 +465,8 @@
 
         </div>
 
-    </div> <!-- main-content -->
+    </div>
 
-    <!-- PAINEL LATERAL DO CLIENTE -->
     <div id="painelCliente" class="side-panel hidden">
         <div class="side-panel-header">
             <h3 id="painelClienteNome">Cliente</h3>
@@ -497,21 +481,16 @@
         </div>
     </div>
 
-    <!-- SheetJS para Excel -->
     <script src="https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js"></script>
 
-    <!-- HEAD ou antes do seu script.js (recomendado no fim do body com defer) -->
 
     <script src="https://www.gstatic.com/firebasejs/9.23.0/firebase-app-compat.js"></script>
     <script src="https://www.gstatic.com/firebasejs/9.23.0/firebase-auth-compat.js"></script>
     <script src="https://www.gstatic.com/firebasejs/9.23.0/firebase-firestore-compat.js"></script>
 
-    <!-- seu arquivo que inicializa o firebase -->
     <script src="./firebase.js"></script>
 
-    <!-- seu script principal -->
     <script src="./script.js" defer></script>
-
 
 </body>
 

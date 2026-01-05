@@ -1,40 +1,22 @@
-/* =========================
-   CRM-Three Ar - script.js
-   (Ofertas + Clientes + Representadas + Revisão + Obs Geral)
-   + Tipo (Compra/Orçamento)
-   + Campos extras no Pedido (NF/Entrega/OC)
-   + Itens por página (5/10)
-   + Export Excel/PDF + Backup Excel/JSON com todas infos
-   ========================= */
-
-/* ====== LOGIN VIA FIREBASE AUTH ====== */
-let currentUserName = null; // nome/email do usuário logado
+let currentUserName = null;
 function getCurrentUserName() {
   return currentUserName || "Desconhecido";
 }
-
-/* ====== DADOS PRINCIPAIS ====== */
 let registros = [];
 let clientes = [];
 let usuarios = [];
 let representadas = [];
 let contatosTemp = [];
-
-/* ====== PAGINAÇÃO ====== */
 let clientesCurrentPage = 1;
 let clientesPageSize = 5;
-
-let editId = null; // oferta
-let editClienteId = null; // cliente
-let editRepresentadaId = null; // representada
-let editContatoIndex = null; // contato do cliente
-
+let editId = null;
+let editClienteId = null;
+let editRepresentadaId = null;
+let editContatoIndex = null;
 let currentPage = 1;
-let pageSize = 5; // ✅ agora é variável (5 ou 10)
+let pageSize = 5;
+let backupImportMode = null;
 
-let backupImportMode = null; // "json" ou "excel"
-
-/* ====== INICIALIZAÇÃO GERAL ====== */
 window.addEventListener("load", async () => {
   const savedTheme = localStorage.getItem("theme") || "light";
   applyTheme(savedTheme);
@@ -51,7 +33,6 @@ window.addEventListener("load", async () => {
   initBackupUI();
   initBuSegmento();
 
-  // ✅ espera firebase carregar
   await esperarFirebase();
 
   console.log("Firebase OK:", { temAuth: !!window.auth, temDb: !!window.db });
@@ -78,7 +59,7 @@ window.addEventListener("load", async () => {
           );
 
         await carregarDadosDoFirebase();
-        atualizarSugestoesCnpj(); // ✅ ADD
+        atualizarSugestoesCnpj();
         mostrarApp();
       } else {
         currentUserName = null;
@@ -135,7 +116,6 @@ async function carregarDadosDoFirebase() {
   }
 }
 
-/* ====== FIRESTORE LOAD ====== */
 async function carregarClientesFirebase() {
   const snap = await db.collection("clientes").get();
   clientes = snap.docs.map((doc) => ({ id: doc.id, ...doc.data() }));
@@ -162,7 +142,6 @@ async function carregarRegistrosFirebase() {
   registros = snap.docs.map((doc) => ({ id: doc.id, ...doc.data() }));
 }
 
-/* ====== MOSTRAR / ESCONDER TELAS ====== */
 function mostrarLogin() {
   const loginContainer = document.getElementById("loginContainer");
   const appContainer = document.getElementById("appContainer");
@@ -186,7 +165,6 @@ function mostrarApp() {
   renderTabelaRepresentadas();
 }
 
-/* ====== LOGIN ====== */
 function initLogin() {
   const btnLogin = document.getElementById("btnLogin");
   if (!btnLogin) {
@@ -236,7 +214,6 @@ function logout() {
   });
 }
 
-/* ===== MODAL GENÉRICO ===== */
 function abrirModal(titulo, html) {
   const modal = document.getElementById("modalDetalhes");
   const tituloEl = document.getElementById("modalTitulo");
@@ -252,7 +229,6 @@ function fecharModalDetalhes() {
   if (modal) modal.classList.add("hidden");
 }
 
-/* ====== VER DETALHES ====== */
 function verOferta(id) {
   const reg = registros.find((r) => r.id === id);
   if (!reg) return;
@@ -455,7 +431,6 @@ function verRepresentada(id) {
   abrirModal(`Representada - ${rep.nome || ""}`, html);
 }
 
-/* ====== TEMA ====== */
 function applyTheme(theme) {
   const body = document.body;
   const label = document.getElementById("themeLabel");
@@ -476,7 +451,6 @@ function toggleTheme() {
   applyTheme(newTheme);
 }
 
-/* ====== SIDEBAR ====== */
 function toggleSidebar() {
   const sidebar = document.getElementById("sidebar");
   if (!sidebar) return;
@@ -485,7 +459,6 @@ function toggleSidebar() {
   else sidebar.classList.toggle("collapsed");
 }
 
-/* ====== MÁSCARA MONETÁRIA ====== */
 function initMoneyMask() {
   document.querySelectorAll(".money").forEach((input) => {
     input.addEventListener("input", formatMoney);
@@ -504,7 +477,6 @@ function formatMoney(e) {
   e.target.value = "R$ " + value;
 }
 
-/* ====== MÁSCARA DE TELEFONE ====== */
 function initPhoneMask() {
   const telPrincipal = document.getElementById("telefone");
   const telContato = document.getElementById("ct_tel");
@@ -548,7 +520,6 @@ function onPhonePaste(e) {
   onPhoneInput(e);
 }
 
-/* ====== MÁSCARA DE CNPJ ====== */
 function initCnpjMask() {
   const campos = [
     document.getElementById("cli_cnpj"),
@@ -593,7 +564,6 @@ function onCnpjPaste(e) {
 function onCnpjBlur(e) {
   const input = e.target;
 
-  // ✅ se acabou de ser preenchido pelo autocomplete, não valida no blur
   if (input.dataset.skipBlurValidation === "1") {
     input.dataset.skipBlurValidation = "0";
     return;
@@ -606,10 +576,7 @@ function onCnpjBlur(e) {
   }
 }
 
-
-/* ====== FORM (OFERTA) ====== */
 function initForm() {
-  // Pedido: mostrar/esconder seção
   const radiosPedido = document.querySelectorAll("input[name='pedido']");
   radiosPedido.forEach((radio) => {
     radio.addEventListener("change", () => {
@@ -619,7 +586,6 @@ function initForm() {
     });
   });
 
-  // Revisão: mostrar/esconder seção
   const radiosRevisao = document.querySelectorAll("input[name='revisao']");
   radiosRevisao.forEach((radio) => {
     radio.addEventListener("change", () => {
@@ -649,7 +615,6 @@ function initForm() {
     const data_envio = document.getElementById("data_envio");
     const obsGeral = document.getElementById("obs_geral");
 
-    // ✅ NOVO (Oferta)
     const tipoNegocio = document.getElementById("tipo_oferta");
 
     const possuiPedido =
@@ -658,7 +623,6 @@ function initForm() {
       document.querySelector("input[name='revisao']:checked")?.value || "nao";
     const currentUser = getCurrentUserName();
 
-    // validações
     const cnpjDigits = cnpj_cliente.value.replace(/\D/g, "");
     if (cnpjDigits && cnpjDigits.length !== 14) {
       alert("CNPJ inválido. Verifique antes de salvar.");
@@ -673,10 +637,9 @@ function initForm() {
       return;
     }
 
-    // base
     const registroBase = {
       bu: bu.value,
-      segmento: segmentoEl ? (segmentoEl.value || "") : "", 
+      segmento: segmentoEl ? segmentoEl.value || "" : "",
       razao: razao.value,
       cnpj_cliente: cnpj_cliente.value,
       clienteId: cnpj_cliente.dataset.clienteId || null,
@@ -697,13 +660,11 @@ function initForm() {
       possuiPedido,
       possuiRevisao,
 
-      // ✅ NOVOS
       tipo_oferta: tipoNegocio ? tipoNegocio.value : "",
 
       obs_geral: obsGeral ? obsGeral.value.trim() : "",
     };
 
-    // pedido
     if (possuiPedido === "sim") {
       const numero_pedido = document.getElementById("numero_pedido");
       const data_po = document.getElementById("data_po");
@@ -713,7 +674,6 @@ function initForm() {
       const tipo_produto = document.getElementById("tipo_produto");
       const obs = document.getElementById("obs");
 
-      // ✅ NOVOS (Pedido)
       const data_nf = document.getElementById("data_nf");
       const valor_nf = document.getElementById("valor_nf");
       const prazo_entrega_contratual = document.getElementById(
@@ -742,7 +702,6 @@ function initForm() {
       registroBase.pedido = null;
     }
 
-    // revisão
     if (possuiRevisao === "sim") {
       const rev_num_oferta = document.getElementById("rev_num_oferta");
       const rev_mudou = document.getElementById("rev_mudou");
@@ -766,7 +725,6 @@ function initForm() {
       registroBase.revisao = null;
     }
 
-    // ===== SALVAR NO FIRESTORE =====
     if (!editId) {
       const id = gerarId();
       const registro = {
@@ -795,9 +753,8 @@ function initForm() {
       editId = null;
       btnAdicionar.textContent = "Adicionar";
     }
-    // ====================================
 
-    salvarRegistros(); // localStorage backup
+    salvarRegistros();
 
     document.getElementById("formOferta").reset();
     document.getElementById("secaoPedido").classList.add("hidden");
@@ -813,7 +770,6 @@ function initForm() {
     );
     if (radioNao) radioNao.checked = true;
 
-    // reset radio OC (se existir)
     const rOcNao = document.querySelector(`input[name="sol_oc"][value="nao"]`);
     if (rOcNao) rOcNao.checked = true;
 
@@ -823,7 +779,6 @@ function initForm() {
   });
 }
 
-/* ====== FILTROS (OFERTAS) ====== */
 function initFiltrosEPaginacao() {
   const searchTerm = document.getElementById("searchTerm");
   const filterField = document.getElementById("filterField");
@@ -844,7 +799,6 @@ function initFiltrosEPaginacao() {
     });
   }
 
-  // ✅ NOVO: Itens por página (5/10)
   const pageSizeSelect = document.getElementById("pageSizeSelect");
   if (pageSizeSelect) {
     pageSizeSelect.value = String(pageSize);
@@ -947,7 +901,7 @@ function getRegistrosFiltrados() {
           reg.status,
           reg.data_envio,
           reg.obs_geral,
-          reg.tipo_oferta, // ✅ novo
+          reg.tipo_oferta,
         ];
 
         if (reg.pedido) {
@@ -1021,7 +975,6 @@ function getRegistrosFiltrados() {
   });
 }
 
-/* ====== TABELA OFERTAS ====== */
 function renderTabela() {
   const tbody = document.querySelector("#tabelaRegistros tbody");
   const pageInfo = document.getElementById("pageInfo");
@@ -1083,7 +1036,6 @@ function renderTabela() {
   if (pageInfo) pageInfo.textContent = `Página ${currentPage} de ${totalPages}`;
 }
 
-/* ====== EDITAR / EXCLUIR OFERTA ====== */
 function editarRegistro(id) {
   const reg = registros.find((r) => r.id === id);
   if (!reg) return;
@@ -1092,26 +1044,20 @@ function editarRegistro(id) {
 
   document.getElementById("bu").value = reg.bu || "";
 
-// atualiza dropdown de segmento conforme BU
-if (typeof initBuSegmento === "function") {
-  // se você não quiser reinicializar, melhor chamar uma função "renderSegmentos"
-  // mas do jeito simples:
-  setTimeout(() => {
-    const segEl = document.getElementById("segmento");
-    const segWrap = document.getElementById("segmentoWrap");
+  if (typeof initBuSegmento === "function") {
+    setTimeout(() => {
+      const segEl = document.getElementById("segmento");
+      const segWrap = document.getElementById("segmentoWrap");
 
-    // força disparar change pra popular
-    document.getElementById("bu").dispatchEvent(new Event("change"));
+      document.getElementById("bu").dispatchEvent(new Event("change"));
 
-    // seta o segmento salvo
-    if (segEl) segEl.value = reg.segmento || "";
+      if (segEl) segEl.value = reg.segmento || "";
 
-    // se BU não tem segmentos, garante escondido
-    if (segWrap && !segEl?.querySelectorAll("option").length) {
-      segWrap.classList.add("hidden");
-    }
-  }, 0);
-}
+      if (segWrap && !segEl?.querySelectorAll("option").length) {
+        segWrap.classList.add("hidden");
+      }
+    }, 0);
+  }
 
   document.getElementById("razao").value = reg.razao || "";
 
@@ -1133,7 +1079,6 @@ if (typeof initBuSegmento === "function") {
   const obsGeral = document.getElementById("obs_geral");
   if (obsGeral) obsGeral.value = reg.obs_geral || "";
 
-  // ✅ Tipo (Compra/Orçamento)
   const tipoNegocio = document.getElementById("tipo_oferta");
   if (tipoNegocio) tipoNegocio.value = reg.tipo_oferta || "";
 
@@ -1142,7 +1087,6 @@ if (typeof initBuSegmento === "function") {
     representadaSelect.value = reg.representadaId;
   else if (representadaSelect) representadaSelect.value = "";
 
-  // Pedido
   const radioPedido = document.querySelector(
     `input[name="pedido"][value="${reg.possuiPedido || "nao"}"]`
   );
@@ -1162,7 +1106,6 @@ if (typeof initBuSegmento === "function") {
       reg.pedido.tipo_produto || "";
     document.getElementById("obs").value = reg.pedido.obs || "";
 
-    // ✅ novos campos pedido
     const elDataNf = document.getElementById("data_nf");
     const elValorNf = document.getElementById("valor_nf");
     const elPrazo = document.getElementById("prazo_entrega_contratual");
@@ -1187,7 +1130,6 @@ if (typeof initBuSegmento === "function") {
     document.getElementById("tipo_produto").value = "";
     document.getElementById("obs").value = "";
 
-    // limpa novos campos pedido
     const elDataNf = document.getElementById("data_nf");
     const elValorNf = document.getElementById("valor_nf");
     const elPrazo = document.getElementById("prazo_entrega_contratual");
@@ -1202,7 +1144,6 @@ if (typeof initBuSegmento === "function") {
     if (rOcNao) rOcNao.checked = true;
   }
 
-  // Revisão
   const radioRev = document.querySelector(
     `input[name="revisao"][value="${reg.possuiRevisao || "nao"}"]`
   );
@@ -1238,7 +1179,6 @@ async function excluirRegistro(id) {
   renderTabela();
 }
 
-/* ====== EXCEL (REGISTROS) ====== */
 function exportExcel() {
   const filtrados = getRegistrosFiltrados();
   if (filtrados.length === 0) {
@@ -1310,7 +1250,6 @@ function exportExcel() {
   XLSX.writeFile(wb, "registros_ofertas.xlsx");
 }
 
-/* ====== PDF (IMPRESSÃO) ====== */
 function exportPdf() {
   const filtrados = getRegistrosFiltrados();
   if (filtrados.length === 0) {
@@ -1440,7 +1379,6 @@ function exportPdf() {
   win.print();
 }
 
-/* ====== BACKUP (JSON + EXCEL) ====== */
 function initBackupUI() {
   const btnBackupExport = document.getElementById("btnBackupExport");
   const btnBackupImport = document.getElementById("btnBackupImport");
@@ -1537,7 +1475,6 @@ function initBackupUI() {
 function exportBackupExcel() {
   const wb = XLSX.utils.book_new();
 
-  // Clientes
   const clientesSheetData = clientes.map((c) => ({
     ID: c.id,
     RazaoSocial: c.razao,
@@ -1555,7 +1492,6 @@ function exportBackupExcel() {
   );
   XLSX.utils.book_append_sheet(wb, wsClientes, "Clientes");
 
-  // Contatos
   const contatosSheetData = [];
   clientes.forEach((c) => {
     (c.contatos || []).forEach((ct) => {
@@ -1579,7 +1515,6 @@ function exportBackupExcel() {
   );
   XLSX.utils.book_append_sheet(wb, wsContatos, "Contatos");
 
-  // Representadas
   const repsData = representadas.map((r) => ({
     ID: r.id,
     Nome: r.nome,
@@ -1591,7 +1526,6 @@ function exportBackupExcel() {
   );
   XLSX.utils.book_append_sheet(wb, wsRep, "Representadas");
 
-  // Ofertas (com tudo)
   const ofertasData = registros.map((r) => ({
     ID: r.id,
     ClienteID: r.clienteId || null,
@@ -1656,7 +1590,6 @@ function importBackupExcel(file) {
       clientes = [];
       representadas = [];
 
-      // Clientes
       const shClientes = wb.Sheets["Clientes"];
       if (shClientes) {
         const dados = XLSX.utils.sheet_to_json(shClientes);
@@ -1675,7 +1608,6 @@ function importBackupExcel(file) {
           }));
       }
 
-      // Representadas
       const shRep = wb.Sheets["Representadas"];
       if (shRep) {
         const dadosRep = XLSX.utils.sheet_to_json(shRep);
@@ -1689,7 +1621,6 @@ function importBackupExcel(file) {
           }));
       }
 
-      // Contatos
       const shContatos = wb.Sheets["Contatos"];
       if (shContatos) {
         const dadosC = XLSX.utils.sheet_to_json(shContatos);
@@ -1720,7 +1651,6 @@ function importBackupExcel(file) {
         });
       }
 
-      // Ofertas
       const shOfertas = wb.Sheets["Ofertas"];
       if (shOfertas) {
         const dadosOf = XLSX.utils.sheet_to_json(shOfertas);
@@ -1830,7 +1760,6 @@ function importBackupExcel(file) {
   reader.readAsArrayBuffer(file);
 }
 
-/* ====== CLIENTES ====== */
 function initClientesUI() {
   const btnAddContato = document.getElementById("btnAddContato");
   const btnSalvarCliente = document.getElementById("btnSalvarCliente");
@@ -1946,7 +1875,7 @@ function initClientesUI() {
         };
         await db.collection("clientes").doc(editClienteId).set(cliente);
         clientes[idx] = cliente;
-        atualizarSugestoesCnpj(); // ✅
+        atualizarSugestoesCnpj();
       }
       alert("Cliente atualizado!");
       editClienteId = null;
@@ -2147,7 +2076,6 @@ async function excluirCliente(id) {
   renderTabelaClientes();
 }
 
-/* ====== PAINEL LATERAL CLIENTE ====== */
 function abrirPainelCliente(id) {
   const cli = clientes.find((c) => c.id === id);
   if (!cli) return;
@@ -2193,7 +2121,6 @@ function fecharPainelCliente() {
   if (painel) painel.classList.add("hidden");
 }
 
-/* ====== LIGAÇÃO CLIENTE -> OFERTA ====== */
 function buscarClientePorCnpj(cnpj) {
   const clean = (cnpj || "").replace(/\D/g, "");
   return clientes.find((c) => (c.cnpj || "").replace(/\D/g, "") === clean);
@@ -2212,14 +2139,10 @@ function initLigacaoClienteOferta() {
 
     cnpjInput.dataset.clienteId = cli.id;
 
-    // ✅ apenas Razão
     const razao = document.getElementById("razao");
     if (razao) razao.value = cli.razao || "";
   });
 }
-
-
-/* ====== REPRESENTADAS ====== */
 function initRepresentadasUI() {
   const btn = document.getElementById("btnSalvarRepresentada");
   if (!btn) return;
@@ -2258,7 +2181,6 @@ function initRepresentadasUI() {
         representadas[idx] = rep;
       }
 
-      // atualizar nome nas ofertas
       registros.forEach((reg) => {
         if (reg.representadaId === editRepresentadaId)
           reg.representadaNome = nome;
@@ -2353,8 +2275,6 @@ async function excluirRepresentada(id) {
   renderTabelaRepresentadas();
   preencherSelectRepresentadas();
 }
-
-/* ====== UTIL / STORAGE ====== */
 function gerarId() {
   return Date.now().toString() + "_" + Math.random().toString(16).slice(2);
 }
@@ -2381,8 +2301,6 @@ function salvarClientes() {
 function salvarRepresentadas() {
   localStorage.setItem("representadas", JSON.stringify(representadas));
 }
-
-/* ====== NAVEGAÇÃO ====== */
 function irPara(tela) {
   if (tela === "cadastro")
     document
@@ -2437,12 +2355,11 @@ function atualizarSugestoesCnpj() {
   const dl = document.getElementById("cnpjSugestoes");
   if (!dl) return;
 
-  // pega todos os CNPJs dos clientes + ofertas e remove duplicados
   const lista = [
     ...clientes.map((c) => c.cnpj || ""),
     ...registros.map((r) => r.cnpj_cliente || ""),
   ]
-    .map((v) => String(v).replace(/\D/g, "")) // só números
+    .map((v) => String(v).replace(/\D/g, ""))
     .filter(Boolean);
 
   const unicos = Array.from(new Set(lista));
@@ -2452,24 +2369,24 @@ function atualizarSugestoesCnpj() {
     .join("");
 }
 function formatCnpjMask(digits) {
-  const v = String(digits || "").replace(/\D/g, "").slice(0, 14);
+  const v = String(digits || "")
+    .replace(/\D/g, "")
+    .slice(0, 14);
   if (v.length <= 2) return v;
   if (v.length <= 5) return v.replace(/^(\d{2})(\d+)/, "$1.$2");
   if (v.length <= 8) return v.replace(/^(\d{2})(\d{3})(\d+)/, "$1.$2.$3");
-  if (v.length <= 12)return v.replace(/^(\d{2})(\d{3})(\d{3})(\d+)/, "$1.$2.$3/$4");
+  if (v.length <= 12)
+    return v.replace(/^(\d{2})(\d{3})(\d{3})(\d+)/, "$1.$2.$3/$4");
   return v.replace(/^(\d{2})(\d{3})(\d{3})(\d{4})(\d{2}).*/, "$1.$2.$3/$4-$5");
 }
 
 function getCidadeUfDoCliente(cli) {
-  // ajuste conforme seus campos reais
-  // exemplos: cli.cidade, cli.uf, cli.endereco (string)
   const cidade = (cli.cidade || "").trim();
   const uf = (cli.uf || "").trim().toUpperCase();
 
   if (cidade && uf) return `${cidade} - ${uf}`;
   if (cidade) return cidade;
 
-  // se você só tiver endereco como texto, tenta extrair algo simples:
   const end = (cli.endereco || "").trim();
   return end ? end : "";
 }
@@ -2486,7 +2403,7 @@ function initAutoCompleteCnpj() {
 
   function showMatches(prefix) {
     const p = String(prefix || "").replace(/\D/g, "");
-    if (p.length < 6) return hide(); // começa a sugerir a partir de 6 dígitos
+    if (p.length < 6) return hide();
 
     const matches = clientes
       .filter((c) => (c.cnpj || "").replace(/\D/g, "").startsWith(p))
@@ -2531,14 +2448,12 @@ function initAutoCompleteCnpj() {
     const cli = clientes.find((c) => c.id === id);
     if (!cli) return;
 
-    // Preenche campos ao selecionar
     input.value = formatCnpjMask(cnpjDigits);
     input.dataset.clienteId = cli.id;
 
     const razao = document.getElementById("razao");
     if (razao) razao.value = cli.razao || "";
 
-    // opcional: preencher solicitante/telefone/email pelo contato principal
     const telefone = document.getElementById("telefone");
     const email = document.getElementById("email");
     const solicitante = document.getElementById("solicitante");
@@ -2553,12 +2468,10 @@ function initAutoCompleteCnpj() {
     hide();
   });
 
-  // fecha ao clicar fora
   document.addEventListener("click", (e) => {
     if (!e.target.closest(".autocomplete-wrap")) hide();
   });
 
-  // fecha no ESC
   input.addEventListener("keydown", (e) => {
     if (e.key === "Escape") hide();
   });
@@ -2579,7 +2492,6 @@ function initAutoCompleteCnpjSimples() {
   function showMatches(prefix) {
     const p = String(prefix || "").replace(/\D/g, "");
 
-    // começa a sugerir a partir de 4 dígitos (ajuste se quiser)
     if (p.length < 4) return hide();
 
     const matches = clientes
@@ -2607,40 +2519,32 @@ function initAutoCompleteCnpjSimples() {
     showMatches(input.value);
   });
 
-  // clique para preencher
-// dentro do initAutoCompleteCnpjSimples()
+  box.addEventListener("mousedown", (e) => {
+    const item = e.target.closest(".autocomplete-item");
+    if (!item) return;
 
-box.addEventListener("mousedown", (e) => {
-  const item = e.target.closest(".autocomplete-item");
-  if (!item) return;
+    e.preventDefault();
 
-  e.preventDefault();
+    const id = item.dataset.id;
+    const cli = clientes.find((c) => c.id === id);
+    if (!cli) return;
 
-  const id = item.dataset.id;
-  const cli = clientes.find((c) => c.id === id);
-  if (!cli) return;
+    const cnpjDigits = (cli.cnpj || "").replace(/\D/g, "");
 
-  const cnpjDigits = (cli.cnpj || "").replace(/\D/g, "");
+    input.dataset.skipBlurValidation = "1";
 
-  input.dataset.skipBlurValidation = "1";
+    input.value = formatCnpjMask(cnpjDigits);
+    input.dataset.clienteId = cli.id;
 
-  // ✅ apenas CNPJ + Razão
-  input.value = formatCnpjMask(cnpjDigits);
-  input.dataset.clienteId = cli.id;
+    if (razaoEl) razaoEl.value = cli.razao || "";
 
-  if (razaoEl) razaoEl.value = cli.razao || "";
+    hide();
+  });
 
-  hide();
-});
-
-
-
-  // fecha ao clicar fora
   document.addEventListener("click", (e) => {
     if (!e.target.closest(".autocomplete-wrap")) hide();
   });
 
-  // ESC fecha
   input.addEventListener("keydown", (e) => {
     if (e.key === "Escape") hide();
   });
@@ -2652,33 +2556,40 @@ function initBuSegmento() {
 
   if (!buEl || !segWrap || !segEl) return;
 
-  // ✅ Mapa de segmentos por B.U (pelo seu print)
-const SEGMENTOS_POR_BU = {
-  "T&I": [],
-  "OGP": ["On Shore", "Off Shore", "DW"],
-  "OEM": ["infra", "Renew (PV)", "Renew (Wind)", "Mining", "Cranes", "Marine", "Rolling Stock", "Raiways", "Water", "Nuclear"],
-  "High Voltage": [],
-  "OHTZ": [],
-  "Telecom": [],
-  "Power Distribution": [],
-  "Acessórios": [],
-  "MMS": [],
-};
+  const SEGMENTOS_POR_BU = {
+    "T&I": [],
+    OGP: ["On Shore", "Off Shore", "DW"],
+    OEM: [
+      "infra",
+      "Renew (PV)",
+      "Renew (Wind)",
+      "Mining",
+      "Cranes",
+      "Marine",
+      "Rolling Stock",
+      "Raiways",
+      "Water",
+      "Nuclear",
+    ],
+    "High Voltage": [],
+    OHTZ: [],
+    Telecom: [],
+    "Power Distribution": [],
+    Acessórios: [],
+    MMS: [],
+  };
 
   function renderSegmentos(buValue) {
     const lista = SEGMENTOS_POR_BU[buValue] || [];
 
-    // limpa options atuais
     segEl.innerHTML = `<option value="">Selecione</option>`;
 
     if (!lista.length) {
-      // sem segmento => esconde e limpa valor
       segEl.value = "";
       segWrap.classList.add("hidden");
       return;
     }
 
-    // tem segmento => mostra e popula
     lista.forEach((seg) => {
       const opt = document.createElement("option");
       opt.value = seg;
@@ -2689,11 +2600,9 @@ const SEGMENTOS_POR_BU = {
     segWrap.classList.remove("hidden");
   }
 
-  // quando muda a BU
   buEl.addEventListener("change", () => {
     renderSegmentos(buEl.value);
   });
 
-  // ao carregar (se já tiver BU preenchida em edição)
   renderSegmentos(buEl.value);
 }

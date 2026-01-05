@@ -1,5 +1,3 @@
-// firebase.js  (USANDO SDK COMPAT, IGUAL AO SEU HTML)
-
 const firebaseConfig = {
   apiKey: "AIzaSyCyjpwTht572LFot2sqqi-83yOgp000POQ",
   authDomain: "crm-three-ar.firebaseapp.com",
@@ -9,10 +7,6 @@ const firebaseConfig = {
   appId: "1:261822606732:web:f6331eee541477af2fbaa9",
   measurementId: "G-3BLVZMFGP2",
 };
-
-// Inicializa Firebase (modo compat)
 firebase.initializeApp(firebaseConfig);
-
-// 🔴 IMPORTANTE: expor no window
 window.db = firebase.firestore();
 window.auth = firebase.auth();
