@@ -616,6 +616,8 @@ function initForm() {
     const obsGeral = document.getElementById("obs_geral");
 
     const tipoNegocio = document.getElementById("tipo_oferta");
+    const segmentoEl = document.getElementById("segmento");
+
 
     const possuiPedido =
       document.querySelector("input[name='pedido']:checked")?.value || "nao";
