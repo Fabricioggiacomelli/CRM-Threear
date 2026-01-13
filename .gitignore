@@ -1,0 +1,21 @@
+# Node
+node_modules/
+npm-debug.log*
+
+# Firebase Admin (NUNCA subir)
+backend/serviceAccount.json
+
+# Env files
+.env
+.env.local
+.env.production
+
+# Backups
+*.json.backup
+backup_*.json
+backup_*.xlsx
+
+# OS / Editor
+.DS_Store
+.vscode/
+

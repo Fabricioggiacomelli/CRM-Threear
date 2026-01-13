@@ -318,6 +318,7 @@ body {
 
 #loginContainer {
   max-width: 420px;
+  padding: 20px;
 }
 
 h1 {
@@ -412,6 +413,7 @@ select:focus {
   width: auto;
   margin-right: 6px;
 }
+
 
 button {
   border: none;
@@ -938,4 +940,60 @@ body.dark .modal {
 }
 .hidden {
   display: none !important;
+}
+#mfa_recaptcha { display:block; margin:12px 0; }
+
+/* =========================
+   MODAL - TAMANHO FIXO + SCROLL
+========================= */
+
+.modal {
+  padding: 16px; /* garante espaço nas bordas no mobile */
+}
+
+.modal-content {
+  width: min(980px, calc(100vw - 32px));
+  max-height: min(86vh, 720px);  /* limite de altura */
+  display: flex;
+  flex-direction: column;        /* header em cima, body embaixo */
+  border-radius: 18px;
+  overflow: hidden;              /* evita vazar conteúdo */
+  box-shadow: var(--shadow-soft);
+  background: var(--bg-container);
+}
+
+/* body com scroll vertical e horizontal */
+.modal-body {
+  flex: 1;                        /* ocupa o resto da altura */
+  overflow-y: auto;
+  overflow-x: hidden;
+  max-height: none;               /* deixa o flex controlar */
+  background: var(--bg-body);
+  overscroll-behavior: contain;   /* evita puxar o scroll da página */
+  -webkit-overflow-scrolling: touch;
+}
+/* se o conteúdo do modal tiver tabelas ou textos enormes */
+.modal-body * {
+  max-width: 100%;
+}
+/* opcional: quando tiver textos MUITO longos (emails/observações) quebrar linha */
+.modal-body .modal-section {
+  overflow-wrap: anywhere;
+  word-break: break-word;
+}
+/* Responsivo: em telas menores não força largura mínima */
+@media (max-width: 720px) {
+  .modal-content {
+    width: calc(100vw - 24px);
+    max-height: 88vh;
+  }
+  .modal-card {
+    min-width: unset; /* remove a força e evita scroll horizontal desnecessário no mobile */
+  }
+  .modal-header h3 {
+    max-width: 70%;
+  }
+}
+body .modal-open {
+  overflow: hidden;
 }

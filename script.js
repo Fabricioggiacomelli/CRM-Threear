@@ -1,27 +1,81 @@
+/***********************
+ * CRM-Three Ar - script.js (FULL)
+ * - Firebase Auth + Firestore
+ * - Gate de acesso com TOTP (Google Authenticator) via Backend
+ * - CRUD Ofertas / Clientes / Representadas
+ * - Export Excel / PDF
+ * - Backup JSON / Excel
+ ************************/
+
+/* =======================
+   CONFIG / ESTADO GLOBAL
+======================= */
 let currentUserName = null;
 function getCurrentUserName() {
   return currentUserName || "Desconhecido";
 }
+const ADMIN_EMAIL = "fabricio.giacomelli@threear.com.br";
+function isAdminEmail(email) {
+  return String(email || "").trim().toLowerCase() === ADMIN_EMAIL;
+}
+
+const RESPONSAVEIS_FIXOS = [
+  "Anderson",
+  "Araújo",
+  "Assis",
+  "Cassia",
+  "Dennis",
+  "Fabricio",
+  "Leandro",
+  "Pedro",
+  "Renan",
+  "Ricardo",
+  "Ronaldo",
+  "Silvia",
+].sort((a, b) => a.localeCompare(b, "pt-BR", { sensitivity: "base" }));
+
 let registros = [];
 let clientes = [];
 let usuarios = [];
 let representadas = [];
+
 let contatosTemp = [];
-let clientesCurrentPage = 1;
-let clientesPageSize = 5;
+
 let editId = null;
 let editClienteId = null;
 let editRepresentadaId = null;
 let editContatoIndex = null;
+
 let currentPage = 1;
 let pageSize = 5;
+
+let clientesCurrentPage = 1;
+let clientesPageSize = 5;
+
 let backupImportMode = null;
 
+// Backend do TOTP
+const API_BASE =
+  (location.hostname === "localhost" || location.hostname === "127.0.0.1")
+    ? "http://127.0.0.1:3001"
+    : "https://SEU_BACKEND_PUBLICO.com"; // precisa estar online
+// Gate TOTP
+let totpUserEmail = null;
+let totpIsActive = false; // backend diz se já ativou
+let totpOk = false;       // validou nessa sessão
+let totpFlowLock = false; // evita abrir modal 2x
+
+
+/* =======================
+   BOOT
+======================= */
 window.addEventListener("load", async () => {
   const savedTheme = localStorage.getItem("theme") || "light";
   applyTheme(savedTheme);
 
   initLogin();
+  initTotpUI();
+
   initForm();
   initFiltrosEPaginacao();
   initMoneyMask();
@@ -33,45 +87,109 @@ window.addEventListener("load", async () => {
   initBackupUI();
   initBuSegmento();
 
+  initAuthTabs();
+  initForgotPassword();
+  initSignup();
+  initResendEmailVerification();
+
+  initAprovacaoUsuariosUI();
+  initUsuariosExistentesUI();
+
   await esperarFirebase();
 
   console.log("Firebase OK:", { temAuth: !!window.auth, temDb: !!window.db });
 
-  auth.onAuthStateChanged(async (user) => {
-    try {
-      if (user) {
-        currentUserName = user.displayName || user.email || "Desconhecido";
-
-        await db
-          .collection("usuarios")
-          .doc(user.uid)
-          .set(
-            {
-              uid: user.uid,
-              nome:
-                user.displayName ||
-                (user.email ? user.email.split(".")[0] : "Usuário"),
-              email: user.email || "",
-              ativo: true,
-              atualizadoEm: new Date().toISOString(),
-            },
-            { merge: true }
-          );
-
-        await carregarDadosDoFirebase();
-        atualizarSugestoesCnpj();
-        mostrarApp();
-      } else {
-        currentUserName = null;
-        mostrarLogin();
-      }
-    } catch (e) {
-      console.error("Erro no onAuthStateChanged:", e);
-      alert("Erro ao inicializar login. Veja o console.");
+auth.onAuthStateChanged(async (user) => {
+  try {
+    if (!user) {
+      totpOk = false;
+      totpIsActive = false;
+      totpUserEmail = null;
+      fecharModalTOTP(true);
+      mostrarLogin();
+      return;
     }
-  });
+
+    currentUserName = user.displayName || user.email || "Desconhecido";
+
+    // ✅ 1) GARANTE DOC NO FIRESTORE PRIMEIRO (mesmo sem verificação)
+    const userRef = db.collection("usuarios").doc(user.uid);
+    const snap = await userRef.get();
+
+    if (!snap.exists) {
+      await userRef.set(
+        {
+          uid: user.uid,
+          email: (user.email || "").toLowerCase(),
+          nome: user.displayName || (user.email ? user.email.split("@")[0] : "Usuário"),
+          aprovado: false,
+          ativo: true,
+          criadoEm: new Date().toISOString(),
+          atualizadoEm: new Date().toISOString(),
+        },
+        { merge: true }
+      );
+    } else {
+      const data = snap.data() || {};
+      await userRef.set(
+        {
+          uid: user.uid,
+          email: (user.email || "").toLowerCase(),
+          nome:
+            user.displayName ||
+            (user.email ? user.email.split("@")[0] : (data.nome || "Usuário")),
+          atualizadoEm: new Date().toISOString(),
+        },
+        { merge: true }
+      );
+    }
+
+    // ✅ 2) AGORA SIM checa verificação de email
+    await user.reload();
+    if (!user.emailVerified) {
+      await auth.signOut();
+      alert("Verifique seu e-mail antes de acessar.");
+      mostrarLogin();
+      return;
+    }
+
+    // ✅ 3) Checa aprovado/ativo
+    const snap2 = await userRef.get();
+    const udata = snap2.data() || {};
+    const aprovado = !!udata.aprovado;
+    const ativo = (udata.ativo === undefined) ? true : !!udata.ativo;
+
+    if (!aprovado || !ativo) {
+      alert("Usuário ainda não autorizado.");
+      await auth.signOut();
+      mostrarLogin();
+      return;
+    }
+
+    // ✅ 4) TOTP gate
+    if (!totpOk) {
+      await iniciarFluxoTOTP(user);
+      mostrarLogin();
+      return;
+    }
+
+    // ✅ 5) Liberou
+    await carregarDadosDoFirebase();
+    atualizarSugestoesCnpj();
+    mostrarApp();
+
+  } catch (e) {
+    console.error("Erro no onAuthStateChanged:", e);
+    alert("Erro ao inicializar login. Veja o console.");
+    mostrarLogin();
+  }
+});
 });
 
+
+/* =======================
+   FIREBASE READY
+======================= */
 function esperarFirebase(timeoutMs = 8000) {
   return new Promise((resolve, reject) => {
     const start = Date.now();
@@ -82,9 +200,7 @@ function esperarFirebase(timeoutMs = 8000) {
       } else if (Date.now() - start > timeoutMs) {
         clearInterval(t);
         reject(
-          new Error(
-            "Firebase não carregou: auth/db indefinidos (ordem dos scripts)."
-          )
+          new Error("Firebase não carregou: auth/db indefinidos (ordem dos scripts).")
         );
       }
     }, 50);
@@ -100,11 +216,8 @@ async function carregarDadosDoFirebase() {
       carregarUsuariosFirebase(),
     ]);
 
-    console.log("Depois do load, usuarios =", usuarios.length, usuarios);
-
     preencherSelectRepresentadas();
-    if (typeof preencherSelectResponsaveisContato === "function")
-      preencherSelectResponsaveisContato();
+    preencherSelectResponsaveisContato();
 
     renderTabela();
     renderTabelaClientes();
@@ -125,7 +238,7 @@ async function carregarUsuariosFirebase() {
   try {
     const snap = await db.collection("usuarios").get();
     usuarios = snap.docs.map((doc) => ({ id: doc.id, ...doc.data() }));
-    console.log("Usuarios carregados:", usuarios.length, usuarios);
+    console.log("Usuarios carregados:", usuarios.length);
   } catch (e) {
     console.error("ERRO ao carregar usuarios:", e);
     usuarios = [];
@@ -142,6 +255,10 @@ async function carregarRegistrosFirebase() {
   registros = snap.docs.map((doc) => ({ id: doc.id, ...doc.data() }));
 }
 
+
+/* =======================
+   UI LOGIN / APP
+======================= */
 function mostrarLogin() {
   const loginContainer = document.getElementById("loginContainer");
   const appContainer = document.getElementById("appContainer");
@@ -165,38 +282,70 @@ function mostrarApp() {
   renderTabelaRepresentadas();
 }
 
+function logout() {
+  auth.signOut().catch((err) => {
+    console.error(err);
+    alert("Erro ao sair: " + err.message);
+  });
+}
+
+
+/* =======================
+   LOGIN (EMAIL/SENHA)
+======================= */
 function initLogin() {
   const btnLogin = document.getElementById("btnLogin");
-  if (!btnLogin) {
-    console.warn("btnLogin não encontrado no DOM.");
-    return;
-  }
+  if (!btnLogin) return;
 
   btnLogin.addEventListener("click", async () => {
     const uEl = document.getElementById("loginUser");
     const pEl = document.getElementById("loginPass");
-    const u = (uEl?.value || "").trim();
-    const p = (pEl?.value || "").trim();
+    const email = (uEl?.value || "").trim().toLowerCase();
+    const pass = (pEl?.value || "").trim();
 
-    if (!u || !p) {
-      alert("Preencha usuário (email) e senha.");
+    setLoginMsg("");
+
+    if (!email || !pass) {
+      alert("Preencha e-mail e senha.");
+      return;
+    }
+
+    // ✅ se senha for fraca: avisa e já manda e-mail de troca
+    if (!senhaForteLogin(pass)) {
+      alert(msgSenhaForteLogin());
+
+      try {
+        setLoginMsg("Senha fraca. Enviando e-mail para troca de senha...");
+        await auth.sendPasswordResetEmail(email);
+        setLoginMsg("✅ Enviamos um e-mail para você trocar a senha.");
+        alert("Enviamos um e-mail para trocar a senha.");
+      } catch (e) {
+        console.error(e);
+        setLoginMsg("❌ Não consegui enviar o e-mail de troca. Verifique o e-mail digitado.");
+      }
+
+      pEl?.focus();
       return;
     }
 
     try {
       btnLogin.disabled = true;
       btnLogin.textContent = "Entrando...";
-      const cred = await auth.signInWithEmailAndPassword(u, p);
+
+      const cred = await auth.signInWithEmailAndPassword(email, pass);
+
+      // aqui não chama mostrarApp ainda: quem decide é o onAuthStateChanged
       console.log("Login OK:", cred.user?.uid);
     } catch (err) {
-      console.error("Erro no login:", err);
+      console.error(err);
+
       const msg =
         err?.code === "auth/user-not-found"
-          ? "Usuário não encontrado. Use o EMAIL cadastrado no Firebase Auth."
+          ? "Usuário não encontrado."
           : err?.code === "auth/wrong-password"
           ? "Senha incorreta."
           : err?.code === "auth/invalid-email"
-          ? "Email inválido. Digite um email válido."
+          ? "Email inválido."
           : "Erro ao fazer login: " + (err?.message || err);
 
       alert(msg);
@@ -207,13 +356,222 @@ function initLogin() {
   });
 }
 
-function logout() {
-  auth.signOut().catch((err) => {
-    console.error(err);
-    alert("Erro ao sair: " + err.message);
-  });
+
+
+/* =======================
+   TOTP (Google Authenticator) - MODAL
+   HTML IDs usados:
+   - modalTOTP
+   - imgQrTotp
+   - totp_code
+   - totp_status
+   - totp_qr_msg
+   - btnTotpConfirm
+======================= */
+function initTotpUI() {
+  const btn = document.getElementById("btnTotpConfirm");
+  if (btn && !btn.dataset.bound) {
+    btn.dataset.bound = "1";
+    btn.addEventListener("click", confirmarTotpNoModal);
+  }
 }
 
+function abrirModalTOTP() {
+  const m = document.getElementById("modalTOTP");
+  if (!m) return;
+
+  m.classList.remove("hidden");
+
+  // reset
+  const st = document.getElementById("totp_status");
+  const code = document.getElementById("totp_code");
+  const img = document.getElementById("imgQrTotp");
+  const msg = document.getElementById("totp_qr_msg");
+
+  if (st) st.textContent = "";
+  if (code) code.value = "";
+
+  if (img) {
+    img.src = "";
+    img.style.display = "none";
+  }
+  if (msg) msg.textContent = "Carregando QR Code...";
+
+  code?.focus();
+}
+
+// se forceClose = true, fecha mesmo (usado no logout/reset)
+function fecharModalTOTP(forceClose = false) {
+  const m = document.getElementById("modalTOTP");
+  if (!m) return;
+
+  if (!forceClose && !totpOk) {
+    alert("Para acessar o sistema, confirme o código do Google Authenticator.");
+    return;
+  }
+
+  m.classList.add("hidden");
+}
+
+function setTotpStatus(msg) {
+  const el = document.getElementById("totp_status");
+  if (el) el.textContent = msg || "";
+}
+function formatarNomeUsuario(raw) {
+  if (!raw) return "";
+
+  // remove email se existir
+  let nome = raw.split("@")[0];
+
+  // pega só o primeiro nome (antes do ponto)
+  nome = nome.split(".")[0];
+
+  // primeira letra maiúscula
+  return nome.charAt(0).toUpperCase() + nome.slice(1).toLowerCase();
+}
+
+async function apiGetQr(userEmail) {
+  const r = await fetch(`${API_BASE}/mfa/qr?user=${encodeURIComponent(userEmail)}`);
+  const j = await r.json().catch(() => ({}));
+  if (!r.ok || !j.ok) throw new Error(j.error || j.message || "Falha ao gerar QR");
+  return j;
+}
+
+async function apiActivate(userEmail, token) {
+  const r = await fetch(`${API_BASE}/mfa/activate`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ user: userEmail, token }),
+  });
+  const j = await r.json().catch(() => ({}));
+  if (!r.ok || !j.ok) throw new Error(j.error || j.message || "Falha ao ativar");
+  return j;
+}
+
+async function apiVerify(userEmail, token) {
+  const r = await fetch(`${API_BASE}/mfa/verify`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ user: userEmail, token }),
+  });
+  const j = await r.json().catch(() => ({}));
+  if (!r.ok || !j.ok) throw new Error(j.error || j.message || "Falha ao validar");
+  return j;
+}
+
+// 1) Depois do login, chama isso:
+async function iniciarFluxoTOTP(user) {
+  if (!user) return false;
+  if (totpOk) return true;
+  if (totpFlowLock) return false;
+
+  totpFlowLock = true;
+
+  try {
+    totpUserEmail = (user.email || "").trim().toLowerCase();
+    if (!totpUserEmail) throw new Error("Usuário sem email.");
+
+    abrirModalTOTP();
+    setTotpStatus("Gerando QR...");
+
+    const qr = await apiGetQr(totpUserEmail);
+
+    totpIsActive = !!qr.alreadyActive;
+
+    const img = document.getElementById("imgQrTotp");
+    const msg = document.getElementById("totp_qr_msg");
+
+    if (totpIsActive) {
+      if (img) img.style.display = "none";
+      if (msg) msg.textContent = "Usuário já tem 2FA ativo. Digite o código do Google Authenticator.";
+    } else {
+      if (img) {
+        img.src = qr.qrDataUrl;
+        img.style.display = "block";
+      }
+      if (msg) msg.textContent = "Escaneie o QR no Google Authenticator e digite o código.";
+    }
+
+    setTotpStatus("");
+    document.getElementById("totp_code")?.focus();
+    return false;
+  } catch (e) {
+    console.error("iniciarFluxoTOTP erro:", e);
+
+    // ⛔ NÃO desloga aqui (senão some rápido)
+    // só mostra erro e deixa tentar novamente
+    setTotpStatus("❌ Erro no 2FA: " + (e?.message || e) + " (verifique se o backend está ligado)");
+
+    const msg = document.getElementById("totp_qr_msg");
+    if (msg) msg.textContent = "Backend do 2FA não respondeu. Ligue o servidor e clique em 'Tentar novamente'.";
+
+    // opcional: adiciona um botão de retry
+    let btnRetry = document.getElementById("btnTotpRetry");
+    if (!btnRetry) {
+      btnRetry = document.createElement("button");
+      btnRetry.id = "btnTotpRetry";
+      btnRetry.type = "button";
+      btnRetry.className = "btn-sm";
+      btnRetry.textContent = "Tentar novamente";
+      btnRetry.style.marginTop = "10px";
+      btnRetry.onclick = async () => iniciarFluxoTOTP(user);
+      document.getElementById("modalTOTP")?.querySelector(".modal-body")?.appendChild(btnRetry);
+    }
+
+    return false;
+  } finally {
+    totpFlowLock = false;
+  }
+}
+
+async function confirmarTotpNoModal() {
+  const btn = document.getElementById("btnTotpConfirm");
+  const token = String(document.getElementById("totp_code")?.value || "").trim();
+  const clean = token.replace(/\D/g, "");
+
+  if (clean.length !== 6) {
+    setTotpStatus("Digite o código de 6 dígitos.");
+    return;
+  }
+
+  try {
+    if (btn) btn.disabled = true;
+    setTotpStatus("Validando...");
+
+    // 3) se já estava ativo -> verify
+    if (totpIsActive) {
+      await apiVerify(totpUserEmail, clean);
+      totpOk = true;
+      setTotpStatus("Código OK ✅ Entrando...");
+    } else {
+      // se não estava ativo -> activate
+      await apiActivate(totpUserEmail, clean);
+      totpIsActive = true;
+      totpOk = true;
+      setTotpStatus("2FA ativado ✅ Entrando...");
+    }
+
+    setTimeout(async () => {
+      fecharModalTOTP(true);
+
+      await carregarDadosDoFirebase();
+      atualizarSugestoesCnpj();
+      mostrarApp();
+    }, 250);
+  } catch (e) {
+    console.error("confirmarTotpNoModal erro:", e);
+    setTotpStatus(
+      "Código inválido/expirado. Verifique o relógio do PC/celular e tente novamente."
+    );
+  } finally {
+    if (btn) btn.disabled = false;
+  }
+}
+
+
+/* =======================
+   MODAL DETALHES (OFERTA/CLIENTE/REP)
+======================= */
 function abrirModal(titulo, html) {
   const modal = document.getElementById("modalDetalhes");
   const tituloEl = document.getElementById("modalTitulo");
@@ -229,208 +587,10 @@ function fecharModalDetalhes() {
   if (modal) modal.classList.add("hidden");
 }
 
-function verOferta(id) {
-  const reg = registros.find((r) => r.id === id);
-  if (!reg) return;
 
-  const pedido = reg.pedido || {};
-  const revisao = reg.revisao || {};
-  const usuario = formatarNomeUsuario(
-    reg.atualizadoPor || reg.criadoPor || "-"
-  );
-
-  const tipoTexto =
-    reg.tipo_oferta === "compra"
-      ? "Compra"
-      : reg.tipo_oferta === "orcamento"
-      ? "Orçamento"
-      : "-";
-
-  let html = `
-    <div class="modal-grid">
-      <div class="modal-card">
-        <div class="modal-card-title">Dados do Cliente</div>
-        <div class="modal-section"><strong>Razão Social:</strong> ${
-          reg.razao || "-"
-        }</div>
-        <div class="modal-section"><strong>CNPJ:</strong> ${
-          reg.cnpj_cliente || "-"
-        }</div>
-        <div class="modal-section"><strong>B.U:</strong> ${reg.bu || "-"}</div>
-      </div>
-
-      <div class="modal-card">
-        <div class="modal-card-title">Projeto & Representada</div>
-        <div class="modal-section"><strong>Projeto:</strong> ${
-          reg.nome_projeto || "-"
-        }</div>
-        <div class="modal-section"><strong>Representada:</strong> ${
-          reg.representadaNome || "-"
-        }</div>
-      </div>
-    </div>
-
-    <div class="modal-card">
-      <div class="modal-card-title">Oferta</div>
-      <div class="modal-section"><strong>N° Oferta:</strong> ${
-        reg.oferta || "-"
-      }</div>
-      <div class="modal-section"><strong>Tipo:</strong> ${tipoTexto}</div>
-      <div class="modal-section"><strong>Valor Total:</strong> ${
-        reg.valor_total || "-"
-      }</div>
-      <div class="modal-section"><strong>Oportunidade:</strong> ${
-        reg.oportunidade || "-"
-      }</div>
-      <div class="modal-section"><strong>Status:</strong> ${
-        reg.status || "-"
-      }</div>
-    </div>
-
-    <div class="modal-card">
-      <div class="modal-card-title">Usuário</div>
-      <div class="modal-section"><strong>Responsável:</strong> ${usuario}</div>
-    </div>
-  `;
-
-  if (reg.obs_geral && String(reg.obs_geral).trim()) {
-    html += `
-      <div class="modal-card">
-        <div class="modal-card-title">Observações Gerais</div>
-        <div class="modal-section">${String(reg.obs_geral).replace(
-          /\n/g,
-          "<br>"
-        )}</div>
-      </div>
-    `;
-  }
-
-  if (reg.possuiPedido === "sim") {
-    html += `
-      <hr>
-      <div class="modal-card">
-        <div class="modal-card-title">Pedido</div>
-        <div class="modal-section">
-          <strong>N° Pedido:</strong> ${pedido.numero_pedido || "-"}<br>
-          <strong>Data P.O:</strong> ${pedido.data_po || "-"}<br>
-          <strong>Valor Pedido:</strong> ${pedido.valor_pedido || "-"}<br>
-          <strong>Condição de Pagamento:</strong> ${
-            pedido.cond_pagamento || "-"
-          }<br>
-          <strong>Ref./Projeto:</strong> ${pedido.ref_projeto || "-"}<br>
-          <strong>Tipo de Produto:</strong> ${pedido.tipo_produto || "-"}<br>
-          <strong>Obs:</strong> ${pedido.obs || "-"}<br><br>
-
-          <strong>Data NF:</strong> ${pedido.data_nf || "-"}<br>
-          <strong>Valor NF:</strong> ${pedido.valor_nf || "-"}<br>
-          <strong>Prazo entrega contratual:</strong> ${
-            pedido.prazo_entrega_contratual || "-"
-          }<br>
-          <strong>Solicitação OC?</strong> ${
-            pedido.solicitacao_oc === "sim" ? "Sim" : "Não"
-          }<br>
-          <strong>Ref. OC:</strong> ${pedido.ref_oc || "-"}
-        </div>
-      </div>
-    `;
-  } else {
-    html += `
-      <div class="modal-section">
-        <strong>Pedido?</strong> Não
-      </div>
-    `;
-  }
-
-  if (reg.possuiRevisao === "sim") {
-    html += `
-      <hr>
-      <div class="modal-card">
-        <div class="modal-card-title">Revisão</div>
-        <div class="modal-section"><strong>Oferta anterior:</strong> ${
-          revisao.numero_oferta_anterior || "-"
-        }</div>
-        <div class="modal-section"><strong>O que mudou:</strong> ${(
-          revisao.mudou || "-"
-        )
-          .toString()
-          .replace(/\n/g, "<br>")}</div>
-      </div>
-    `;
-  }
-
-  html += `<hr><div class="modal-section"><strong>Usuário:</strong> ${usuario}</div>`;
-  abrirModal(`Oferta ${reg.oferta || ""}`, html);
-}
-
-function verCliente(id) {
-  const cli = clientes.find((c) => c.id === id);
-  if (!cli) return;
-
-  const usuario = formatarNomeUsuario(
-    cli.atualizadoPor || cli.criadoPor || "-"
-  );
-
-  let html = `
-    <div class="modal-section">
-      <strong>Razão Social:</strong> ${cli.razao || "-"}<br>
-      <strong>CNPJ:</strong> ${cli.cnpj || "-"}<br>
-      <strong>Inscrição Estadual:</strong> ${cli.ie || "-"}<br>
-      <strong>Segmento:</strong> ${cli.segmento || "-"}<br>
-      <strong>Endereço:</strong> ${cli.endereco || "-"}
-    </div>
-  `;
-
-  if (cli.contatos && cli.contatos.length) {
-    html += `<hr><div class="modal-section"><strong>Contatos:</strong><br><br>`;
-    cli.contatos.forEach((ct) => {
-      html += `
-        <div style="margin-bottom:6px;">
-          <strong>${ct.nome || "-"}</strong>
-          ${ct.principal ? '<span class="modal-badge">Principal</span>' : ""}
-          <br>
-          Função: ${ct.funcao || "-"}<br>
-          Tel: ${ct.telefone || "-"}<br>
-          E-mail: ${ct.email || "-"}
-          ${
-            ct.responsavelNome
-              ? `<br><strong>Responsável:</strong> ${primeiroNome(
-                  ct.responsavelNome
-                )}`
-              : ""
-          }
-        </div>
-      `;
-    });
-    html += `</div>`;
-  } else {
-    html += `<div class="modal-section"><strong>Contatos:</strong> nenhum cadastrado.</div>`;
-  }
-
-  html += `<hr><div class="modal-section"><strong>Usuário:</strong> ${usuario}</div>`;
-  abrirModal(`Cliente - ${cli.razao || ""}`, html);
-}
-
-function verRepresentada(id) {
-  const rep = representadas.find((r) => r.id === id);
-  if (!rep) return;
-
-  const usuario = formatarNomeUsuario(
-    rep.atualizadoPor || rep.criadoPor || "-"
-  );
-  const qtdOfertas = registros.filter((r) => r.representadaId === id).length;
-
-  let html = `
-    <div class="modal-section"><strong>Nome da Representada:</strong> ${
-      rep.nome || "-"
-    }</div>
-    <div class="modal-section"><strong>Ofertas vinculadas:</strong> ${qtdOfertas}</div>
-    <hr>
-    <div class="modal-section"><strong>Usuário:</strong> ${usuario}</div>
-  `;
-
-  abrirModal(`Representada - ${rep.nome || ""}`, html);
-}
-
+/* =======================
+   THEME / SIDEBAR
+======================= */
 function applyTheme(theme) {
   const body = document.body;
   const label = document.getElementById("themeLabel");
@@ -459,12 +619,15 @@ function toggleSidebar() {
   else sidebar.classList.toggle("collapsed");
 }
 
+
+/* =======================
+   MASKS
+======================= */
 function initMoneyMask() {
   document.querySelectorAll(".money").forEach((input) => {
     input.addEventListener("input", formatMoney);
   });
 }
-
 function formatMoney(e) {
   let value = e.target.value.replace(/\D/g, "");
   if (!value) {
@@ -490,7 +653,6 @@ function initPhoneMask() {
     telContato.addEventListener("paste", onPhonePaste);
   }
 }
-
 function onPhoneInput(e) {
   let value = e.target.value.replace(/\D/g, "");
   if (value.length > 11) value = value.slice(0, 11);
@@ -511,7 +673,6 @@ function onPhoneInput(e) {
 
   e.target.value = value;
 }
-
 function onPhonePaste(e) {
   e.preventDefault();
   const text = (e.clipboardData || window.clipboardData).getData("text");
@@ -538,29 +699,20 @@ function formatCnpjValue(value) {
   value = value.slice(0, 14);
 
   if (value.length >= 3) value = value.replace(/^(\d{2})(\d)/, "$1.$2");
-  if (value.length >= 7)
-    value = value.replace(/^(\d{2})\.(\d{3})(\d)/, "$1.$2.$3");
-  if (value.length >= 11)
-    value = value.replace(/^(\d{2})\.(\d{3})\.(\d{3})(\d)/, "$1.$2.$3/$4");
-  if (value.length >= 15)
-    value = value.replace(
-      /^(\d{2})\.(\d{3})\.(\d{3})\/(\d{4})(\d)/,
-      "$1.$2.$3/$4-$5"
-    );
+  if (value.length >= 7) value = value.replace(/^(\d{2})\.(\d{3})(\d)/, "$1.$2.$3");
+  if (value.length >= 11) value = value.replace(/^(\d{2})\.(\d{3})\.(\d{3})(\d)/, "$1.$2.$3/$4");
+  if (value.length >= 15) value = value.replace(/^(\d{2})\.(\d{3})\.(\d{3})\/(\d{4})(\d)/, "$1.$2.$3/$4-$5");
 
   return value;
 }
-
 function onCnpjInput(e) {
   e.target.value = formatCnpjValue(e.target.value);
 }
-
 function onCnpjPaste(e) {
   e.preventDefault();
   const text = (e.clipboardData || window.clipboardData).getData("text");
   e.target.value = formatCnpjValue(text);
 }
-
 function onCnpjBlur(e) {
   const input = e.target;
 
@@ -576,6 +728,10 @@ function onCnpjBlur(e) {
   }
 }
 
+
+/* =======================
+   FORM OFERTA (CRUD)
+======================= */
 function initForm() {
   const radiosPedido = document.querySelectorAll("input[name='pedido']");
   radiosPedido.forEach((radio) => {
@@ -614,25 +770,24 @@ function initForm() {
     const status = document.getElementById("status");
     const data_envio = document.getElementById("data_envio");
     const obsGeral = document.getElementById("obs_geral");
-
     const tipoNegocio = document.getElementById("tipo_oferta");
     const segmentoEl = document.getElementById("segmento");
-
 
     const possuiPedido =
       document.querySelector("input[name='pedido']:checked")?.value || "nao";
     const possuiRevisao =
       document.querySelector("input[name='revisao']:checked")?.value || "nao";
+
     const currentUser = getCurrentUserName();
 
-    const cnpjDigits = cnpj_cliente.value.replace(/\D/g, "");
+    const cnpjDigits = (cnpj_cliente.value || "").replace(/\D/g, "");
     if (cnpjDigits && cnpjDigits.length !== 14) {
       alert("CNPJ inválido. Verifique antes de salvar.");
       cnpj_cliente.focus();
       return;
     }
 
-    const telDigits = telefone.value.replace(/\D/g, "");
+    const telDigits = (telefone.value || "").replace(/\D/g, "");
     if (telDigits && telDigits.length < 10) {
       alert("Telefone inválido. Informe DDD + 8 ou 9 dígitos.");
       telefone.focus();
@@ -652,8 +807,7 @@ function initForm() {
       nome_projeto: nome_projeto.value,
       representadaId: representadaSelect.value || null,
       representadaNome:
-        representadaSelect.options[representadaSelect.selectedIndex]?.text ||
-        "",
+        representadaSelect.options[representadaSelect.selectedIndex]?.text || "",
       valor_total: valor_total.value,
       oportunidade: oportunidade.value,
       data_entrada: data_entrada.value,
@@ -661,12 +815,11 @@ function initForm() {
       data_envio: data_envio.value,
       possuiPedido,
       possuiRevisao,
-
       tipo_oferta: tipoNegocio ? tipoNegocio.value : "",
-
       obs_geral: obsGeral ? obsGeral.value.trim() : "",
     };
 
+    // Pedido
     if (possuiPedido === "sim") {
       const numero_pedido = document.getElementById("numero_pedido");
       const data_po = document.getElementById("data_po");
@@ -678,9 +831,8 @@ function initForm() {
 
       const data_nf = document.getElementById("data_nf");
       const valor_nf = document.getElementById("valor_nf");
-      const prazo_entrega_contratual = document.getElementById(
-        "prazo_entrega_contratual"
-      );
+      const prazo_entrega_contratual = document.getElementById("prazo_entrega_contratual");
+
       const solicitacao_oc =
         document.querySelector("input[name='sol_oc']:checked")?.value || "nao";
       const ref_oc = document.getElementById("ref_oc");
@@ -693,7 +845,6 @@ function initForm() {
         ref_projeto: ref_projeto?.value || "",
         tipo_produto: tipo_produto?.value || "",
         obs: obs?.value || "",
-
         data_nf: data_nf?.value || "",
         valor_nf: valor_nf?.value || "",
         prazo_entrega_contratual: prazo_entrega_contratual?.value || "",
@@ -704,6 +855,7 @@ function initForm() {
       registroBase.pedido = null;
     }
 
+    // Revisão
     if (possuiRevisao === "sim") {
       const rev_num_oferta = document.getElementById("rev_num_oferta");
       const rev_mudou = document.getElementById("rev_mudou");
@@ -727,6 +879,7 @@ function initForm() {
       registroBase.revisao = null;
     }
 
+    // Create / Update
     if (!editId) {
       const id = gerarId();
       const registro = {
@@ -762,18 +915,9 @@ function initForm() {
     document.getElementById("secaoPedido").classList.add("hidden");
     document.getElementById("secaoRevisao").classList.add("hidden");
 
-    const radioRevNao = document.querySelector(
-      "input[name='revisao'][value='nao']"
-    );
-    if (radioRevNao) radioRevNao.checked = true;
-
-    const radioNao = document.querySelector(
-      "input[name='pedido'][value='nao']"
-    );
-    if (radioNao) radioNao.checked = true;
-
-    const rOcNao = document.querySelector(`input[name="sol_oc"][value="nao"]`);
-    if (rOcNao) rOcNao.checked = true;
+    document.querySelector("input[name='revisao'][value='nao']")?.click();
+    document.querySelector("input[name='pedido'][value='nao']")?.click();
+    document.querySelector("input[name='sol_oc'][value='nao']")?.click();
 
     cnpj_cliente.dataset.clienteId = "";
     currentPage = 1;
@@ -781,25 +925,21 @@ function initForm() {
   });
 }
 
+
+/* =======================
+   FILTROS / PAGINAÇÃO OFERTAS
+======================= */
 function initFiltrosEPaginacao() {
   const searchTerm = document.getElementById("searchTerm");
   const filterField = document.getElementById("filterField");
   const statusFilter = document.getElementById("statusFilter");
   const pedidoFilter = document.getElementById("pedidoFilter");
+  const revisaoFilter = document.getElementById("revisaoFilter");
   const btnVerTudo = document.getElementById("btnVerTudo");
   const btnPrev = document.getElementById("btnPrev");
   const btnNext = document.getElementById("btnNext");
   const btnExportExcel = document.getElementById("btnExportExcel");
   const btnExportPdf = document.getElementById("btnExportPdf");
-
-  const revisaoFilter = document.getElementById("revisaoFilter");
-
-  if (revisaoFilter) {
-    revisaoFilter.addEventListener("change", () => {
-      currentPage = 1;
-      renderTabela();
-    });
-  }
 
   const pageSizeSelect = document.getElementById("pageSizeSelect");
   if (pageSizeSelect) {
@@ -811,26 +951,11 @@ function initFiltrosEPaginacao() {
     });
   }
 
-  if (searchTerm)
-    searchTerm.addEventListener(
-      "input",
-      () => ((currentPage = 1), renderTabela())
-    );
-  if (filterField)
-    filterField.addEventListener(
-      "change",
-      () => ((currentPage = 1), renderTabela())
-    );
-  if (statusFilter)
-    statusFilter.addEventListener(
-      "input",
-      () => ((currentPage = 1), renderTabela())
-    );
-  if (pedidoFilter)
-    pedidoFilter.addEventListener(
-      "change",
-      () => ((currentPage = 1), renderTabela())
-    );
+  searchTerm?.addEventListener("input", () => ((currentPage = 1), renderTabela()));
+  filterField?.addEventListener("change", () => ((currentPage = 1), renderTabela()));
+  statusFilter?.addEventListener("input", () => ((currentPage = 1), renderTabela()));
+  pedidoFilter?.addEventListener("change", () => ((currentPage = 1), renderTabela()));
+  revisaoFilter?.addEventListener("change", () => ((currentPage = 1), renderTabela()));
 
   if (btnVerTudo) {
     btnVerTudo.addEventListener("click", () => {
@@ -838,138 +963,87 @@ function initFiltrosEPaginacao() {
       if (statusFilter) statusFilter.value = "";
       if (filterField) filterField.value = "todos";
       if (pedidoFilter) pedidoFilter.value = "todos";
+      if (revisaoFilter) revisaoFilter.value = "todos";
       currentPage = 1;
       renderTabela();
     });
   }
 
-  if (btnPrev) {
-    btnPrev.addEventListener("click", () => {
-      if (currentPage > 1) {
-        currentPage--;
-        renderTabela();
-      }
-    });
-  }
+  btnPrev?.addEventListener("click", () => {
+    if (currentPage > 1) {
+      currentPage--;
+      renderTabela();
+    }
+  });
 
-  if (btnNext) {
-    btnNext.addEventListener("click", () => {
-      const totalFiltrados = getRegistrosFiltrados().length;
-      const totalPages = Math.max(1, Math.ceil(totalFiltrados / pageSize));
-      if (currentPage < totalPages) {
-        currentPage++;
-        renderTabela();
-      }
-    });
-  }
+  btnNext?.addEventListener("click", () => {
+    const totalFiltrados = getRegistrosFiltrados().length;
+    const totalPages = Math.max(1, Math.ceil(totalFiltrados / pageSize));
+    if (currentPage < totalPages) {
+      currentPage++;
+      renderTabela();
+    }
+  });
 
-  if (btnExportExcel) btnExportExcel.addEventListener("click", exportExcel);
-  if (btnExportPdf) btnExportPdf.addEventListener("click", exportPdf);
+  btnExportExcel?.addEventListener("click", exportExcel);
+  btnExportPdf?.addEventListener("click", exportPdf);
 }
 
 function getRegistrosFiltrados() {
-  const termInput = document.getElementById("searchTerm");
-  const fieldSelect = document.getElementById("filterField");
-  const statusFilterInput = document.getElementById("statusFilter");
-  const pedidoFilterSelect = document.getElementById("pedidoFilter");
-
-  const term = termInput ? termInput.value.trim().toLowerCase() : "";
-  const field = fieldSelect ? fieldSelect.value : "todos";
-  const statusFilter = statusFilterInput
-    ? statusFilterInput.value.trim().toLowerCase()
-    : "";
-  const pedidoFilter = pedidoFilterSelect ? pedidoFilterSelect.value : "todos";
-  const revisaoFilterSelect = document.getElementById("revisaoFilter");
-  const revisaoFilter = revisaoFilterSelect
-    ? revisaoFilterSelect.value
-    : "todos";
+  const term = (document.getElementById("searchTerm")?.value || "").trim().toLowerCase();
+  const field = document.getElementById("filterField")?.value || "todos";
+  const statusFilter = (document.getElementById("statusFilter")?.value || "").trim().toLowerCase();
+  const pedidoFilter = document.getElementById("pedidoFilter")?.value || "todos";
+  const revisaoFilter = document.getElementById("revisaoFilter")?.value || "todos";
 
   return registros.filter((reg) => {
     if (term) {
       if (field === "todos") {
         const textos = [
-          reg.bu,
-          reg.razao,
-          reg.cnpj_cliente,
-          reg.nome_projeto,
-          reg.representadaNome,
-          reg.solicitante,
-          reg.telefone,
-          reg.email,
-          reg.oferta,
-          reg.valor_total,
-          reg.oportunidade,
-          reg.data_entrada,
-          reg.status,
-          reg.data_envio,
-          reg.obs_geral,
-          reg.tipo_oferta,
+          reg.bu, reg.segmento, reg.razao, reg.cnpj_cliente, reg.nome_projeto,
+          reg.representadaNome, reg.solicitante, reg.telefone, reg.email,
+          reg.oferta, reg.valor_total, reg.oportunidade, reg.data_entrada,
+          reg.status, reg.data_envio, reg.obs_geral, reg.tipo_oferta,
         ];
 
         if (reg.pedido) {
           textos.push(
-            reg.pedido.numero_pedido,
-            reg.pedido.valor_pedido,
-            reg.pedido.ref_projeto,
-            reg.pedido.tipo_produto,
-            reg.pedido.obs,
-            reg.pedido.data_nf,
-            reg.pedido.valor_nf,
-            reg.pedido.prazo_entrega_contratual,
-            reg.pedido.solicitacao_oc,
-            reg.pedido.ref_oc
+            reg.pedido.numero_pedido, reg.pedido.valor_pedido, reg.pedido.ref_projeto,
+            reg.pedido.tipo_produto, reg.pedido.obs, reg.pedido.data_nf,
+            reg.pedido.valor_nf, reg.pedido.prazo_entrega_contratual,
+            reg.pedido.solicitacao_oc, reg.pedido.ref_oc
           );
         }
-        if (reg.revisao)
-          textos.push(reg.revisao.numero_oferta_anterior, reg.revisao.mudou);
+        if (reg.revisao) textos.push(reg.revisao.numero_oferta_anterior, reg.revisao.mudou);
 
         const textoUnico = textos.filter(Boolean).join(" ").toLowerCase();
         if (!textoUnico.includes(term)) return false;
       } else {
         let valorCampo = "";
         switch (field) {
-          case "bu":
-            valorCampo = reg.bu || "";
-            break;
-          case "razao":
-            valorCampo = reg.razao || "";
-            break;
-          case "cnpj":
-            valorCampo = reg.cnpj_cliente || "";
-            break;
-          case "projeto":
-            valorCampo = reg.nome_projeto || "";
-            break;
-          case "representada":
-            valorCampo = reg.representadaNome || "";
-            break;
-          case "tipo_oferta":
-            valorCampo = reg.tipo_oferta || "";
-            break;
-          case "status":
-            valorCampo = reg.status || "";
-            break;
+          case "bu": valorCampo = reg.bu || ""; break;
+          case "razao": valorCampo = reg.razao || ""; break;
+          case "cnpj": valorCampo = reg.cnpj_cliente || ""; break;
+          case "projeto": valorCampo = reg.nome_projeto || ""; break;
+          case "representada": valorCampo = reg.representadaNome || ""; break;
+          case "tipo_oferta": valorCampo = reg.tipo_oferta || ""; break;
+          case "status": valorCampo = reg.status || ""; break;
           case "usuario":
-            valorCampo = formatarNomeUsuario(
-              reg.atualizadoPor || reg.criadoPor || ""
-            );
+            valorCampo = formatarNomeUsuario(reg.atualizadoPor || reg.criadoPor || "");
             break;
-          default:
-            valorCampo = "";
-            break;
+          default: valorCampo = ""; break;
         }
-
         if (!valorCampo.toLowerCase().includes(term)) return false;
       }
     }
 
     if (statusFilter) {
-      if (!reg.status || !reg.status.toLowerCase().includes(statusFilter))
-        return false;
+      if (!reg.status || !reg.status.toLowerCase().includes(statusFilter)) return false;
     }
 
     if (pedidoFilter === "com" && reg.possuiPedido !== "sim") return false;
     if (pedidoFilter === "sem" && reg.possuiPedido !== "nao") return false;
+
     if (revisaoFilter === "com" && reg.possuiRevisao !== "sim") return false;
     if (revisaoFilter === "sem" && reg.possuiRevisao !== "nao") return false;
 
@@ -987,7 +1061,6 @@ function renderTabela() {
   const filtrados = getRegistrosFiltrados();
   const total = filtrados.length;
   const totalPages = Math.max(1, Math.ceil(total / pageSize));
-
   if (currentPage > totalPages) currentPage = totalPages;
 
   const start = (currentPage - 1) * pageSize;
@@ -1003,34 +1076,29 @@ function renderTabela() {
     tbody.appendChild(tr);
   } else {
     pageData.forEach((reg, index) => {
-      const usuario = formatarNomeUsuario(
-        reg.atualizadoPor || reg.criadoPor || ""
-      );
+      const usuario = formatarNomeUsuario(reg.atualizadoPor || reg.criadoPor || "");
       const pedidoIcon = reg.possuiPedido === "sim" ? "✅" : "—";
       const revisaoIcon = reg.possuiRevisao === "sim" ? "✅" : "—";
 
       const tr = document.createElement("tr");
       tr.innerHTML = `
-  <td>${start + index + 1}</td>
-  <td>${reg.bu || ""}</td>
-  <td>${reg.razao || ""}</td>
-  <td>${reg.cnpj_cliente || ""}</td>
-  <td>${reg.nome_projeto || ""}</td>
-  <td>${reg.representadaNome || ""}</td>
-  <td>${reg.tipo_oferta || ""}</td>
-  <td>${reg.status || ""}</td>
-  <td>${pedidoIcon}</td>
-  <td>${revisaoIcon}</td>
-  <td>${usuario}</td>
-  <td>
-    <button class="btn-sm" onclick="verOferta('${reg.id}')">Ver</button>
-    <button class="btn-sm" onclick="editarRegistro('${reg.id}')">Editar</button>
-    <button class="btn-sm btn-danger" onclick="excluirRegistro('${
-      reg.id
-    }')">Excluir</button>
-  </td>
-`;
-
+        <td>${start + index + 1}</td>
+        <td>${reg.bu || ""}</td>
+        <td>${reg.razao || ""}</td>
+        <td>${reg.cnpj_cliente || ""}</td>
+        <td>${reg.nome_projeto || ""}</td>
+        <td>${reg.representadaNome || ""}</td>
+        <td>${reg.tipo_oferta || ""}</td>
+        <td>${reg.status || ""}</td>
+        <td>${pedidoIcon}</td>
+        <td>${revisaoIcon}</td>
+        <td>${usuario}</td>
+        <td>
+          <button class="btn-sm" onclick="verOferta('${reg.id}')">Ver</button>
+          <button class="btn-sm" onclick="editarRegistro('${reg.id}')">Editar</button>
+          <button class="btn-sm btn-danger" onclick="excluirRegistro('${reg.id}')">Excluir</button>
+        </td>
+      `;
       tbody.appendChild(tr);
     });
   }
@@ -1046,20 +1114,12 @@ function editarRegistro(id) {
 
   document.getElementById("bu").value = reg.bu || "";
 
-  if (typeof initBuSegmento === "function") {
-    setTimeout(() => {
-      const segEl = document.getElementById("segmento");
-      const segWrap = document.getElementById("segmentoWrap");
-
-      document.getElementById("bu").dispatchEvent(new Event("change"));
-
-      if (segEl) segEl.value = reg.segmento || "";
-
-      if (segWrap && !segEl?.querySelectorAll("option").length) {
-        segWrap.classList.add("hidden");
-      }
-    }, 0);
-  }
+  // BU -> Segmento
+  setTimeout(() => {
+    document.getElementById("bu")?.dispatchEvent(new Event("change"));
+    const segEl = document.getElementById("segmento");
+    if (segEl) segEl.value = reg.segmento || "";
+  }, 0);
 
   document.getElementById("razao").value = reg.razao || "";
 
@@ -1077,80 +1137,41 @@ function editarRegistro(id) {
   document.getElementById("data_entrada").value = reg.data_entrada || "";
   document.getElementById("status").value = reg.status || "";
   document.getElementById("data_envio").value = reg.data_envio || "";
-
-  const obsGeral = document.getElementById("obs_geral");
-  if (obsGeral) obsGeral.value = reg.obs_geral || "";
+  document.getElementById("obs_geral").value = reg.obs_geral || "";
 
   const tipoNegocio = document.getElementById("tipo_oferta");
   if (tipoNegocio) tipoNegocio.value = reg.tipo_oferta || "";
 
   const representadaSelect = document.getElementById("representada");
-  if (representadaSelect && reg.representadaId)
-    representadaSelect.value = reg.representadaId;
+  if (representadaSelect && reg.representadaId) representadaSelect.value = reg.representadaId;
   else if (representadaSelect) representadaSelect.value = "";
 
-  const radioPedido = document.querySelector(
-    `input[name="pedido"][value="${reg.possuiPedido || "nao"}"]`
-  );
-  if (radioPedido) radioPedido.checked = true;
+  document.querySelector(`input[name="pedido"][value="${reg.possuiPedido || "nao"}"]`)?.click();
+  document.querySelector(`input[name="revisao"][value="${reg.possuiRevisao || "nao"}"]`)?.click();
 
+  // pedido
   if (reg.possuiPedido === "sim" && reg.pedido) {
     document.getElementById("secaoPedido").classList.remove("hidden");
-    document.getElementById("numero_pedido").value =
-      reg.pedido.numero_pedido || "";
+    document.getElementById("numero_pedido").value = reg.pedido.numero_pedido || "";
     document.getElementById("data_po").value = reg.pedido.data_po || "";
-    document.getElementById("valor_pedido").value =
-      reg.pedido.valor_pedido || "";
-    document.getElementById("cond_pagamento").value =
-      reg.pedido.cond_pagamento || "";
+    document.getElementById("valor_pedido").value = reg.pedido.valor_pedido || "";
+    document.getElementById("cond_pagamento").value = reg.pedido.cond_pagamento || "";
     document.getElementById("ref_projeto").value = reg.pedido.ref_projeto || "";
-    document.getElementById("tipo_produto").value =
-      reg.pedido.tipo_produto || "";
+    document.getElementById("tipo_produto").value = reg.pedido.tipo_produto || "";
     document.getElementById("obs").value = reg.pedido.obs || "";
 
-    const elDataNf = document.getElementById("data_nf");
-    const elValorNf = document.getElementById("valor_nf");
-    const elPrazo = document.getElementById("prazo_entrega_contratual");
-    const elRefOc = document.getElementById("ref_oc");
+    document.getElementById("data_nf").value = reg.pedido.data_nf || "";
+    document.getElementById("valor_nf").value = reg.pedido.valor_nf || "";
+    document.getElementById("prazo_entrega_contratual").value =
+      reg.pedido.prazo_entrega_contratual || "";
+    document.getElementById("ref_oc").value = reg.pedido.ref_oc || "";
 
-    if (elDataNf) elDataNf.value = reg.pedido.data_nf || "";
-    if (elValorNf) elValorNf.value = reg.pedido.valor_nf || "";
-    if (elPrazo) elPrazo.value = reg.pedido.prazo_entrega_contratual || "";
-    if (elRefOc) elRefOc.value = reg.pedido.ref_oc || "";
-
-    const rOc = document.querySelector(
-      `input[name="sol_oc"][value="${reg.pedido.solicitacao_oc || "nao"}"]`
-    );
-    if (rOc) rOc.checked = true;
+    document.querySelector(`input[name="sol_oc"][value="${reg.pedido.solicitacao_oc || "nao"}"]`)?.click();
   } else {
     document.getElementById("secaoPedido").classList.add("hidden");
-    document.getElementById("numero_pedido").value = "";
-    document.getElementById("data_po").value = "";
-    document.getElementById("valor_pedido").value = "";
-    document.getElementById("cond_pagamento").value = "";
-    document.getElementById("ref_projeto").value = "";
-    document.getElementById("tipo_produto").value = "";
-    document.getElementById("obs").value = "";
-
-    const elDataNf = document.getElementById("data_nf");
-    const elValorNf = document.getElementById("valor_nf");
-    const elPrazo = document.getElementById("prazo_entrega_contratual");
-    const elRefOc = document.getElementById("ref_oc");
-
-    if (elDataNf) elDataNf.value = "";
-    if (elValorNf) elValorNf.value = "";
-    if (elPrazo) elPrazo.value = "";
-    if (elRefOc) elRefOc.value = "";
-
-    const rOcNao = document.querySelector(`input[name="sol_oc"][value="nao"]`);
-    if (rOcNao) rOcNao.checked = true;
   }
 
-  const radioRev = document.querySelector(
-    `input[name="revisao"][value="${reg.possuiRevisao || "nao"}"]`
-  );
-  if (radioRev) radioRev.checked = true;
-
+  // revisao
   if (reg.possuiRevisao === "sim" && reg.revisao) {
     document.getElementById("secaoRevisao").classList.remove("hidden");
     document.getElementById("rev_num_oferta").value =
@@ -1158,8 +1179,6 @@ function editarRegistro(id) {
     document.getElementById("rev_mudou").value = reg.revisao.mudou || "";
   } else {
     document.getElementById("secaoRevisao").classList.add("hidden");
-    document.getElementById("rev_num_oferta").value = "";
-    document.getElementById("rev_mudou").value = "";
   }
 
   document.getElementById("btnAdicionar").textContent = "Salvar Edição";
@@ -1181,6 +1200,10 @@ async function excluirRegistro(id) {
   renderTabela();
 }
 
+
+/* =======================
+   EXPORT
+======================= */
 function exportExcel() {
   const filtrados = getRegistrosFiltrados();
   if (filtrados.length === 0) {
@@ -1203,6 +1226,7 @@ function exportExcel() {
     return {
       "#": i + 1,
       "B.U": reg.bu || "",
+      Segmento: reg.segmento || "",
       "Razão Social": reg.razao || "",
       CNPJ: reg.cnpj_cliente || "",
       Projeto: reg.nome_projeto || "",
@@ -1218,12 +1242,10 @@ function exportExcel() {
       Status: reg.status || "",
       "Data Envio": reg.data_envio || "",
       "Pedido?": reg.possuiPedido === "sim" ? "✅" : "—",
-      "Observações Gerais": reg.obs_geral || "",
-
       "Revisão?": reg.possuiRevisao === "sim" ? "✅" : "—",
+      "Observações Gerais": reg.obs_geral || "",
       "Oferta anterior (revisão)": revisao.numero_oferta_anterior || "",
       "O que mudou (revisão)": revisao.mudou || "",
-
       "N° Pedido": pedido.numero_pedido || "",
       "Vl. Total Pedido": pedido.valor_pedido || "",
       "Data P.O": pedido.data_po || "",
@@ -1231,7 +1253,6 @@ function exportExcel() {
       "Ref./Projeto (Pedido)": pedido.ref_projeto || "",
       "Tipo Produto": pedido.tipo_produto || "",
       "Obs Pedido": pedido.obs || "",
-
       "Data NF": pedido.data_nf || "",
       "Valor NF": pedido.valor_nf || "",
       "Prazo entrega contratual": pedido.prazo_entrega_contratual || "",
@@ -1241,7 +1262,6 @@ function exportExcel() {
           : "Não"
         : "",
       "Ref. OC": pedido.ref_oc || "",
-
       Usuário: usuario,
     };
   });
@@ -1327,49 +1347,6 @@ function exportPdf() {
   html += `
           </tbody>
         </table>
-
-        <br><br>
-        <h2>Detalhes de Pedido (quando existir)</h2>
-        <table>
-          <thead>
-            <tr>
-              <th>N° Oferta</th>
-              <th>Razão Social</th>
-              <th>N° Pedido</th>
-              <th>Data P.O</th>
-              <th>Valor Pedido</th>
-              <th>Data NF</th>
-              <th>Valor NF</th>
-              <th>Prazo Entrega</th>
-              <th>Solicitação OC</th>
-              <th>Ref. OC</th>
-            </tr>
-          </thead>
-          <tbody>
-  `;
-
-  filtrados.forEach((reg) => {
-    const p = reg.pedido || null;
-    if (!p) return;
-    html += `
-      <tr>
-        <td>${reg.oferta || ""}</td>
-        <td>${reg.razao || ""}</td>
-        <td>${p.numero_pedido || ""}</td>
-        <td>${p.data_po || ""}</td>
-        <td>${p.valor_pedido || ""}</td>
-        <td>${p.data_nf || ""}</td>
-        <td>${p.valor_nf || ""}</td>
-        <td>${p.prazo_entrega_contratual || ""}</td>
-        <td>${p.solicitacao_oc === "sim" ? "Sim" : "Não"}</td>
-        <td>${p.ref_oc || ""}</td>
-      </tr>
-    `;
-  });
-
-  html += `
-          </tbody>
-        </table>
       </body>
     </html>
   `;
@@ -1381,47 +1358,41 @@ function exportPdf() {
   win.print();
 }
 
+
+/* =======================
+   BACKUP UI
+======================= */
 function initBackupUI() {
   const btnBackupExport = document.getElementById("btnBackupExport");
   const btnBackupImport = document.getElementById("btnBackupImport");
   const inputBackupFile = document.getElementById("inputBackupFile");
 
-  if (btnBackupExport) {
-    btnBackupExport.addEventListener("click", () => {
-      const tipo = (
-        prompt("Exportar backup em qual formato? Digite 'json' ou 'excel':") ||
-        ""
-      )
-        .trim()
-        .toLowerCase();
+  btnBackupExport?.addEventListener("click", () => {
+    const tipo = (prompt("Exportar backup em qual formato? Digite 'json' ou 'excel':") || "")
+      .trim()
+      .toLowerCase();
 
-      if (tipo === "json") {
-        const data = { registros, clientes, representadas };
-        const blob = new Blob([JSON.stringify(data, null, 2)], {
-          type: "application/json",
-        });
-        const url = URL.createObjectURL(blob);
-        const a = document.createElement("a");
-        a.href = url;
-        a.download = "backup_crm.json";
-        document.body.appendChild(a);
-        a.click();
-        a.remove();
-        URL.revokeObjectURL(url);
-      } else if (tipo === "excel") {
-        exportBackupExcel();
-      } else if (tipo) {
-        alert("Opção inválida. Use 'json' ou 'excel'.");
-      }
-    });
-  }
+    if (tipo === "json") {
+      const data = { registros, clientes, representadas };
+      const blob = new Blob([JSON.stringify(data, null, 2)], { type: "application/json" });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement("a");
+      a.href = url;
+      a.download = "backup_crm.json";
+      document.body.appendChild(a);
+      a.click();
+      a.remove();
+      URL.revokeObjectURL(url);
+    } else if (tipo === "excel") {
+      exportBackupExcel();
+    } else if (tipo) {
+      alert("Opção inválida. Use 'json' ou 'excel'.");
+    }
+  });
 
   if (btnBackupImport && inputBackupFile) {
     btnBackupImport.addEventListener("click", () => {
-      const tipo = (
-        prompt("Importar backup de qual formato? Digite 'json' ou 'excel':") ||
-        ""
-      )
+      const tipo = (prompt("Importar backup de qual formato? Digite 'json' ou 'excel':") || "")
         .trim()
         .toLowerCase();
 
@@ -1488,9 +1459,7 @@ function exportBackupExcel() {
     AtualizadoPor: c.atualizadoPor || "",
   }));
   const wsClientes = XLSX.utils.json_to_sheet(
-    clientesSheetData.length
-      ? clientesSheetData
-      : [{ Mensagem: "Sem clientes" }]
+    clientesSheetData.length ? clientesSheetData : [{ Mensagem: "Sem clientes" }]
   );
   XLSX.utils.book_append_sheet(wb, wsClientes, "Clientes");
 
@@ -1511,9 +1480,7 @@ function exportBackupExcel() {
     });
   });
   const wsContatos = XLSX.utils.json_to_sheet(
-    contatosSheetData.length
-      ? contatosSheetData
-      : [{ Mensagem: "Sem contatos" }]
+    contatosSheetData.length ? contatosSheetData : [{ Mensagem: "Sem contatos" }]
   );
   XLSX.utils.book_append_sheet(wb, wsContatos, "Contatos");
 
@@ -1523,9 +1490,7 @@ function exportBackupExcel() {
     CriadoPor: r.criadoPor || "",
     AtualizadoPor: r.atualizadoPor || "",
   }));
-  const wsRep = XLSX.utils.json_to_sheet(
-    repsData.length ? repsData : [{ Mensagem: "Sem representadas" }]
-  );
+  const wsRep = XLSX.utils.json_to_sheet(repsData.length ? repsData : [{ Mensagem: "Sem representadas" }]);
   XLSX.utils.book_append_sheet(wb, wsRep, "Representadas");
 
   const ofertasData = registros.map((r) => ({
@@ -1534,6 +1499,7 @@ function exportBackupExcel() {
     ClienteCNPJ: r.cnpj_cliente || "",
     RazaoSocial: r.razao || "",
     BU: r.bu || "",
+    Segmento: r.segmento || "",
     Projeto: r.nome_projeto || "",
     RepresentadaID: r.representadaId || null,
     RepresentadaNome: r.representadaNome || "",
@@ -1548,13 +1514,10 @@ function exportBackupExcel() {
     Status: r.status || "",
     DataEnvio: r.data_envio || "",
     PossuiPedido: r.possuiPedido || "nao",
-
     ObservacoesGerais: r.obs_geral || "",
-
     PossuiRevisao: r.possuiRevisao || "nao",
     RevisaoOfertaAnterior: r.revisao?.numero_oferta_anterior || "",
     RevisaoMudou: r.revisao?.mudou || "",
-
     NumeroPedido: r.pedido?.numero_pedido || "",
     ValorPedido: r.pedido?.valor_pedido || "",
     DataPO: r.pedido?.data_po || "",
@@ -1562,20 +1525,16 @@ function exportBackupExcel() {
     RefProjetoPedido: r.pedido?.ref_projeto || "",
     TipoProduto: r.pedido?.tipo_produto || "",
     ObsPedido: r.pedido?.obs || "",
-
     DataNF: r.pedido?.data_nf || "",
     ValorNF: r.pedido?.valor_nf || "",
     PrazoEntregaContratual: r.pedido?.prazo_entrega_contratual || "",
     SolicitacaoOC: r.pedido?.solicitacao_oc || "",
     RefOC: r.pedido?.ref_oc || "",
-
     CriadoPor: r.criadoPor || "",
     AtualizadoPor: r.atualizadoPor || "",
   }));
 
-  const wsOfertas = XLSX.utils.json_to_sheet(
-    ofertasData.length ? ofertasData : [{ Mensagem: "Sem ofertas" }]
-  );
+  const wsOfertas = XLSX.utils.json_to_sheet(ofertasData.length ? ofertasData : [{ Mensagem: "Sem ofertas" }]);
   XLSX.utils.book_append_sheet(wb, wsOfertas, "Ofertas");
 
   XLSX.writeFile(wb, "backup_crm.xlsx");
@@ -1634,9 +1593,7 @@ function importBackupExcel(file) {
           if (cid) cliente = clientes.find((c) => c.id == cid);
           if (!cliente && cnpj) {
             const clean = cnpj.replace(/\D/g, "");
-            cliente = clientes.find(
-              (c) => (c.cnpj || "").replace(/\D/g, "") === clean
-            );
+            cliente = clientes.find((c) => (c.cnpj || "").replace(/\D/g, "") === clean);
           }
           if (!cliente) return;
 
@@ -1660,17 +1617,9 @@ function importBackupExcel(file) {
           .filter((row) => row.NumeroOferta || row.RazaoSocial)
           .map((row) => {
             const pedidoExiste =
-              row.NumeroPedido ||
-              row.ValorPedido ||
-              row.RefProjetoPedido ||
-              row.TipoProduto ||
-              row.CondicaoPagamento ||
-              row.ObsPedido ||
-              row.DataNF ||
-              row.ValorNF ||
-              row.PrazoEntregaContratual ||
-              row.SolicitacaoOC ||
-              row.RefOC;
+              row.NumeroPedido || row.ValorPedido || row.RefProjetoPedido || row.TipoProduto ||
+              row.CondicaoPagamento || row.ObsPedido || row.DataNF || row.ValorNF ||
+              row.PrazoEntregaContratual || row.SolicitacaoOC || row.RefOC;
 
             const pedido = pedidoExiste
               ? {
@@ -1681,34 +1630,21 @@ function importBackupExcel(file) {
                   ref_projeto: row.RefProjetoPedido || "",
                   tipo_produto: row.TipoProduto || "",
                   obs: row.ObsPedido || "",
-
                   data_nf: row.DataNF || "",
                   valor_nf: row.ValorNF || "",
                   prazo_entrega_contratual: row.PrazoEntregaContratual || "",
-                  solicitacao_oc:
-                    (row.SolicitacaoOC || "").toString().toLowerCase() || "",
+                  solicitacao_oc: (row.SolicitacaoOC || "").toString().toLowerCase() || "",
                   ref_oc: row.RefOC || "",
                 }
               : null;
 
-            const possuiRevisao = (row.PossuiRevisao || "nao")
-              .toString()
-              .toLowerCase();
+            const possuiRevisao = (row.PossuiRevisao || "nao").toString().toLowerCase();
             const revisao =
-              possuiRevisao === "sim" ||
-              row.RevisaoOfertaAnterior ||
-              row.RevisaoMudou
-                ? {
-                    numero_oferta_anterior: row.RevisaoOfertaAnterior || "",
-                    mudou: row.RevisaoMudou || "",
-                  }
+              possuiRevisao === "sim" || row.RevisaoOfertaAnterior || row.RevisaoMudou
+                ? { numero_oferta_anterior: row.RevisaoOfertaAnterior || "", mudou: row.RevisaoMudou || "" }
                 : null;
 
-            const possuiPedido = (
-              row.PossuiPedido || (pedidoExiste ? "sim" : "nao")
-            )
-              .toString()
-              .toLowerCase();
+            const possuiPedido = (row.PossuiPedido || (pedidoExiste ? "sim" : "nao")).toString().toLowerCase();
 
             return {
               id: row.ID || gerarId(),
@@ -1716,6 +1652,7 @@ function importBackupExcel(file) {
               cnpj_cliente: row.ClienteCNPJ || "",
               razao: row.RazaoSocial || "",
               bu: row.BU || "",
+              segmento: row.Segmento || "",
               nome_projeto: row.Projeto || "",
               representadaId: row.RepresentadaID || null,
               representadaNome: row.RepresentadaNome || "",
@@ -1729,15 +1666,11 @@ function importBackupExcel(file) {
               data_entrada: row.DataEntrada || "",
               status: row.Status || "",
               data_envio: row.DataEnvio || "",
-
               obs_geral: row.ObservacoesGerais || "",
-
               possuiPedido,
               pedido: possuiPedido === "sim" ? pedido : null,
-
               possuiRevisao,
               revisao,
-
               criadoPor: row.CriadoPor || "",
               atualizadoPor: row.AtualizadoPor || row.CriadoPor || "",
             };
@@ -1762,6 +1695,10 @@ function importBackupExcel(file) {
   reader.readAsArrayBuffer(file);
 }
 
+
+/* =======================
+   CLIENTES (CRUD)
+======================= */
 function initClientesUI() {
   const btnAddContato = document.getElementById("btnAddContato");
   const btnSalvarCliente = document.getElementById("btnSalvarCliente");
@@ -1774,11 +1711,9 @@ function initClientesUI() {
     const funcao = document.getElementById("ct_funcao").value.trim();
     const principalChecked = document.getElementById("ct_principal").checked;
 
-    const selResp = document.getElementById("ct_responsavel");
-    const responsavelId = selResp ? selResp.value : "";
-
-    const respObj = usuarios.find((u) => (u.uid || u.id) === responsavelId);
-    const responsavelNome = primeiroNome(respObj?.nome || respObj?.email || "");
+const selResp = document.getElementById("ct_responsavel");
+const responsavelNome = selResp ? selResp.value : "";
+const responsavelId = responsavelNome; // mantém campo sem quebrar seu modelo
 
     if (!nome) {
       alert("Informe pelo menos o nome do contato.");
@@ -1900,28 +1835,20 @@ function initClientesUI() {
 
   renderTabelaClientes();
 
-  const btnPrevClientes = document.getElementById("btnPrevClientes");
-  const btnNextClientes = document.getElementById("btnNextClientes");
+  document.getElementById("btnPrevClientes")?.addEventListener("click", () => {
+    if (clientesCurrentPage > 1) {
+      clientesCurrentPage--;
+      renderTabelaClientes();
+    }
+  });
 
-  if (btnPrevClientes)
-    btnPrevClientes.addEventListener("click", () => {
-      if (clientesCurrentPage > 1) {
-        clientesCurrentPage--;
-        renderTabelaClientes();
-      }
-    });
-
-  if (btnNextClientes)
-    btnNextClientes.addEventListener("click", () => {
-      const totalPages = Math.max(
-        1,
-        Math.ceil(clientes.length / clientesPageSize)
-      );
-      if (clientesCurrentPage < totalPages) {
-        clientesCurrentPage++;
-        renderTabelaClientes();
-      }
-    });
+  document.getElementById("btnNextClientes")?.addEventListener("click", () => {
+    const totalPages = Math.max(1, Math.ceil(clientes.length / clientesPageSize));
+    if (clientesCurrentPage < totalPages) {
+      clientesCurrentPage++;
+      renderTabelaClientes();
+    }
+  });
 }
 
 function renderListaContatos() {
@@ -1944,13 +1871,7 @@ function renderListaContatos() {
       ${ct.funcao || ""}
       <br>
       Tel: ${ct.telefone || ""} • E-mail: ${ct.email || ""}
-      ${
-        ct.responsavelNome
-          ? `<br><strong>Responsável:</strong> ${primeiroNome(
-              ct.responsavelNome
-            )}`
-          : ""
-      }
+      ${ct.responsavelNome ? `<br><strong>Responsável:</strong> ${primeiroNome(ct.responsavelNome)}` : ""}
       <br>
       <button class="btn-sm" onclick="editarContato(${index})">Editar</button>
       <button class="btn-sm btn-danger" onclick="excluirContato(${index})">Excluir</button>
@@ -2008,9 +1929,7 @@ function renderTabelaClientes() {
     pageData.forEach((cli) => {
       const tr = document.createElement("tr");
       const qtdContatos = cli.contatos ? cli.contatos.length : 0;
-      const usuario = formatarNomeUsuario(
-        cli.atualizadoPor || cli.criadoPor || "-"
-      );
+      const usuario = formatarNomeUsuario(cli.atualizadoPor || cli.criadoPor || "-");
 
       tr.innerHTML = `
         <td>${cli.razao || ""}</td>
@@ -2020,15 +1939,9 @@ function renderTabelaClientes() {
         <td>${usuario}</td>
         <td>
           <button class="btn-sm" onclick="verCliente('${cli.id}')">Ver</button>
-          <button class="btn-sm" onclick="abrirPainelCliente('${
-            cli.id
-          }')">Contatos</button>
-          <button class="btn-sm" onclick="editarCliente('${
-            cli.id
-          }')">Editar</button>
-          <button class="btn-sm btn-danger" onclick="excluirCliente('${
-            cli.id
-          }')">Excluir</button>
+          <button class="btn-sm" onclick="abrirPainelCliente('${cli.id}')">Contatos</button>
+          <button class="btn-sm" onclick="editarCliente('${cli.id}')">Editar</button>
+          <button class="btn-sm btn-danger" onclick="excluirCliente('${cli.id}')">Excluir</button>
         </td>
       `;
       tbody.appendChild(tr);
@@ -2078,6 +1991,10 @@ async function excluirCliente(id) {
   renderTabelaClientes();
 }
 
+
+/* =======================
+   PAINEL CLIENTE
+======================= */
 function abrirPainelCliente(id) {
   const cli = clientes.find((c) => c.id === id);
   if (!cli) return;
@@ -2085,10 +2002,8 @@ function abrirPainelCliente(id) {
   const painel = document.getElementById("painelCliente");
   document.getElementById("painelClienteNome").textContent = cli.razao || "";
   document.getElementById("painelClienteCnpj").textContent = cli.cnpj || "";
-  document.getElementById("painelClienteSegmento").textContent =
-    cli.segmento || "";
-  document.getElementById("painelClienteEndereco").textContent =
-    cli.endereco || "";
+  document.getElementById("painelClienteSegmento").textContent = cli.segmento || "";
+  document.getElementById("painelClienteEndereco").textContent = cli.endereco || "";
 
   const divContatos = document.getElementById("painelClienteContatos");
   divContatos.innerHTML = "";
@@ -2103,13 +2018,7 @@ function abrirPainelCliente(id) {
       ${ct.funcao || ""}
       <br>
       Tel: ${ct.telefone || ""} • E-mail: ${ct.email || ""}
-      ${
-        ct.responsavelNome
-          ? `<br><strong>Responsável:</strong> ${primeiroNome(
-              ct.responsavelNome
-            )}`
-          : ""
-      }
+      ${ct.responsavelNome ? `<br><strong>Responsável:</strong> ${primeiroNome(ct.responsavelNome)}` : ""}
       <hr>
     `;
     divContatos.appendChild(div);
@@ -2123,6 +2032,10 @@ function fecharPainelCliente() {
   if (painel) painel.classList.add("hidden");
 }
 
+
+/* =======================
+   LIGAÇÃO CLIENTE -> OFERTA
+======================= */
 function buscarClientePorCnpj(cnpj) {
   const clean = (cnpj || "").replace(/\D/g, "");
   return clientes.find((c) => (c.cnpj || "").replace(/\D/g, "") === clean);
@@ -2145,6 +2058,11 @@ function initLigacaoClienteOferta() {
     if (razao) razao.value = cli.razao || "";
   });
 }
+
+
+/* =======================
+   REPRESENTADAS (CRUD)
+======================= */
 function initRepresentadasUI() {
   const btn = document.getElementById("btnSalvarRepresentada");
   if (!btn) return;
@@ -2160,12 +2078,7 @@ function initRepresentadasUI() {
 
     if (!editRepresentadaId) {
       const id = gerarId();
-      const rep = {
-        id,
-        nome,
-        criadoPor: currentUser,
-        atualizadoPor: currentUser,
-      };
+      const rep = { id, nome, criadoPor: currentUser, atualizadoPor: currentUser };
       await db.collection("representadas").doc(id).set(rep);
       representadas.push(rep);
       alert("Representada salva!");
@@ -2184,8 +2097,7 @@ function initRepresentadasUI() {
       }
 
       registros.forEach((reg) => {
-        if (reg.representadaId === editRepresentadaId)
-          reg.representadaNome = nome;
+        if (reg.representadaId === editRepresentadaId) reg.representadaNome = nome;
       });
       salvarRegistros();
 
@@ -2207,9 +2119,7 @@ function renderTabelaRepresentadas() {
 
   tbody.innerHTML = "";
   representadas.forEach((rep) => {
-    const usuario = formatarNomeUsuario(
-      rep.atualizadoPor || rep.criadoPor || ""
-    );
+    const usuario = formatarNomeUsuario(rep.atualizadoPor || rep.criadoPor || "");
     const tr = document.createElement("tr");
     tr.innerHTML = `
       <td>${rep.nome}</td>
@@ -2247,9 +2157,7 @@ function editarRepresentada(id) {
   const btn = document.getElementById("btnSalvarRepresentada");
   if (btn) btn.textContent = "Salvar Edição";
 
-  document
-    .getElementById("secRepresentadas")
-    .scrollIntoView({ behavior: "smooth" });
+  document.getElementById("secRepresentadas").scrollIntoView({ behavior: "smooth" });
 }
 
 async function excluirRepresentada(id) {
@@ -2277,6 +2185,315 @@ async function excluirRepresentada(id) {
   renderTabelaRepresentadas();
   preencherSelectRepresentadas();
 }
+
+
+/* =======================
+   VIEWS: verOferta / verCliente / verRepresentada
+======================= */
+function verOferta(id) {
+  const reg = registros.find((r) => r.id === id);
+  if (!reg) return;
+
+  const pedido = reg.pedido || {};
+  const revisao = reg.revisao || {};
+  const usuario = formatarNomeUsuario(reg.atualizadoPor || reg.criadoPor || "-");
+
+  const tipoTexto =
+    reg.tipo_oferta === "compra"
+      ? "Compra"
+      : reg.tipo_oferta === "orcamento"
+      ? "Orçamento"
+      : "-";
+
+  let html = `
+    <div class="modal-grid">
+      <div class="modal-card">
+        <div class="modal-card-title">Dados do Cliente</div>
+        <div class="modal-section"><strong>Razão Social:</strong> ${reg.razao || "-"}</div>
+        <div class="modal-section"><strong>CNPJ:</strong> ${reg.cnpj_cliente || "-"}</div>
+        <div class="modal-section"><strong>B.U:</strong> ${reg.bu || "-"}</div>
+        <div class="modal-section"><strong>Segmento:</strong> ${reg.segmento || "-"}</div>
+      </div>
+
+      <div class="modal-card">
+        <div class="modal-card-title">Projeto & Representada</div>
+        <div class="modal-section"><strong>Projeto:</strong> ${reg.nome_projeto || "-"}</div>
+        <div class="modal-section"><strong>Representada:</strong> ${reg.representadaNome || "-"}</div>
+      </div>
+    </div>
+
+    <div class="modal-card">
+      <div class="modal-card-title">Oferta</div>
+      <div class="modal-section"><strong>N° Oferta:</strong> ${reg.oferta || "-"}</div>
+      <div class="modal-section"><strong>Tipo:</strong> ${tipoTexto}</div>
+      <div class="modal-section"><strong>Valor Total:</strong> ${reg.valor_total || "-"}</div>
+      <div class="modal-section"><strong>Oportunidade:</strong> ${reg.oportunidade || "-"}</div>
+      <div class="modal-section"><strong>Status:</strong> ${reg.status || "-"}</div>
+    </div>
+
+    <div class="modal-card">
+      <div class="modal-card-title">Usuário</div>
+      <div class="modal-section"><strong>Responsável:</strong> ${usuario}</div>
+    </div>
+  `;
+
+  if (reg.obs_geral && String(reg.obs_geral).trim()) {
+    html += `
+      <div class="modal-card">
+        <div class="modal-card-title">Observações Gerais</div>
+        <div class="modal-section">${String(reg.obs_geral).replace(/\n/g, "<br>")}</div>
+      </div>
+    `;
+  }
+
+  if (reg.possuiPedido === "sim") {
+    html += `
+      <hr>
+      <div class="modal-card">
+        <div class="modal-card-title">Pedido</div>
+        <div class="modal-section">
+          <strong>N° Pedido:</strong> ${pedido.numero_pedido || "-"}<br>
+          <strong>Data P.O:</strong> ${pedido.data_po || "-"}<br>
+          <strong>Valor Pedido:</strong> ${pedido.valor_pedido || "-"}<br>
+          <strong>Condição de Pagamento:</strong> ${pedido.cond_pagamento || "-"}<br>
+          <strong>Ref./Projeto:</strong> ${pedido.ref_projeto || "-"}<br>
+          <strong>Tipo de Produto:</strong> ${pedido.tipo_produto || "-"}<br>
+          <strong>Obs:</strong> ${pedido.obs || "-"}<br><br>
+
+          <strong>Data NF:</strong> ${pedido.data_nf || "-"}<br>
+          <strong>Valor NF:</strong> ${pedido.valor_nf || "-"}<br>
+          <strong>Prazo entrega contratual:</strong> ${pedido.prazo_entrega_contratual || "-"}<br>
+          <strong>Solicitação OC?</strong> ${pedido.solicitacao_oc === "sim" ? "Sim" : "Não"}<br>
+          <strong>Ref. OC:</strong> ${pedido.ref_oc || "-"}
+        </div>
+      </div>
+    `;
+  } else {
+    html += `<div class="modal-section"><strong>Pedido?</strong> Não</div>`;
+  }
+
+  if (reg.possuiRevisao === "sim") {
+    html += `
+      <hr>
+      <div class="modal-card">
+        <div class="modal-card-title">Revisão</div>
+        <div class="modal-section"><strong>Oferta anterior:</strong> ${revisao.numero_oferta_anterior || "-"}</div>
+        <div class="modal-section"><strong>O que mudou:</strong> ${(revisao.mudou || "-").toString().replace(/\n/g, "<br>")}</div>
+      </div>
+    `;
+  }
+
+  html += `<hr><div class="modal-section"><strong>Usuário:</strong> ${usuario}</div>`;
+  abrirModal(`Oferta ${reg.oferta || ""}`, html);
+}
+
+function verCliente(id) {
+  const cli = clientes.find((c) => c.id === id);
+  if (!cli) return;
+
+  const usuario = formatarNomeUsuario(cli.atualizadoPor || cli.criadoPor || "-");
+
+  let html = `
+    <div class="modal-section">
+      <strong>Razão Social:</strong> ${cli.razao || "-"}<br>
+      <strong>CNPJ:</strong> ${cli.cnpj || "-"}<br>
+      <strong>Inscrição Estadual:</strong> ${cli.ie || "-"}<br>
+      <strong>Segmento:</strong> ${cli.segmento || "-"}<br>
+      <strong>Endereço:</strong> ${cli.endereco || "-"}
+    </div>
+  `;
+
+  if (cli.contatos && cli.contatos.length) {
+    html += `<hr><div class="modal-section"><strong>Contatos:</strong><br><br>`;
+    cli.contatos.forEach((ct) => {
+      html += `
+        <div style="margin-bottom:6px;">
+          <strong>${ct.nome || "-"}</strong>
+          ${ct.principal ? '<span class="modal-badge">Principal</span>' : ""}
+          <br>
+          Função: ${ct.funcao || "-"}<br>
+          Tel: ${ct.telefone || "-"}<br>
+          E-mail: ${ct.email || "-"}
+          ${ct.responsavelNome ? `<br><strong>Responsável:</strong> ${primeiroNome(ct.responsavelNome)}` : ""}
+        </div>
+      `;
+    });
+    html += `</div>`;
+  } else {
+    html += `<div class="modal-section"><strong>Contatos:</strong> nenhum cadastrado.</div>`;
+  }
+
+  html += `<hr><div class="modal-section"><strong>Usuário:</strong> ${usuario}</div>`;
+  abrirModal(`Cliente - ${cli.razao || ""}`, html);
+}
+
+function verRepresentada(id) {
+  const rep = representadas.find((r) => r.id === id);
+  if (!rep) return;
+
+  const usuario = formatarNomeUsuario(rep.atualizadoPor || rep.criadoPor || "-");
+  const qtdOfertas = registros.filter((r) => r.representadaId === id).length;
+
+  const html = `
+    <div class="modal-section"><strong>Nome da Representada:</strong> ${rep.nome || "-"}</div>
+    <div class="modal-section"><strong>Ofertas vinculadas:</strong> ${qtdOfertas}</div>
+    <hr>
+    <div class="modal-section"><strong>Usuário:</strong> ${usuario}</div>
+  `;
+
+  abrirModal(`Representada - ${rep.nome || ""}`, html);
+}
+
+
+/* =======================
+   AUTOCOMPLETE CNPJ (simples)
+======================= */
+function formatCnpjMask(digits) {
+  const v = String(digits || "").replace(/\D/g, "").slice(0, 14);
+  if (v.length <= 2) return v;
+  if (v.length <= 5) return v.replace(/^(\d{2})(\d+)/, "$1.$2");
+  if (v.length <= 8) return v.replace(/^(\d{2})(\d{3})(\d+)/, "$1.$2.$3");
+  if (v.length <= 12) return v.replace(/^(\d{2})(\d{3})(\d{3})(\d+)/, "$1.$2.$3/$4");
+  return v.replace(/^(\d{2})(\d{3})(\d{3})(\d{4})(\d{2}).*/, "$1.$2.$3/$4-$5");
+}
+
+function initAutoCompleteCnpjSimples() {
+  const input = document.getElementById("cnpj_cliente");
+  const box = document.getElementById("cnpjAuto");
+  if (!input || !box) return;
+
+  const razaoEl = document.getElementById("razao");
+
+  function hide() {
+    box.classList.add("hidden");
+    box.innerHTML = "";
+  }
+
+  function showMatches(prefix) {
+    const p = String(prefix || "").replace(/\D/g, "");
+    if (p.length < 4) return hide();
+
+    const matches = clientes
+      .filter((c) => (c.cnpj || "").replace(/\D/g, "").startsWith(p))
+      .slice(0, 10);
+
+    if (!matches.length) return hide();
+
+    box.innerHTML = matches
+      .map((cli) => {
+        const cnpjDigits = (cli.cnpj || "").replace(/\D/g, "");
+        return `
+          <div class="autocomplete-item" data-id="${cli.id}">
+            <div class="razao">${(cli.razao || "").trim() || "-"}</div>
+            <div class="cnpj">${formatCnpjMask(cnpjDigits)}</div>
+          </div>
+        `;
+      })
+      .join("");
+
+    box.classList.remove("hidden");
+  }
+
+  input.addEventListener("input", () => showMatches(input.value));
+
+  box.addEventListener("mousedown", (e) => {
+    const item = e.target.closest(".autocomplete-item");
+    if (!item) return;
+
+    e.preventDefault();
+
+    const id = item.dataset.id;
+    const cli = clientes.find((c) => c.id === id);
+    if (!cli) return;
+
+    const cnpjDigits = (cli.cnpj || "").replace(/\D/g, "");
+
+    input.dataset.skipBlurValidation = "1";
+    input.value = formatCnpjMask(cnpjDigits);
+    input.dataset.clienteId = cli.id;
+
+    if (razaoEl) razaoEl.value = cli.razao || "";
+    hide();
+  });
+
+  document.addEventListener("click", (e) => {
+    if (!e.target.closest(".autocomplete-wrap")) hide();
+  });
+
+  input.addEventListener("keydown", (e) => {
+    if (e.key === "Escape") hide();
+  });
+}
+
+
+/* =======================
+   BU -> SEGMENTO
+======================= */
+function initBuSegmento() {
+  const buEl = document.getElementById("bu");
+  const segWrap = document.getElementById("segmentoWrap");
+  const segEl = document.getElementById("segmento");
+
+  if (!buEl || !segWrap || !segEl) return;
+
+  const SEGMENTOS_POR_BU = {
+    "T&I": [],
+    OGP: ["On Shore", "Off Shore", "DW"],
+    OEM: ["infra", "Renew (PV)", "Renew (Wind)", "Mining", "Cranes", "Marine", "Rolling Stock", "Raiways", "Water", "Nuclear"],
+    "High Voltage": [],
+    OHTZ: [],
+    Telecom: [],
+    "Power Distribution": [],
+    Acessórios: [],
+    MMS: [],
+    Renováveis: [],
+  };
+
+  function renderSegmentos(buValue) {
+    const lista = SEGMENTOS_POR_BU[buValue] || [];
+    segEl.innerHTML = `<option value="">Selecione</option>`;
+
+    if (!lista.length) {
+      segEl.value = "";
+      segWrap.classList.add("hidden");
+      return;
+    }
+
+    lista.forEach((seg) => {
+      const opt = document.createElement("option");
+      opt.value = seg;
+      opt.textContent = seg;
+      segEl.appendChild(opt);
+    });
+
+    segWrap.classList.remove("hidden");
+  }
+
+  buEl.addEventListener("change", () => renderSegmentos(buEl.value));
+  renderSegmentos(buEl.value);
+}
+
+
+/* =======================
+   SENHA FORTE (LOGIN)
+======================= */
+function senhaForteLogin(s) {
+  const senha = String(s || "");
+  const min8 = senha.length >= 8;
+  const numero = /\d/.test(senha);
+  const simbolo = /[^A-Za-z0-9]/.test(senha);
+  const maiuscula = /[A-Z]/.test(senha);
+  return min8 && numero && simbolo && maiuscula;
+}
+
+function msgSenhaForteLogin() {
+  return "Senha fraca. Para acessar, você precisa trocar a senha.\n\nRegras: mínimo 8 caracteres, 1 letra MAIÚSCULA, 1 número e 1 símbolo.";
+}
+
+
+/* =======================
+   UTIL / STORAGE / USERS
+======================= */
 function gerarId() {
   return Date.now().toString() + "_" + Math.random().toString(16).slice(2);
 }
@@ -2303,42 +2520,36 @@ function salvarClientes() {
 function salvarRepresentadas() {
   localStorage.setItem("representadas", JSON.stringify(representadas));
 }
+
 function irPara(tela) {
   if (tela === "cadastro")
-    document
-      .getElementById("secCadastro")
-      .scrollIntoView({ behavior: "smooth" });
+    document.getElementById("secCadastro")?.scrollIntoView({ behavior: "smooth" });
   if (tela === "registros")
-    document
-      .getElementById("secRegistros")
-      .scrollIntoView({ behavior: "smooth" });
+    document.getElementById("secRegistros")?.scrollIntoView({ behavior: "smooth" });
   if (tela === "clientes")
-    document
-      .getElementById("secClientes")
-      .scrollIntoView({ behavior: "smooth" });
+    document.getElementById("secClientes")?.scrollIntoView({ behavior: "smooth" });
   if (tela === "representadas")
-    document
-      .getElementById("secRepresentadas")
-      .scrollIntoView({ behavior: "smooth" });
+    document.getElementById("secRepresentadas")?.scrollIntoView({ behavior: "smooth" });
+  if (tela === "aprovacao")
+  document.getElementById("secAprovacaoUsuarios")
+    .scrollIntoView({ behavior: "smooth" });
+
 }
 
 function preencherSelectResponsaveisContato() {
-  const sel = document.getElementById("ct_responsavel");
-  if (!sel) return;
+  const select = document.getElementById("ct_responsavel");
+  if (!select) return;
 
-  sel.innerHTML = `<option value="">Selecione</option>`;
+  select.innerHTML = '<option value="">Selecione</option>';
 
-  usuarios.forEach((u) => {
-    const id = u.uid || u.id;
-    const nomeBase = u.nome || u.email || "";
-    const nomeExibido = primeiroNome(nomeBase);
-
+  RESPONSAVEIS_FIXOS.forEach((nome) => {
     const opt = document.createElement("option");
-    opt.value = id;
-    opt.textContent = nomeExibido;
-    sel.appendChild(opt);
+    opt.value = nome;      // valor real
+    opt.textContent = nome; // texto visível
+    select.appendChild(opt);
   });
 }
+
 
 function formatarNomeUsuario(valor) {
   if (!valor) return "-";
@@ -2353,6 +2564,7 @@ function formatarNomeUsuario(valor) {
 
   return v;
 }
+
 function atualizarSugestoesCnpj() {
   const dl = document.getElementById("cnpjSugestoes");
   if (!dl) return;
@@ -2365,246 +2577,476 @@ function atualizarSugestoesCnpj() {
     .filter(Boolean);
 
   const unicos = Array.from(new Set(lista));
-
-  dl.innerHTML = unicos
-    .map((cnpj) => `<option value="${cnpj}"></option>`)
-    .join("");
+  dl.innerHTML = unicos.map((cnpj) => `<option value="${cnpj}"></option>`).join("");
 }
-function formatCnpjMask(digits) {
-  const v = String(digits || "")
-    .replace(/\D/g, "")
-    .slice(0, 14);
-  if (v.length <= 2) return v;
-  if (v.length <= 5) return v.replace(/^(\d{2})(\d+)/, "$1.$2");
-  if (v.length <= 8) return v.replace(/^(\d{2})(\d{3})(\d+)/, "$1.$2.$3");
-  if (v.length <= 12)
-    return v.replace(/^(\d{2})(\d{3})(\d{3})(\d+)/, "$1.$2.$3/$4");
-  return v.replace(/^(\d{2})(\d{3})(\d{3})(\d{4})(\d{2}).*/, "$1.$2.$3/$4-$5");
-}
+function initAuthTabs() {
+  const tabLogin = document.getElementById("tabLogin");
+  const tabSignup = document.getElementById("tabSignup");
+  const panelLogin = document.getElementById("panelLogin");
+  const panelSignup = document.getElementById("panelSignup");
 
-function getCidadeUfDoCliente(cli) {
-  const cidade = (cli.cidade || "").trim();
-  const uf = (cli.uf || "").trim().toUpperCase();
-
-  if (cidade && uf) return `${cidade} - ${uf}`;
-  if (cidade) return cidade;
-
-  const end = (cli.endereco || "").trim();
-  return end ? end : "";
-}
-
-function initAutoCompleteCnpj() {
-  const input = document.getElementById("cnpj_cliente");
-  const box = document.getElementById("cnpjAuto");
-  if (!input || !box) return;
-
-  function hide() {
-    box.classList.add("hidden");
-    box.innerHTML = "";
+  function showLogin() {
+    panelLogin?.classList.remove("hidden");
+    panelSignup?.classList.add("hidden");
+  }
+  function showSignup() {
+    panelSignup?.classList.remove("hidden");
+    panelLogin?.classList.add("hidden");
   }
 
-  function showMatches(prefix) {
-    const p = String(prefix || "").replace(/\D/g, "");
-    if (p.length < 6) return hide();
+  tabLogin?.addEventListener("click", showLogin);
+  tabSignup?.addEventListener("click", showSignup);
 
-    const matches = clientes
-      .filter((c) => (c.cnpj || "").replace(/\D/g, "").startsWith(p))
-      .slice(0, 12);
+  showLogin();
+}
+function setLoginMsg(msg) {
+  const el = document.getElementById("loginMsg");
+  if (el) el.textContent = msg || "";
+}
 
-    if (!matches.length) return hide();
+function initForgotPassword() {
+  const btn = document.getElementById("btnForgot");
+  if (!btn) return;
 
-    box.innerHTML = matches
-      .map((cli) => {
-        const cnpjDigits = (cli.cnpj || "").replace(/\D/g, "");
-        const cnpjFmt = formatCnpjMask(cnpjDigits);
-        const cidadeUf = getCidadeUfDoCliente(cli);
-        const razao = (cli.razao || "").trim();
+  btn.addEventListener("click", async () => {
+    const email = String(prompt("Digite seu e-mail para enviar o link de troca de senha:") || "").trim();
 
-        return `
-          <div class="autocomplete-item" data-id="${
-            cli.id
-          }" data-cnpj="${cnpjDigits}">
-            <div class="line1">${razao}</div>
-            <div class="line2">${cnpjFmt}${
-          cidadeUf ? ` / ${cidadeUf}` : ""
-        }</div>
-          </div>
-        `;
-      })
-      .join("");
+    if (!email) return;
 
-    box.classList.remove("hidden");
-  }
+    try {
+      btn.disabled = true;
+      setLoginMsg("Enviando e-mail de redefinição...");
 
-  input.addEventListener("input", () => {
-    showMatches(input.value);
-  });
+      await auth.sendPasswordResetEmail(email);
 
-  box.addEventListener("click", (e) => {
-    const item = e.target.closest(".autocomplete-item");
-    if (!item) return;
-
-    const id = item.dataset.id;
-    const cnpjDigits = item.dataset.cnpj;
-
-    const cli = clientes.find((c) => c.id === id);
-    if (!cli) return;
-
-    input.value = formatCnpjMask(cnpjDigits);
-    input.dataset.clienteId = cli.id;
-
-    const razao = document.getElementById("razao");
-    if (razao) razao.value = cli.razao || "";
-
-    const telefone = document.getElementById("telefone");
-    const email = document.getElementById("email");
-    const solicitante = document.getElementById("solicitante");
-    if (cli.contatos && cli.contatos.length) {
-      const principal =
-        cli.contatos.find((x) => x.principal) || cli.contatos[0];
-      if (telefone) telefone.value = principal.telefone || "";
-      if (email) email.value = principal.email || "";
-      if (solicitante) solicitante.value = principal.nome || "";
+      setLoginMsg("✅ Enviamos um e-mail para você trocar a senha (verifique spam/promoções).");
+      alert("E-mail de redefinição enviado!");
+    } catch (e) {
+      console.error(e);
+      setLoginMsg("❌ Não consegui enviar. Verifique se o e-mail está correto.");
+      alert("Erro ao enviar e-mail: " + (e?.message || e));
+    } finally {
+      btn.disabled = false;
     }
-
-    hide();
-  });
-
-  document.addEventListener("click", (e) => {
-    if (!e.target.closest(".autocomplete-wrap")) hide();
-  });
-
-  input.addEventListener("keydown", (e) => {
-    if (e.key === "Escape") hide();
   });
 }
 
-function initAutoCompleteCnpjSimples() {
-  const input = document.getElementById("cnpj_cliente");
-  const box = document.getElementById("cnpjAuto");
-  if (!input || !box) return;
 
-  const razaoEl = document.getElementById("razao");
+function initResendEmailVerification() {
+  const btn = document.getElementById("btnResendVerify");
+  if (!btn) return;
 
-  function hide() {
-    box.classList.add("hidden");
-    box.innerHTML = "";
-  }
+  btn.addEventListener("click", async () => {
+    const email = String(document.getElementById("loginUser")?.value || "")
+      .trim()
+      .toLowerCase();
 
-  function showMatches(prefix) {
-    const p = String(prefix || "").replace(/\D/g, "");
-
-    if (p.length < 4) return hide();
-
-    const matches = clientes
-      .filter((c) => (c.cnpj || "").replace(/\D/g, "").startsWith(p))
-      .slice(0, 10);
-
-    if (!matches.length) return hide();
-
-    box.innerHTML = matches
-      .map((cli) => {
-        const cnpjDigits = (cli.cnpj || "").replace(/\D/g, "");
-        return `
-          <div class="autocomplete-item" data-id="${cli.id}">
-            <div class="razao">${(cli.razao || "").trim() || "-"}</div>
-            <div class="cnpj">${formatCnpjMask(cnpjDigits)}</div>
-          </div>
-        `;
-      })
-      .join("");
-
-    box.classList.remove("hidden");
-  }
-
-  input.addEventListener("input", () => {
-    showMatches(input.value);
-  });
-
-  box.addEventListener("mousedown", (e) => {
-    const item = e.target.closest(".autocomplete-item");
-    if (!item) return;
-
-    e.preventDefault();
-
-    const id = item.dataset.id;
-    const cli = clientes.find((c) => c.id === id);
-    if (!cli) return;
-
-    const cnpjDigits = (cli.cnpj || "").replace(/\D/g, "");
-
-    input.dataset.skipBlurValidation = "1";
-
-    input.value = formatCnpjMask(cnpjDigits);
-    input.dataset.clienteId = cli.id;
-
-    if (razaoEl) razaoEl.value = cli.razao || "";
-
-    hide();
-  });
-
-  document.addEventListener("click", (e) => {
-    if (!e.target.closest(".autocomplete-wrap")) hide();
-  });
-
-  input.addEventListener("keydown", (e) => {
-    if (e.key === "Escape") hide();
-  });
-}
-function initBuSegmento() {
-  const buEl = document.getElementById("bu");
-  const segWrap = document.getElementById("segmentoWrap");
-  const segEl = document.getElementById("segmento");
-
-  if (!buEl || !segWrap || !segEl) return;
-
-  const SEGMENTOS_POR_BU = {
-    "T&I": [],
-    OGP: ["On Shore", "Off Shore", "DW"],
-    OEM: [
-      "infra",
-      "Renew (PV)",
-      "Renew (Wind)",
-      "Mining",
-      "Cranes",
-      "Marine",
-      "Rolling Stock",
-      "Raiways",
-      "Water",
-      "Nuclear",
-    ],
-    "High Voltage": [],
-    OHTZ: [],
-    Telecom: [],
-    "Power Distribution": [],
-    Acessórios: [],
-    MMS: [],
-  };
-
-  function renderSegmentos(buValue) {
-    const lista = SEGMENTOS_POR_BU[buValue] || [];
-
-    segEl.innerHTML = `<option value="">Selecione</option>`;
-
-    if (!lista.length) {
-      segEl.value = "";
-      segWrap.classList.add("hidden");
+    if (!email) {
+      alert("Digite seu e-mail no campo de login primeiro.");
       return;
     }
 
-    lista.forEach((seg) => {
-      const opt = document.createElement("option");
-      opt.value = seg;
-      opt.textContent = seg;
-      segEl.appendChild(opt);
+    try {
+      btn.disabled = true;
+      setLoginMsg("Enviando e-mail de verificação...");
+
+      // Faz login “silencioso” só para conseguir enviar a verificação
+      const pass = String(document.getElementById("loginPass")?.value || "").trim();
+      if (!pass) {
+        setLoginMsg("Digite sua senha também (para reenviar a verificação).");
+        alert("Digite sua senha para reenviar a verificação.");
+        return;
+      }
+
+      const cred = await auth.signInWithEmailAndPassword(email, pass);
+      await cred.user.reload();
+
+      if (cred.user.emailVerified) {
+        setLoginMsg("✅ Seu e-mail já está verificado. Você já pode entrar.");
+        alert("Seu e-mail já está verificado.");
+        return;
+      }
+
+      const actionCodeSettings = {
+        url: window.location.origin, // se estiver no GitHub Pages/domínio, ok
+        handleCodeInApp: false,
+      };
+
+      await cred.user.sendEmailVerification(actionCodeSettings);
+
+      setLoginMsg("✅ E-mail de verificação reenviado! Verifique Caixa de entrada/Spam.");
+      alert("E-mail de verificação reenviado! Verifique Caixa de entrada/Spam.");
+
+      // Opcional: desloga pra voltar ao fluxo normal
+      await auth.signOut();
+      mostrarLogin();
+    } catch (e) {
+      console.error("Erro ao reenviar verificação:", e);
+
+      const msg =
+        e?.code === "auth/wrong-password"
+          ? "Senha incorreta."
+          : e?.code === "auth/user-not-found"
+          ? "Usuário não encontrado."
+          : e?.code === "auth/too-many-requests"
+          ? "Muitas tentativas. Aguarde alguns minutos e tente novamente."
+          : "Não consegui reenviar. Erro: " + (e?.message || e);
+
+      setLoginMsg("❌ " + msg);
+      alert(msg);
+    } finally {
+      btn.disabled = false;
+      setLoginMsg("");
+    }
+  });
+}
+
+function setSignupMsg(msg) {
+  const el = document.getElementById("signupMsg");
+  if (el) el.textContent = msg || "";
+}
+
+function initSignup() {
+  const btn = document.getElementById("btnSignup");
+  if (!btn) return;
+
+  btn.addEventListener("click", async () => {
+    const email = String(document.getElementById("signupEmail")?.value || "")
+      .trim()
+      .toLowerCase();
+
+    const pass = String(document.getElementById("signupPass")?.value || "").trim();
+
+    setSignupMsg("");
+
+    if (!email || !pass) {
+      setSignupMsg("❌ Preencha e-mail e senha.");
+      return;
+    }
+
+    // regra: 8 chars + número + símbolo + maiúscula
+    if (!senhaForteLogin(pass)) {
+      alert(msgSenhaForteLogin());
+      setSignupMsg("❌ " + msgSenhaForteLogin());
+      return;
+    }
+
+    try {
+      btn.disabled = true;
+      btn.textContent = "Criando...";
+
+      const cred = await auth.createUserWithEmailAndPassword(email, pass);
+
+      // cria doc no Firestore como pendente
+      await db.collection("usuarios").doc(cred.user.uid).set(
+        {
+          uid: cred.user.uid,
+          email: cred.user.email,
+          nome: primeiroNome(cred.user.email),
+          aprovado: false,
+          ativo: true,
+          criadoEm: new Date().toISOString(),
+          atualizadoEm: new Date().toISOString(),
+        },
+        { merge: true }
+      );
+
+// envia e-mail de verificação (com URL certa)
+try {
+  const actionCodeSettings = {
+    url: window.location.origin, // ou coloque sua URL do GitHub Pages
+    handleCodeInApp: false,
+  };
+
+  await cred.user.sendEmailVerification(actionCodeSettings);
+
+  setSignupMsg("✅ Conta criada! Enviamos um e-mail para verificação. Depois, aguarde aprovação.");
+  alert("Conta criada! Enviamos um e-mail para verificação. Verifique a caixa de entrada e SPAM.");
+} catch (errMail) {
+  console.error("Falha ao enviar email de verificação:", errMail);
+  setSignupMsg("✅ Conta criada! (Não consegui enviar o e-mail agora). Use 'Reenviar verificação' no login.");
+  alert("Conta criada, mas não consegui enviar o e-mail agora. Tente reenviar no login.");
+}
+
+      // sempre desloga para impedir entrar sem verificação/aprovação
+      await auth.signOut();
+      mostrarLogin();
+    } catch (e) {
+  console.error("ERRO SIGNUP:", e?.code, e?.message, e);
+  alert("ERRO SIGNUP: " + (e?.code || "") + " - " + (e?.message || e));
+
+      const msg =
+        e?.code === "auth/email-already-in-use"
+          ? "Esse e-mail já está cadastrado."
+          : e?.code === "auth/invalid-email"
+          ? "E-mail inválido."
+          : e?.code === "auth/weak-password"
+          ? "Senha fraca."
+          : "Erro ao cadastrar: " + (e?.message || e);
+
+      setSignupMsg("❌ " + msg);
+      alert(msg);
+    } finally {
+      btn.disabled = false;
+      btn.textContent = "Criar conta";
+    }
+  });
+}
+function initAprovacaoUsuariosUI() {
+  const btnReload = document.getElementById("btnReloadUsuariosPendentes");
+  if (btnReload) btnReload.addEventListener("click", carregarUsuariosPendentes);
+
+  // Quando logar e for admin, mostramos menu e seção
+  auth.onAuthStateChanged((user) => {
+    const menu = document.getElementById("menuAprovacao");
+    const sec = document.getElementById("secAprovacaoUsuarios");
+
+    const isAdmin = !!user && isAdminEmail(user.email);
+
+    if (menu) menu.classList.toggle("hidden", !isAdmin);
+    if (sec) sec.classList.toggle("hidden", !isAdmin);
+
+    if (isAdmin) carregarUsuariosPendentes();
+  });
+}
+
+async function carregarUsuariosPendentes() {
+  const tbody = document.querySelector("#tabelaUsuariosPendentes tbody");
+  if (!tbody) return;
+
+  tbody.innerHTML = `<tr><td colspan="5">Carregando...</td></tr>`;
+
+  try {
+    console.log("Carregando usuários pendentes...");
+    const snap = await db.collection("usuarios").get();
+    const all = snap.docs.map(d => ({ id: d.id, ...d.data() }));
+    console.log("Total usuarios no Firestore:", all.length, all);
+
+
+console.table(all.map(u => ({
+  id: u.id,
+  uid: u.uid,
+  email: u.email,
+  aprovado: u.aprovado,
+  ativo: u.ativo,
+  criadoEm: u.criadoEm
+})));
+
+
+const pendentes = all
+
+  .filter(u => {
+    const temUid = !!u.uid;                 // doc de usuário real
+    const aprovado = u.aprovado;
+
+    const naoAprovado =
+      aprovado === false ||
+      aprovado === "false" ||
+      aprovado === 0 ||
+      aprovado === undefined ||
+      aprovado === null;
+
+    const ativo = (u.ativo === undefined) ? true : !!u.ativo;
+
+    return temUid && naoAprovado && ativo;
+  })
+  
+  .sort((a,b) => (b.criadoEm || "").localeCompare(a.criadoEm || ""));
+
+    console.log("Pendentes:", pendentes.length, pendentes);
+
+    if (!pendentes.length) {
+      tbody.innerHTML = `<tr><td colspan="5">Nenhum usuário pendente 🎉</td></tr>`;
+      return;
+    }
+
+    tbody.innerHTML = "";
+    pendentes.forEach(u => {
+      const tr = document.createElement("tr");
+      tr.innerHTML = `
+        <td>${u.nome || "-"}</td>
+        <td>${u.email || "-"}</td>
+        <td>${u.ativo === false ? "Inativo" : "Pendente"}</td>
+        <td>${u.criadoEm || u.atualizadoEm || "-"}</td>
+        <td>
+          <button class="btn-sm" type="button" onclick="aprovarUsuario('${u.id}')">Aprovar</button>
+          <button class="btn-sm btn-danger" type="button" onclick="bloquearUsuario('${u.id}')">Bloquear</button>
+        </td>
+      `;
+      tbody.appendChild(tr);
     });
 
-    segWrap.classList.remove("hidden");
+  } catch (e) {
+    console.error("ERRO carregarUsuariosPendentes:", e);
+    alert("ERRO ao carregar usuários: " + (e?.message || e));
+    tbody.innerHTML = `<tr><td colspan="5">Erro ao carregar usuários.</td></tr>`;
+  }
+}
+
+function initUsuariosExistentesUI() {
+  const btn = document.getElementById("btnReloadUsuariosExistentes");
+  const search = document.getElementById("searchUsuariosExistentes");
+
+  btn?.addEventListener("click", carregarUsuariosExistentes);
+  search?.addEventListener("input", () => carregarUsuariosExistentes(search.value));
+
+  // quando for admin e entrar na tela, já carrega
+  auth.onAuthStateChanged((user) => {
+    if (user && isAdminEmail(user.email)) {
+      carregarUsuariosExistentes();
+    }
+  });
+}
+
+async function carregarUsuariosExistentes(filtroTexto = "") {
+  const tbody = document.querySelector("#tabelaUsuariosExistentes tbody");
+  if (!tbody) return;
+
+  tbody.innerHTML = `<tr><td colspan="5">Carregando...</td></tr>`;
+
+  try {
+    const snap = await db.collection("usuarios").get();
+    const all = snap.docs.map(d => ({ id: d.id, ...d.data() }));
+
+    // existentes = aprovados true (e opcionalmente também os que não têm aprovado definido mas já existem)
+    let existentes = all
+      .filter(u => !!u.uid && (u.aprovado === true || u.aprovado === "true" || u.aprovado === 1))
+      .map(u => ({
+        ...u,
+        nome: u.nome || primeiroNome(u.email || ""),
+        email: (u.email || "").toLowerCase(),
+        ativo: (u.ativo === undefined) ? true : !!u.ativo
+      }));
+
+    // filtro por texto
+    const ft = String(filtroTexto || "").trim().toLowerCase();
+    if (ft) {
+      existentes = existentes.filter(u =>
+        (u.nome || "").toLowerCase().includes(ft) ||
+        (u.email || "").toLowerCase().includes(ft)
+      );
+    }
+
+    // ordenar alfabeticamente por nome
+    existentes.sort((a, b) => (a.nome || "").localeCompare((b.nome || ""), "pt-BR", { sensitivity: "base" }));
+
+    if (!existentes.length) {
+      tbody.innerHTML = `<tr><td colspan="5">Nenhum usuário aprovado encontrado.</td></tr>`;
+      return;
+    }
+
+    tbody.innerHTML = "";
+    existentes.forEach(u => {
+      const statusTxt = u.ativo ? "Ativo" : "Inativo";
+      const criado = u.criadoEm || u.atualizadoEm || "-";
+
+      const tr = document.createElement("tr");
+      tr.innerHTML = `
+        <td>${escapeHtml(u.nome || "-")}</td>
+        <td>${escapeHtml(u.email || "-")}</td>
+        <td>${statusTxt}</td>
+        <td>${escapeHtml(criado)}</td>
+        <td style="display:flex; gap:8px; flex-wrap:wrap;">
+          <button class="btn-sm" type="button" onclick="toggleAtivoUsuario('${u.id}', ${u.ativo ? "false" : "true"})">
+            ${u.ativo ? "Desativar" : "Ativar"}
+          </button>
+
+          <button class="btn-sm btn-danger" type="button" onclick="excluirUsuarioFirestore('${u.id}')">
+            Excluir (Firestore)
+          </button>
+        </td>
+      `;
+      tbody.appendChild(tr);
+    });
+
+  } catch (e) {
+    console.error("ERRO carregarUsuariosExistentes:", e);
+    tbody.innerHTML = `<tr><td colspan="5">Erro ao carregar usuários existentes.</td></tr>`;
+  }
+}
+
+async function toggleAtivoUsuario(docId, novoAtivo) {
+  const user = auth.currentUser;
+  if (!user || !isAdminEmail(user.email)) {
+    alert("Apenas o administrador pode alterar usuários.");
+    return;
   }
 
-  buEl.addEventListener("change", () => {
-    renderSegmentos(buEl.value);
-  });
+  await db.collection("usuarios").doc(docId).set({
+    ativo: !!novoAtivo,
+    atualizadoEm: new Date().toISOString(),
+    atualizadoPorAdmin: user.email
+  }, { merge: true });
 
-  renderSegmentos(buEl.value);
+  await carregarUsuariosExistentes(document.getElementById("searchUsuariosExistentes")?.value || "");
+}
+
+async function excluirUsuarioFirestore(docId) {
+  const user = auth.currentUser;
+  if (!user || !isAdminEmail(user.email)) {
+    alert("Apenas o administrador pode excluir usuários.");
+    return;
+  }
+
+  const ok = confirm(
+    "Tem certeza?\n\nIsso vai apagar o usuário do Firestore.\n⚠️ Ele pode continuar existindo no Firebase Authentication."
+  );
+  if (!ok) return;
+
+  await db.collection("usuarios").doc(docId).delete();
+
+  // atualiza as duas listas
+  await carregarUsuariosPendentes();
+  await carregarUsuariosExistentes(document.getElementById("searchUsuariosExistentes")?.value || "");
+}
+
+
+async function aprovarUsuario(uid) {
+  const user = auth.currentUser;
+  if (!user || !isAdminEmail(user.email)) {
+    alert("Apenas o administrador pode aprovar.");
+    return;
+  }
+
+  if (!confirm("Aprovar este usuário?")) return;
+
+  await db.collection("usuarios").doc(uid).set({
+    aprovado: true,
+    ativo: true,
+    aprovadoPor: user.email,
+    aprovadoEm: new Date().toISOString()
+  }, { merge: true });
+
+  await carregarUsuariosPendentes();
+  await carregarUsuariosExistentes(document.getElementById("searchUsuariosExistentes")?.value || "");
+
+}
+
+async function bloquearUsuario(uid) {
+  const user = auth.currentUser;
+  if (!user || !isAdminEmail(user.email)) {
+    alert("Apenas o administrador pode bloquear.");
+    return;
+  }
+
+  if (!confirm("Bloquear este usuário?")) return;
+
+  await db.collection("usuarios").doc(uid).set({
+    aprovado: false,
+    ativo: false,
+    bloqueadoPor: user.email,
+    bloqueadoEm: new Date().toISOString()
+  }, { merge: true });
+
+  await carregarUsuariosPendentes();
+}
+
+// evita quebrar tabela por caracteres especiais
+function escapeHtml(s) {
+  return String(s || "")
+    .replaceAll("&","&amp;")
+    .replaceAll("<","&lt;")
+    .replaceAll(">","&gt;")
+    .replaceAll('"',"&quot;")
+    .replaceAll("'","&#039;");
 }

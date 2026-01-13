@@ -1,497 +1,586 @@
 <!DOCTYPE html>
 <html lang="pt-BR">
-
 <head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Gestão de Ofertas</title>
-    <link rel="stylesheet" href="style.css">
-    <link rel="manifest" href="manifest.json">
-    <link rel="icon" type="image/png" href="Imagens/LogoCRM.png">
-    <meta name="theme-color" content="#2563eb">
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Gestão de Ofertas</title>
 
+  <link rel="stylesheet" href="style.css" />
+  <link rel="manifest" href="manifest.json" />
+  <link rel="icon" type="image/png" href="Imagens/LogoCRM.png" />
+  <meta name="theme-color" content="#2563eb" />
 </head>
-<div id="modalDetalhes" class="modal hidden">
-    <div class="modal-content">
-        <div class="modal-header">
-            <h3 id="modalTitulo"></h3>
-            <button type="button" class="modal-close" onclick="fecharModalDetalhes()">✕</button>
-        </div>
-
-        <div class="modal-body" id="modalCorpo">
-        </div>
-    </div>
-</div>
 
 <body>
-    <div class="mobile-toggle" onclick="toggleSidebar()">☰</div>
-    <aside class="sidebar collapsed" id="sidebar">
-        <div class="sidebar-header">
-            <img src="Imagens/Logo.png" class="logo-img" alt="logo">
-            <h2 class="sidebar-title">CRM-Three Ar</h2>
-        </div>
-        <nav class="sidebar-menu">
-            <button type="button" class="menu-item" onclick="irPara('cadastro')">
-                <span class="icon">📝</span>
-                <span class="label">Cadastro Oferta</span>
-            </button>
-            <button type="button" class="menu-item" onclick="irPara('registros')">
-                <span class="icon">📋</span>
-                <span class="label">Registros</span>
-            </button>
-            <button type="button" class="menu-item" onclick="irPara('clientes')">
-                <span class="icon">🏢</span>
-                <span class="label">Clientes</span>
-            </button>
-            <button type="button" class="menu-item" onclick="irPara('representadas')">
-                <span class="icon">🏭</span>
-                <span class="label">Representadas</span>
-            </button>
 
-            <button type="button" class="menu-item" onclick="toggleTheme()">
-                <span class="icon">🌙</span>
-                <span class="label" id="themeLabel">Modo escuro</span>
-            </button>
-            <button type="button" class="menu-item logout" onclick="logout()">
-                <span class="icon">🚪</span>
-                <span class="label">Sair</span>
-            </button>
-        </nav>
+  <!-- MODAL DETALHES -->
+  <div id="modalDetalhes" class="modal hidden">
+    <div class="modal-content">
+      <div class="modal-header">
+        <h3 id="modalTitulo"></h3>
+        <button type="button" class="modal-close" onclick="fecharModalDetalhes()">✕</button>
+      </div>
+      <div class="modal-body" id="modalCorpo"></div>
+    </div>
+  </div>
+  
 
-        <button class="collapse-btn" type="button" onclick="toggleSidebar()">⮜</button>
-    </aside>
+  <!-- MODAL TOTP (Google Authenticator) -->
+  <div id="modalTOTP" class="modal hidden">
+    <div class="modal-content" style="max-width:520px;">
+      <div class="modal-header">
+        <h3>Verificação (Google Authenticator)</h3>
+        <button type="button" class="modal-close" onclick="fecharModalTOTP()">✕</button>
+      </div>
 
-    <div class="main-content">
+      <div class="modal-body">
+        <p style="margin-top:0;opacity:.85">
+          1) Escaneie o QR Code no Google Authenticator.<br>
+          2) Digite o código de 6 dígitos para entrar.
+        </p>
 
-        <div id="loginContainer" class="container">
-            <h1>Login</h1>
-            <p>Digite seu Usuário e senha.</p>
-
-            <label for="loginUser">Usuário</label>
-            <input type="text" id="loginUser" placeholder="User">
-
-            <label for="loginPass">Senha</label>
-            <input type="password" id="loginPass" placeholder="1234">
-
-            <button id="btnLogin" type="button">Entrar</button>
+        <div id="totp_qr_wrap" style="text-align:center; margin:10px 0;">
+          <img id="imgQrTotp" alt="QR Code do Authenticator" style="width:220px; display:none; margin:0 auto;" />
+          <div id="totp_qr_msg" style="font-size:13px; opacity:.85; margin-top:8px;"></div>
         </div>
 
-        <div id="appContainer" class="container hidden">
+        <label for="totp_code">Código do Authenticator</label>
+        <input id="totp_code" type="text" inputmode="numeric" placeholder="123456" />
 
-            <div class="topbar">
-                <div>
-                    <h1>Gestão de Ofertas</h1>
-                    <p class="subtitle">Cadastre clientes, ofertas e acompanhe resultados.</p>
-                </div>
-                <div class="topbar-right">
-                    <span id="userInfo"></span>
-                </div>
+        <div id="totp_status" style="margin:10px 0; font-size: 13px; opacity:.9;"></div>
+
+        <button id="btnTotpConfirm" class="btn" type="button">Confirmar</button>
+        <button class="btn secondary" type="button" onclick="logout()">Sair</button>
+      </div>
+    </div>
+  </div>
+
+  <div class="mobile-toggle" onclick="toggleSidebar()">☰</div>
+
+  <aside class="sidebar collapsed" id="sidebar">
+    <div class="sidebar-header">
+      <img src="Imagens/Logo.png" class="logo-img" alt="logo">
+      <h2 class="sidebar-title">CRM-Three Ar</h2>
+    </div>
+
+    <nav class="sidebar-menu">
+      <button type="button" class="menu-item" onclick="irPara('cadastro')">
+        <span class="icon">📝</span>
+        <span class="label">Cadastro Oferta</span>
+      </button>
+
+      <button type="button" class="menu-item" onclick="irPara('registros')">
+        <span class="icon">📋</span>
+        <span class="label">Registros</span>
+      </button>
+
+      <button type="button" class="menu-item" onclick="irPara('clientes')">
+        <span class="icon">🏢</span>
+        <span class="label">Clientes</span>
+      </button>
+
+      <button type="button" class="menu-item" onclick="irPara('representadas')">
+        <span class="icon">🏭</span>
+        <span class="label">Representadas</span>
+      </button>
+
+
+<button type="button" class="menu-item hidden" id="menuAprovacao" onclick="irPara('aprovacao')">
+  <span class="icon">✅</span>
+  <span class="label">Aprovar Usuários</span>
+</button>
+
+      <button type="button" class="menu-item" onclick="toggleTheme()">
+        <span class="icon">🌙</span>
+        <span class="label" id="themeLabel">Modo escuro</span>
+      </button>
+
+
+
+      <button type="button" class="menu-item logout" onclick="logout()">
+        <span class="icon">🚪</span>
+        <span class="label">Sair</span>
+      </button>
+    </nav>
+
+    <button class="collapse-btn" type="button" onclick="toggleSidebar()">⮜</button>
+  </aside>
+
+  <div class="main-content">
+
+<div id="loginContainer" class="container">
+  <h1>
+CRM - Three Ar
+  </h1>
+  <div style="display:flex; gap:10px; margin:12px 0;">
+    <button id="tabLogin" type="button" class="secondary" style="flex:1;">Log in</button>
+    <button id="tabSignup" type="button" class="secondary" style="flex:1;">Sign up</button>
+  </div>
+  <!-- LOGIN -->
+  <div id="panelLogin">
+    <p>Entre com seu e-mail e senha.</p>
+
+    <label for="loginUser">E-mail</label>
+    <input type="email" id="loginUser" placeholder="email@dominio.com" />
+
+    <label for="loginPass">Senha</label>
+    <input type="password" id="loginPass" placeholder="********" />
+
+    <button id="btnLogin" type="button">Entrar</button>
+
+    <button id="btnForgot" type="button" class="secondary" style="margin-top:10px;">
+      Esqueci minha senha
+    </button>
+
+    <button id="btnResendVerify" type="button" class="secondary" style="margin-top:10px;">
+  Reenviar verificação de e-mail
+</button>
+    <div id="loginMsg" style="margin-top:10px; font-size:13px; opacity:.9;"></div>
+  </div>
+
+  <!-- SIGN UP -->
+  <div id="panelSignup" class="hidden">
+    <p>Crie sua conta (precisa de aprovação para acessar).</p>
+
+    <label for="signupEmail">E-mail</label>
+    <input type="email" id="signupEmail" placeholder="email@dominio.com" />
+
+    <label for="signupPass">Senha</label>
+    <input type="password" id="signupPass" placeholder="Mín. 8, maiúscula, número, símbolo" />
+
+    <button id="btnSignup" type="button">Criar conta</button>
+
+    <div id="signupMsg" style="margin-top:10px; font-size:13px; opacity:.9;"></div>
+  </div>
+</div>
+
+
+    <div id="appContainer" class="container hidden">
+
+      <div class="topbar">
+        <div>
+          <h1>Gestão de Ofertas</h1>
+          <p class="subtitle">Cadastre clientes, ofertas e acompanhe resultados.</p>
+        </div>
+        <div class="topbar-right">
+          <span id="userInfo"></span>
+        </div>
+      </div>
+
+      <section id="secCadastro">
+        <h3>Cadastro de Oferta</h3>
+
+        <form id="formOferta">
+          <div class="form-grid">
+            <div class="form-col">
+
+              <label for="bu">B.U</label>
+              <select id="bu" class="input">
+                <option value="">Selecione</option>
+                <option value="T&I">T&I</option>
+                <option value="OGP">OGP</option>
+                <option value="OEM">OEM</option>
+                <option value="High Voltage">High Voltage</option>
+                <option value="OHTZ">OHTZ</option>
+                <option value="Telecom">Telecom</option>
+                <option value="Power Distribution">Power Distribution</option>
+                <option value="Acessórios">Acessórios</option>
+                <option value="MMS">MMS</option>
+                <option value="Renováveis">Renováveis</option>
+              </select>
+
+              <div id="segmentoWrap" class="hidden">
+                <label for="segmento">Segmento</label>
+                <select id="segmento" class="input">
+                  <option value="">Selecione</option>
+                </select>
+              </div>
+
+              <label for="razao">Razão Social</label>
+              <input type="text" id="razao">
+
+              <label for="cnpj_cliente">CNPJ do Cliente</label>
+              <div class="autocomplete-wrap">
+                <input id="cnpj_cliente" autocomplete="off" placeholder="00.000.000/0000-00" />
+                <div id="cnpjAuto" class="autocomplete-box hidden"></div>
+              </div>
+
+              <label for="solicitante">Solicitante</label>
+              <input type="text" id="solicitante">
+
+              <label for="telefone">Telefone</label>
+              <input type="text" id="telefone" placeholder="(11) 98888-7777">
+
+              <label for="email">E-mail</label>
+              <input type="email" id="email">
+
+              <label for="oferta">N° da Oferta</label>
+              <input type="text" id="oferta">
+
+              <label for="obs_geral">Observações</label>
+              <textarea id="obs_geral" rows="2"></textarea>
             </div>
 
-            <section id="secCadastro">
-                <h3>Cadastro de Oferta</h3>
-
-                <form id="formOferta">
-
-                    <div class="form-grid">
-                        <div class="form-col">
-
-                            <label for="bu">B.U</label>
-                            <select id="bu" class="input">
-                                <option value="">Selecione</option>
-                                <option value="T&I">T&I</option>
-                                <option value="OGP">OGP</option>
-                                <option value="OEM">OEM</option>
-                                <option value="High Voltage">High Voltage</option>
-                                <option value="OHTZ">OHTZ</option>
-                                <option value="Telecom">Telecom</option>
-                                <option value="Power Distribution">Power Distribution</option>
-                                <option value="Acessórios">Acessórios</option>
-                                <option value="MMS">MMS</option>
-                            </select>
-
-                            <div id="segmentoWrap" class="hidden">
-                                <label for="segmento">Segmento</label>
-                                <select id="segmento" class="input">
-                                    <option value="">Selecione</option>
-                                </select>
-                            </div>
-
-
-                            <label for="razao">Razão Social</label>
-                            <input type="text" id="razao">
-
-
-                            <label for="cnpj_cliente">CNPJ do Cliente</label>
-                            <div class="autocomplete-wrap">
-                                <input id="cnpj_cliente" autocomplete="off" placeholder="00.000.000/0000-00" />
-                                <div id="cnpjAuto" class="autocomplete-box hidden"></div>
-                            </div>
-
-
-
-
-                            <label for="solicitante">Solicitante</label>
-                            <input type="text" id="solicitante">
-
-                            <label for="telefone">Telefone</label>
-                            <input type="text" id="telefone" placeholder="(11) 98888-7777">
-
-                            <label for="email">E-mail</label>
-                            <input type="email" id="email">
-
-                            <label for="oferta">N° da Oferta</label>
-                            <input type="text" id="oferta">
-
-                            <label for="obs_geral">Observações</label>
-                            <textarea id="obs_geral" rows="2"></textarea>
-
-                        </div>
-
-                        <div class="form-col">
-
-                            <label for="nome_projeto">Nome do Projeto</label>
-                            <input type="text" id="nome_projeto">
-
-                            <label for="representada">Representada</label>
-                            <select id="representada">
-                                <option value="">Selecione</option>
-                            </select>
-
-                            <label for="valor_total">Vl. Total</label>
-                            <input type="text" id="valor_total" class="money" placeholder="R$">
-
-                            <label for="oportunidade">Ref. do Cliente</label>
-                            <input type="text" id="oportunidade">
-
-                            <label for="data_entrada">Data Entrada</label>
-                            <input type="date" id="data_entrada">
-
-                            <label for="status">Status</label>
-                            <input type="text" id="status">
-
-                            <label for="tipo_oferta">Tipo</label>
-                            <select id="tipo_oferta">
-                                <option value="">Selecione</option>
-                                <option value="Compra">Compra</option>
-                                <option value="Orçamento">Orçamento</option>
-                            </select>
-
-
-                            <label for="data_envio">Data Envio</label>
-                            <input type="date" id="data_envio">
-
-                            <label>Possui Pedido?</label>
-                            <div class="radio-group">
-                                <label><input type="radio" name="pedido" value="sim"> Sim</label>
-                                <label><input type="radio" name="pedido" value="nao" checked> Não</label>
-                            </div>
-
-                            <label>Revisão?</label>
-                            <div class="radio-group">
-                                <label><input type="radio" name="revisao" value="sim"> Sim</label>
-                                <label><input type="radio" name="revisao" value="nao" checked> Não</label>
-                            </div>
-
-                            <div id="secaoRevisao" class="form-card hidden">
-                                <h3>Informações da Revisão</h3>
-
-                                <div class="form-grid">
-                                    <div class="form-col">
-                                        <label for="rev_num_oferta">Nº da Oferta Anterior</label>
-                                        <input type="text" id="rev_num_oferta">
-                                    </div>
-
-                                    <div class="form-col">
-                                        <label for="rev_mudou">O que mudou?</label>
-                                        <textarea id="rev_mudou"></textarea>
-                                    </div>
-                                </div>
-                            </div>
-
-                        </div>
-                    </div>
-
-
-                    <div id="secaoPedido" class="hidden">
-                        <h3>Informações do Pedido</h3>
-
-                        <div class="form-grid">
-                            <div class="form-col">
-                                <label for="numero_pedido">N° Pedido</label>
-                                <input type="text" id="numero_pedido">
-
-                                <label for="data_po">Data Entrada P.O</label>
-                                <input type="date" id="data_po">
-
-                                <label for="valor_pedido">VL. Total Pedido</label>
-                                <input type="text" id="valor_pedido" class="money" placeholder="R$">
-
-                                <label for="cond_pagamento">Condição de Pagamento</label>
-                                <input type="text" id="cond_pagamento">
-
-                                <label for="ref_projeto">Ref./Projeto</label>
-                                <input type="text" id="ref_projeto">
-
-                                <label for="obs">Obs</label>
-                                <textarea id="obs"></textarea>
-                            </div>
-
-                            <div class="form-col">
-
-
-                                <label for="tipo_produto">Tipo de Produto</label>
-                                <input type="text" id="tipo_produto">
-
-                                <label for="data_nf">Data da Nota Fiscal</label>
-                                <input type="date" id="data_nf">
-
-                                <label for="valor_nf">Valor da Nota Fiscal</label>
-                                <input type="text" id="valor_nf" class="money" placeholder="R$">
-
-                                <label for="prazo_entrega_contratual">Prazo de entrega contratual</label>
-                                <input type="date" id="prazo_entrega_contratual">
-
-                                <label>Solicitação de ordem de compra?</label>
-                                <div class="radio-group">
-                                    <label><input type="radio" name="sol_oc" value="sim"> Sim</label>
-                                    <label><input type="radio" name="sol_oc" value="nao" checked> Não</label>
-                                </div>
-
-                                <label for="ref_oc">Ref de ordem de compra</label>
-                                <input type="text" id="ref_oc">
-
-
-
-                            </div>
-
-                        </div>
-
-                    </div>
-
-
-
-
-                    <button type="button" id="btnAdicionar">Adicionar</button>
-                </form>
-            </section>
-
-            <section id="secRegistros">
-                <h3>Consulta de Registros</h3>
-
-                <div class="filters">
-                    <input type="text" id="searchTerm" placeholder="Buscar por texto...">
-
-                    <select id="filterField">
-                        <option value="todos">Buscar em todos os campos</option>
-
-                        <option value="bu">B.U</option>
-                        <option value="razao">Razão Social</option>
-                        <option value="cnpj">CNPJ</option>
-                        <option value="projeto">Projeto</option>
-                        <option value="representada">Representada</option>
-                        <option value="tipo_oferta">Tipo (Compra/Orçamento)</option>
-                        <option value="status">Status</option>
-                        <option value="usuario">Usuário</option>
-                    </select>
-
-
-
-
-
-                    <input type="text" id="statusFilter" placeholder="Filtrar por Status">
-
-                    <select id="pedidoFilter">
-                        <option value="todos">Pedido: todos</option>
-                        <option value="com">Somente com pedido</option>
-                        <option value="sem">Somente sem pedido</option>
-                    </select>
-                    <select id="revisaoFilter">
-                        <option value="todos">Revisão: todos</option>
-                        <option value="com">Somente com revisão</option>
-                        <option value="sem">Somente sem revisão</option>
-                    </select>
-
-                </div>
-
-                <div class="actions-row">
-                    <button id="btnVerTudo" class="secondary" type="button">Atualizar Lista</button>
-                    <button id="btnExportExcel" class="secondary" type="button">Exportar Registros (Excel)</button>
-                    <button id="btnExportPdf" class="secondary" type="button">Gerar PDF</button>
-
-                    <button id="btnBackupExport" class="secondary" type="button">Backup - Exportar</button>
-                    <button id="btnBackupImport" class="secondary" type="button">Backup - Importar</button>
-                    <input type="file" id="inputBackupFile" style="display:none;">
-                </div>
-
-                <table id="tabelaRegistros">
-                    <thead>
-                        <tr>
-                            <th>#</th>
-                            <th>B.U</th>
-                            <th>RAZÃO SOCIAL</th>
-                            <th>CNPJ</th>
-                            <th>PROJETO</th>
-                            <th>REPRESENTADA</th>
-                            <th>TIPO</th>
-                            <th>STATUS</th>
-                            <th>PEDIDO?</th>
-                            <th>REVISÃO?</th>
-                            <th>USUÁRIO</th>
-                            <th>AÇÕES</th>
-
-                        </tr>
-                    </thead>
-                    <tbody></tbody>
-                </table>
-
-
-                <div class="paginacao">
-
-                    <button id="btnPrev" class="secondary" type="button">Anterior</button>
-                    <span id="pageInfo">Página 1 de 1</span>
-                    <button id="btnNext" class="secondary" type="button">Próxima</button>
-
-                </div>
-                <label style="margin-left:10px;">Itens por página</label>
-                <select id="pageSizeSelect">
-                    <option value="5" selected>5</option>
-                    <option value="10">10</option>
-                </select>
-
-            </section>
-
-            <section id="secClientes">
-                <h3>Cadastro de Clientes</h3>
+            <div class="form-col">
+              <label for="nome_projeto">Nome do Projeto</label>
+              <input type="text" id="nome_projeto">
+
+              <label for="representada">Representada</label>
+              <select id="representada">
+                <option value="">Selecione</option>
+              </select>
+
+              <label for="valor_total">Vl. Total</label>
+              <input type="text" id="valor_total" class="money" placeholder="R$">
+
+              <label for="oportunidade">Ref. do Cliente</label>
+              <input type="text" id="oportunidade">
+
+              <label for="data_entrada">Data Entrada</label>
+              <input type="date" id="data_entrada">
+
+              <label for="status">Status</label>
+              <input type="text" id="status">
+
+              <label for="tipo_oferta">Tipo</label>
+              <select id="tipo_oferta">
+                <option value="">Selecione</option>
+                <option value="Compra">Compra</option>
+                <option value="Orçamento">Orçamento</option>
+              </select>
+
+              <label for="data_envio">Data Envio</label>
+              <input type="date" id="data_envio">
+
+              <label>Possui Pedido?</label>
+              <div class="radio-group">
+                <label><input type="radio" name="pedido" value="sim"> Sim</label>
+                <label><input type="radio" name="pedido" value="nao" checked> Não</label>
+              </div>
+
+              <label>Revisão?</label>
+              <div class="radio-group">
+                <label><input type="radio" name="revisao" value="sim"> Sim</label>
+                <label><input type="radio" name="revisao" value="nao" checked> Não</label>
+              </div>
+
+              <div id="secaoRevisao" class="form-card hidden">
+                <h3>Informações da Revisão</h3>
 
                 <div class="form-grid">
-                    <div class="form-col">
-                        <label for="cli_razao">Razão Social</label>
-                        <input type="text" id="cli_razao">
+                  <div class="form-col">
+                    <label for="rev_num_oferta">Nº da Oferta Anterior</label>
+                    <input type="text" id="rev_num_oferta">
+                  </div>
 
-                        <label for="cli_cnpj">CNPJ</label>
-                        <input type="text" id="cli_cnpj" placeholder="00.000.000/0000-00">
+                  <div class="form-col">
+                    <label for="rev_mudou">O que mudou?</label>
+                    <textarea id="rev_mudou"></textarea>
+                  </div>
+                </div>
+              </div>
 
-                        <label for="cli_ie">Inscrição Estadual</label>
-                        <input type="text" id="cli_ie">
+            </div>
+          </div>
 
-                        <label for="cli_endereco">Endereço</label>
-                        <input type="text" id="cli_endereco">
+          <div id="secaoPedido" class="hidden">
+            <h3>Informações do Pedido</h3>
 
-                        <label for="cli_segmento">Segmento</label>
-                        <input type="text" id="cli_segmento">
+            <div class="form-grid">
+              <div class="form-col">
+                <label for="numero_pedido">N° Pedido</label>
+                <input type="text" id="numero_pedido">
 
+                <label for="data_po">Data Entrada P.O</label>
+                <input type="date" id="data_po">
 
-                    </div>
+                <label for="valor_pedido">VL. Total Pedido</label>
+                <input type="text" id="valor_pedido" class="money" placeholder="R$">
 
-                    <div class="form-col">
-                        <h4>Contatos</h4>
+                <label for="cond_pagamento">Condição de Pagamento</label>
+                <input type="text" id="cond_pagamento">
 
-                        <label for="ct_nome">Nome</label>
-                        <input type="text" id="ct_nome">
+                <label for="ref_projeto">Ref./Projeto</label>
+                <input type="text" id="ref_projeto">
 
-                        <label for="ct_tel">Telefone</label>
-                        <input type="text" id="ct_tel" placeholder="(11) 98888-7777">
+                <label for="obs">Obs</label>
+                <textarea id="obs"></textarea>
+              </div>
 
-                        <label for="ct_email">E-mail</label>
-                        <input type="email" id="ct_email">
+              <div class="form-col">
+                <label for="tipo_produto">Tipo de Produto</label>
+                <input type="text" id="tipo_produto">
 
-                        <label for="ct_funcao">Função / Cargo</label>
-                        <input type="text" id="ct_funcao">
+                <label for="data_nf">Data da Nota Fiscal</label>
+                <input type="date" id="data_nf">
 
-                        <label for="ct_responsavel">Responsável pelo contato</label>
-                        <select id="ct_responsavel">
-                            <option value="">Selecione</option>
-                        </select>
+                <label for="valor_nf">Valor da Nota Fiscal</label>
+                <input type="text" id="valor_nf" class="money" placeholder="R$">
 
+                <label for="prazo_entrega_contratual">Prazo de entrega contratual</label>
+                <input type="date" id="prazo_entrega_contratual">
 
-                        <div class="checkbox-inline">
-                            <input type="checkbox" id="ct_principal">
-                            <span>Definir como contato principal</span>
-                        </div>
-
-
-                        <button type="button" class="secondary" id="btnAddContato">Adicionar Contato</button>
-
-                        <div id="listaContatos" class="contatos-lista"></div>
-                    </div>
+                <label>Solicitação de ordem de compra?</label>
+                <div class="radio-group">
+                  <label><input type="radio" name="sol_oc" value="sim"> Sim</label>
+                  <label><input type="radio" name="sol_oc" value="nao" checked> Não</label>
                 </div>
 
-                <button type="button" id="btnSalvarCliente">Salvar Cliente</button>
+                <label for="ref_oc">Ref de ordem de compra</label>
+                <input type="text" id="ref_oc">
+              </div>
+            </div>
+          </div>
 
-                <h4 style="margin-top:20px;">Clientes Cadastrados</h4>
-                <table id="tabelaClientes">
-                    <thead>
-                        <tr>
-                            <th>Razão Social</th>
-                            <th>CNPJ</th>
-                            <th>Segmento</th>
-                            <th>Qtd. Contatos</th>
-                            <th>Usuário</th>
-                            <th>Ações</th>
-                        </tr>
-                    </thead>
-                    <tbody></tbody>
-                </table>
-                <div class="paginacao" id="paginacaoClientes">
-                    <button id="btnPrevClientes" class="secondary" type="button">Anterior</button>
-                    <span id="pageInfoClientes">Página 1 de 1</span>
-                    <button id="btnNextClientes" class="secondary" type="button">Próxima</button>
-                </div>
+          <button type="button" id="btnAdicionar">Adicionar</button>
+        </form>
+      </section>
 
-            </section>
+      <section id="secRegistros">
+        <h3>Consulta de Registros</h3>
 
-            <section id="secRepresentadas">
-                <h3>Cadastro de Representadas</h3>
+        <div class="filters">
+          <input type="text" id="searchTerm" placeholder="Buscar por texto...">
 
-                <label for="rep_nome">Nome da Representada</label>
-                <input type="text" id="rep_nome">
+          <select id="filterField">
+            <option value="todos">Buscar em todos os campos</option>
+            <option value="bu">B.U</option>
+            <option value="razao">Razão Social</option>
+            <option value="cnpj">CNPJ</option>
+            <option value="projeto">Projeto</option>
+            <option value="representada">Representada</option>
+            <option value="tipo_oferta">Tipo (Compra/Orçamento)</option>
+            <option value="status">Status</option>
+            <option value="usuario">Usuário</option>
+          </select>
 
-                <button type="button" id="btnSalvarRepresentada">Salvar Representada</button>
+          <input type="text" id="statusFilter" placeholder="Filtrar por Status">
 
-                <h4 style="margin-top:20px;">Representadas Cadastradas</h4>
-                <table id="tabelaRepresentadas">
-                    <thead>
-                        <tr>
-                            <th>Nome</th>
-                            <th>Usuário</th>
-                            <th>Ações</th>
-                        </tr>
-                    </thead>
-                    <tbody></tbody>
-                </table>
+          <select id="pedidoFilter">
+            <option value="todos">Pedido: todos</option>
+            <option value="com">Somente com pedido</option>
+            <option value="sem">Somente sem pedido</option>
+          </select>
 
-            </section>
-
+          <select id="revisaoFilter">
+            <option value="todos">Revisão: todos</option>
+            <option value="com">Somente com revisão</option>
+            <option value="sem">Somente sem revisão</option>
+          </select>
         </div>
 
-    </div>
+        <div class="actions-row">
+          <button id="btnVerTudo" class="secondary" type="button">Atualizar Lista</button>
+          <button id="btnExportExcel" class="secondary" type="button">Exportar Registros (Excel)</button>
+          <button id="btnExportPdf" class="secondary" type="button">Gerar PDF</button>
 
-    <div id="painelCliente" class="side-panel hidden">
-        <div class="side-panel-header">
-            <h3 id="painelClienteNome">Cliente</h3>
-            <button type="button" class="btn-sm btn-danger" onclick="fecharPainelCliente()">Fechar</button>
+          <button id="btnBackupExport" class="secondary" type="button">Backup - Exportar</button>
+          <button id="btnBackupImport" class="secondary" type="button">Backup - Importar</button>
+          <input type="file" id="inputBackupFile" style="display:none;">
         </div>
-        <div class="side-panel-body">
-            <p><strong>CNPJ:</strong> <span id="painelClienteCnpj"></span></p>
-            <p><strong>Segmento:</strong> <span id="painelClienteSegmento"></span></p>
-            <p><strong>Endereço:</strong> <span id="painelClienteEndereco"></span></p>
+
+        <table id="tabelaRegistros">
+          <thead>
+            <tr>
+              <th>#</th>
+              <th>B.U</th>
+              <th>RAZÃO SOCIAL</th>
+              <th>CNPJ</th>
+              <th>PROJETO</th>
+              <th>REPRESENTADA</th>
+              <th>TIPO</th>
+              <th>STATUS</th>
+              <th>PEDIDO?</th>
+              <th>REVISÃO?</th>
+              <th>USUÁRIO</th>
+              <th>AÇÕES</th>
+            </tr>
+          </thead>
+          <tbody></tbody>
+        </table>
+
+        <div class="paginacao">
+          <button id="btnPrev" class="secondary" type="button">Anterior</button>
+          <span id="pageInfo">Página 1 de 1</span>
+          <button id="btnNext" class="secondary" type="button">Próxima</button>
+        </div>
+
+        <label style="margin-left:10px;">Itens por página</label>
+        <select id="pageSizeSelect">
+          <option value="5" selected>5</option>
+          <option value="10">10</option>
+        </select>
+      </section>
+
+      <section id="secClientes">
+        <h3>Cadastro de Clientes</h3>
+
+        <div class="form-grid">
+          <div class="form-col">
+            <label for="cli_razao">Razão Social</label>
+            <input type="text" id="cli_razao">
+
+            <label for="cli_cnpj">CNPJ</label>
+            <input type="text" id="cli_cnpj" placeholder="00.000.000/0000-00">
+
+            <label for="cli_ie">Inscrição Estadual</label>
+            <input type="text" id="cli_ie">
+
+            <label for="cli_endereco">Endereço</label>
+            <input type="text" id="cli_endereco">
+
+            <label for="cli_segmento">Segmento</label>
+            <input type="text" id="cli_segmento">
+          </div>
+
+          <div class="form-col">
             <h4>Contatos</h4>
-            <div id="painelClienteContatos"></div>
+
+            <label for="ct_nome">Nome</label>
+            <input type="text" id="ct_nome">
+
+            <label for="ct_tel">Telefone</label>
+            <input type="text" id="ct_tel" placeholder="(11) 98888-7777">
+
+            <label for="ct_email">E-mail</label>
+            <input type="email" id="ct_email">
+
+            <label for="ct_funcao">Função / Cargo</label>
+            <input type="text" id="ct_funcao">
+
+            <label for="ct_responsavel">Responsável pelo contato</label>
+            <select id="ct_responsavel">
+              <option value="">Selecione</option>
+            </select>
+
+            <div class="checkbox-inline">
+              <input type="checkbox" id="ct_principal">
+              <span>Definir como contato principal</span>
+            </div>
+
+            <button type="button" class="secondary" id="btnAddContato">Adicionar Contato</button>
+            <div id="listaContatos" class="contatos-lista"></div>
+          </div>
         </div>
+
+        <button type="button" id="btnSalvarCliente">Salvar Cliente</button>
+
+        <h4 style="margin-top:20px;">Clientes Cadastrados</h4>
+        <table id="tabelaClientes">
+          <thead>
+            <tr>
+              <th>Razão Social</th>
+              <th>CNPJ</th>
+              <th>Segmento</th>
+              <th>Qtd. Contatos</th>
+              <th>Usuário</th>
+              <th>Ações</th>
+            </tr>
+          </thead>
+          <tbody></tbody>
+        </table>
+
+        <div class="paginacao" id="paginacaoClientes">
+          <button id="btnPrevClientes" class="secondary" type="button">Anterior</button>
+          <span id="pageInfoClientes">Página 1 de 1</span>
+          <button id="btnNextClientes" class="secondary" type="button">Próxima</button>
+        </div>
+      </section>
+
+      <section id="secRepresentadas">
+        <h3>Cadastro de Representadas</h3>
+
+        <label for="rep_nome">Nome da Representada</label>
+        <input type="text" id="rep_nome">
+
+        <button type="button" id="btnSalvarRepresentada">Salvar Representada</button>
+
+        <h4 style="margin-top:20px;">Representadas Cadastradas</h4>
+        <table id="tabelaRepresentadas">
+          <thead>
+            <tr>
+              <th>Nome</th>
+              <th>Usuário</th>
+              <th>Ações</th>
+            </tr>
+          </thead>
+          <tbody></tbody>
+        </table>
+      </section>
+<section id="secAprovacaoUsuarios" class="hidden">
+  <h3>Aprovar Usuários</h3>
+  <p style="opacity:.85">Somente o administrador pode aprovar novos acessos.</p>
+
+  <div class="actions-row">
+    <button id="btnReloadUsuariosPendentes" class="secondary" type="button">Atualizar</button>
+  </div>
+
+  <table id="tabelaUsuariosPendentes">
+    <thead>
+      <tr>
+        <th>Nome</th>
+        <th>Email</th>
+        <th>Status</th>
+        <th>Criado em</th>
+        <th>Ações</th>
+      </tr>
+    </thead>
+    <tbody></tbody>
+  </table>
+
+  <hr style="margin:18px 0; opacity:.25">
+
+<h3>Usuários existentes</h3>
+<p style="opacity:.85">Usuários já aprovados (ativos/inativos). Você pode bloquear/desativar ou excluir </p>
+
+<div class="actions-row">
+  <input id="searchUsuariosExistentes" class="input" style="max-width:320px" placeholder="Buscar por nome ou email..." />
+  <button id="btnReloadUsuariosExistentes" class="secondary" type="button">Atualizar</button>
+</div>
+
+<table id="tabelaUsuariosExistentes">
+  <thead>
+    <tr>
+      <th>Nome</th>
+      <th>Email</th>
+      <th>Status</th>
+      <th>Criado em</th>
+      <th>Ações</th>
+    </tr>
+  </thead>
+  <tbody></tbody>
+</table>
+
+</section>
+
     </div>
+  </div>
 
-    <script src="https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js"></script>
+  <div id="painelCliente" class="side-panel hidden">
+    <div class="side-panel-header">
+      <h3 id="painelClienteNome">Cliente</h3>
+      <button type="button" class="btn-sm btn-danger" onclick="fecharPainelCliente()">Fechar</button>
+    </div>
+    <div class="side-panel-body">
+      <p><strong>CNPJ:</strong> <span id="painelClienteCnpj"></span></p>
+      <p><strong>Segmento:</strong> <span id="painelClienteSegmento"></span></p>
+      <p><strong>Endereço:</strong> <span id="painelClienteEndereco"></span></p>
+      <h4>Contatos</h4>
+      <div id="painelClienteContatos"></div>
+    </div>
+  </div>
 
+  <!-- Dependências -->
+  <script src="https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js"></script>
 
-    <script src="https://www.gstatic.com/firebasejs/9.23.0/firebase-app-compat.js"></script>
-    <script src="https://www.gstatic.com/firebasejs/9.23.0/firebase-auth-compat.js"></script>
-    <script src="https://www.gstatic.com/firebasejs/9.23.0/firebase-firestore-compat.js"></script>
+  <script src="https://www.gstatic.com/firebasejs/9.23.0/firebase-app-compat.js"></script>
+  <script src="https://www.gstatic.com/firebasejs/9.23.0/firebase-auth-compat.js"></script>
+  <script src="https://www.gstatic.com/firebasejs/9.23.0/firebase-firestore-compat.js"></script>
 
-    <script src="./firebase.js"></script>
+  <!-- seu firebase -->
+  <script src="./firebase.js"></script>
 
-    <script src="./script.js" defer></script>
-
+  <!-- seu app -->
+  <script src="./script.js" defer></script>
 </body>
-
 </html>
