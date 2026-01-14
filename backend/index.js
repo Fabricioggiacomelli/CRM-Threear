@@ -198,3 +198,6 @@ app.post("/mfa/verify", async (req, res) => {
 app.listen(PORT, () => {
   console.log(`✅ Backend TOTP com Firestore em http://127.0.0.1:${PORT}`);
 });
+
+
+

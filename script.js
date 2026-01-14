@@ -54,6 +54,9 @@ let clientesPageSize = 5;
 
 let backupImportMode = null;
 
+
+
+
 // ===============================
 // CONFIGURAÇÃO DO BACKEND (API)
 // ===============================
@@ -66,6 +69,9 @@ function getApiBase() {
   // PRODUÇÃO (GitHub Pages → Firebase Functions)
   return "https://us-central1-crm-three-ar.cloudfunctions.net/api";
 }
+
+
+
 
 const API_BASE = getApiBase();
 // Gate TOTP
