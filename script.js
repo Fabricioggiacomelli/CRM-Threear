@@ -54,11 +54,20 @@ let clientesPageSize = 5;
 
 let backupImportMode = null;
 
-// Backend do TOTP
-const API_BASE =
-  (location.hostname === "localhost" || location.hostname === "127.0.0.1")
-    ? "http://127.0.0.1:3001"
-    : "https://SEU_BACKEND_PUBLICO.com"; // precisa estar online
+// ===============================
+// CONFIGURAÇÃO DO BACKEND (API)
+// ===============================
+function getApiBase() {
+  // DEV LOCAL (VS Code / Live Server)
+  if (location.hostname === "localhost" || location.hostname === "127.0.0.1") {
+    return "http://127.0.0.1:3001";
+  }
+
+  // PRODUÇÃO (GitHub Pages → Firebase Functions)
+  return "https://us-central1-crm-three-ar.cloudfunctions.net/api";
+}
+
+const API_BASE = getApiBase();
 // Gate TOTP
 let totpUserEmail = null;
 let totpIsActive = false; // backend diz se já ativou
