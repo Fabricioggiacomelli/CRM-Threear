@@ -7,6 +7,7 @@
  * - Backup JSON / Excel
  ************************/
 
+
 /* =======================
    CONFIG / ESTADO GLOBAL
 ======================= */
@@ -57,9 +58,6 @@ let backupImportMode = null;
 
 
 
-// ===============================
-// CONFIGURAÇÃO DO BACKEND (API)
-// ===============================
 function getApiBase() {
   // DEV LOCAL (VS Code / Live Server)
   if (location.hostname === "localhost" || location.hostname === "127.0.0.1") {
@@ -67,10 +65,8 @@ function getApiBase() {
   }
 
   // PRODUÇÃO (GitHub Pages → Firebase Functions)
-  return "https://us-central1-crm-three-ar.cloudfunctions.net/api";
+  return "https://southamerica-east1-crm-three-ar.cloudfunctions.net/api";
 }
-
-
 
 
 const API_BASE = getApiBase();

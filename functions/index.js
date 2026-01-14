@@ -1,19 +1,28 @@
-// index.js
-// Backend TOTP (Google Authenticator) com Firestore
-// Porta: http://localhost:3001
+// functions/index.js
+// Firebase Functions - Backend TOTP (Google Authenticator) com Firestore
+
+const { onRequest } = require("firebase-functions/v2/https");
+const logger = require("firebase-functions/logger");
 
 const express = require("express");
 const cors = require("cors");
 const speakeasy = require("speakeasy");
 const QRCode = require("qrcode");
+
 const admin = require("firebase-admin");
 
+// Em Functions não usa serviceAccount.json
+if (!admin.apps.length) {
+  admin.initializeApp();
+}
+
+
+const db = admin.firestore();
+const mfaRef = db.collection("usuarios_mfa");
+
 const app = express();
-const PORT = process.env.PORT || 3001;
 
 // ===== MIDDLEWARE =====
-// CORS liberado para dev (Live Server e etc.)
-
 app.use(
   cors({
     origin: true,
@@ -23,19 +32,6 @@ app.use(
 );
 app.options("*", cors());
 app.use(express.json());
-
-// ===== FIREBASE ADMIN =====
-const serviceAccount = require("./serviceAccount.json");
-
-// evita erro caso reinicie com nodemon etc.
-if (!admin.apps.length) {
-  admin.initializeApp({
-    credential: admin.credential.cert(serviceAccount),
-  });
-}
-
-const db = admin.firestore();
-const mfaRef = db.collection("usuarios_mfa");
 
 // ===== HELPERS =====
 const normUser = (u) => String(u || "").trim().toLowerCase();
@@ -52,7 +48,7 @@ function verifyTotp(secret, token) {
 
 // ===== HEALTH =====
 app.get("/", (_, res) => {
-  res.send("OK - Backend TOTP com Firestore rodando");
+  res.send("OK - Backend TOTP com Firestore (Firebase Functions)");
 });
 
 // ===== STATUS =====
@@ -72,7 +68,7 @@ app.get("/mfa/status", async (req, res) => {
       hasSecret: !!data.mfaSecret,
     });
   } catch (e) {
-    console.error("STATUS ERROR:", e);
+    logger.error("STATUS ERROR:", e);
     res.status(500).json({ ok: false, error: "Erro interno" });
   }
 });
@@ -126,7 +122,7 @@ app.get("/mfa/qr", async (req, res) => {
 
     res.json({ ok: true, user, qrDataUrl });
   } catch (e) {
-    console.error("QR ERROR:", e);
+    logger.error("QR ERROR:", e);
     res.status(500).json({ ok: false, error: "Erro ao gerar QR" });
   }
 });
@@ -164,7 +160,7 @@ app.post("/mfa/activate", async (req, res) => {
 
     res.json({ ok: true, activated: true });
   } catch (e) {
-    console.error("ACTIVATE ERROR:", e);
+    logger.error("ACTIVATE ERROR:", e);
     res.status(500).json({ ok: false, error: "Erro interno" });
   }
 });
@@ -190,15 +186,13 @@ app.post("/mfa/verify", async (req, res) => {
 
     res.json({ ok: true, verified: true });
   } catch (e) {
-    console.error("VERIFY ERROR:", e);
+    logger.error("VERIFY ERROR:", e);
     res.status(500).json({ ok: false, error: "Erro interno" });
   }
 });
 
-// ===== START =====
-app.listen(PORT, () => {
-  console.log(`✅ Backend TOTP com Firestore em http://127.0.0.1:${PORT}`);
-});
-
-
-
+// Exporta a API como Function HTTP
+exports.api = onRequest(
+  { region: "southamerica-east1", cors: true },
+  app
+);
