@@ -7,7 +7,6 @@
  * - Backup JSON / Excel
  ************************/
 
-
 /* =======================
    CONFIG / ESTADO GLOBAL
 ======================= */
@@ -17,7 +16,11 @@ function getCurrentUserName() {
 }
 const ADMIN_EMAIL = "fabricio.giacomelli@threear.com.br";
 function isAdminEmail(email) {
-  return String(email || "").trim().toLowerCase() === ADMIN_EMAIL;
+  return (
+    String(email || "")
+      .trim()
+      .toLowerCase() === ADMIN_EMAIL
+  );
 }
 
 const RESPONSAVEIS_FIXOS = [
@@ -55,27 +58,29 @@ let clientesPageSize = 5;
 
 let backupImportMode = null;
 
-
-
-
 function getApiBase() {
-  // DEV LOCAL (VS Code / Live Server)
+  const p = new URLSearchParams(location.search);
+  const forced = p.get("api"); // local | prod
+
+  if (forced === "local") return "http://127.0.0.1:3001";
+  if (forced === "prod")
+    return "https://southamerica-east1-crm-three-ar.cloudfunctions.net/api";
+
+  // padrão: local quando estiver rodando em localhost
   if (location.hostname === "localhost" || location.hostname === "127.0.0.1") {
     return "http://127.0.0.1:3001";
   }
 
-  // PRODUÇÃO (GitHub Pages → Firebase Functions)
+  // padrão: produção fora do localhost
   return "https://southamerica-east1-crm-three-ar.cloudfunctions.net/api";
 }
-
 
 const API_BASE = getApiBase();
 // Gate TOTP
 let totpUserEmail = null;
 let totpIsActive = false; // backend diz se já ativou
-let totpOk = false;       // validou nessa sessão
+let totpOk = false; // validou nessa sessão
 let totpFlowLock = false; // evita abrir modal 2x
-
 
 /* =======================
    BOOT
@@ -97,6 +102,7 @@ window.addEventListener("load", async () => {
   initLigacaoClienteOferta();
   initBackupUI();
   initBuSegmento();
+  initUnidadesMantex();
 
   initAuthTabs();
   initForgotPassword();
@@ -110,93 +116,93 @@ window.addEventListener("load", async () => {
 
   console.log("Firebase OK:", { temAuth: !!window.auth, temDb: !!window.db });
 
-auth.onAuthStateChanged(async (user) => {
-  try {
-    if (!user) {
-      totpOk = false;
-      totpIsActive = false;
-      totpUserEmail = null;
-      fecharModalTOTP(true);
+  auth.onAuthStateChanged(async (user) => {
+    try {
+      if (!user) {
+        totpOk = false;
+        totpIsActive = false;
+        totpUserEmail = null;
+        fecharModalTOTP(true);
+        mostrarLogin();
+        return;
+      }
+
+      currentUserName = user.displayName || user.email || "Desconhecido";
+
+      // ✅ 1) GARANTE DOC NO FIRESTORE PRIMEIRO (mesmo sem verificação)
+      const userRef = db.collection("usuarios").doc(user.uid);
+      const snap = await userRef.get();
+
+      if (!snap.exists) {
+        await userRef.set(
+          {
+            uid: user.uid,
+            email: (user.email || "").toLowerCase(),
+            nome:
+              user.displayName ||
+              (user.email ? user.email.split("@")[0] : "Usuário"),
+            aprovado: false,
+            ativo: true,
+            criadoEm: new Date().toISOString(),
+            atualizadoEm: new Date().toISOString(),
+          },
+          { merge: true }
+        );
+      } else {
+        const data = snap.data() || {};
+        await userRef.set(
+          {
+            uid: user.uid,
+            email: (user.email || "").toLowerCase(),
+            nome:
+              user.displayName ||
+              (user.email ? user.email.split("@")[0] : data.nome || "Usuário"),
+            atualizadoEm: new Date().toISOString(),
+          },
+          { merge: true }
+        );
+      }
+
+      // ✅ 2) AGORA SIM checa verificação de email
+      await user.reload();
+      if (!user.emailVerified) {
+        await auth.signOut();
+        alert("Verifique seu e-mail antes de acessar.");
+        mostrarLogin();
+        return;
+      }
+
+      // ✅ 3) Checa aprovado/ativo
+      const snap2 = await userRef.get();
+      const udata = snap2.data() || {};
+      const aprovado = !!udata.aprovado;
+      const ativo = udata.ativo === undefined ? true : !!udata.ativo;
+
+      if (!aprovado || !ativo) {
+        alert("Usuário ainda não autorizado.");
+        await auth.signOut();
+        mostrarLogin();
+        return;
+      }
+
+      // ✅ 4) TOTP gate
+      if (!totpOk) {
+        await iniciarFluxoTOTP(user);
+        mostrarLogin();
+        return;
+      }
+
+      // ✅ 5) Liberou
+      await carregarDadosDoFirebase();
+      atualizarSugestoesCnpj();
+      mostrarApp();
+    } catch (e) {
+      console.error("Erro no onAuthStateChanged:", e);
+      alert("Erro ao inicializar login. Veja o console.");
       mostrarLogin();
-      return;
     }
-
-    currentUserName = user.displayName || user.email || "Desconhecido";
-
-    // ✅ 1) GARANTE DOC NO FIRESTORE PRIMEIRO (mesmo sem verificação)
-    const userRef = db.collection("usuarios").doc(user.uid);
-    const snap = await userRef.get();
-
-    if (!snap.exists) {
-      await userRef.set(
-        {
-          uid: user.uid,
-          email: (user.email || "").toLowerCase(),
-          nome: user.displayName || (user.email ? user.email.split("@")[0] : "Usuário"),
-          aprovado: false,
-          ativo: true,
-          criadoEm: new Date().toISOString(),
-          atualizadoEm: new Date().toISOString(),
-        },
-        { merge: true }
-      );
-    } else {
-      const data = snap.data() || {};
-      await userRef.set(
-        {
-          uid: user.uid,
-          email: (user.email || "").toLowerCase(),
-          nome:
-            user.displayName ||
-            (user.email ? user.email.split("@")[0] : (data.nome || "Usuário")),
-          atualizadoEm: new Date().toISOString(),
-        },
-        { merge: true }
-      );
-    }
-
-    // ✅ 2) AGORA SIM checa verificação de email
-    await user.reload();
-    if (!user.emailVerified) {
-      await auth.signOut();
-      alert("Verifique seu e-mail antes de acessar.");
-      mostrarLogin();
-      return;
-    }
-
-    // ✅ 3) Checa aprovado/ativo
-    const snap2 = await userRef.get();
-    const udata = snap2.data() || {};
-    const aprovado = !!udata.aprovado;
-    const ativo = (udata.ativo === undefined) ? true : !!udata.ativo;
-
-    if (!aprovado || !ativo) {
-      alert("Usuário ainda não autorizado.");
-      await auth.signOut();
-      mostrarLogin();
-      return;
-    }
-
-    // ✅ 4) TOTP gate
-    if (!totpOk) {
-      await iniciarFluxoTOTP(user);
-      mostrarLogin();
-      return;
-    }
-
-    // ✅ 5) Liberou
-    await carregarDadosDoFirebase();
-    atualizarSugestoesCnpj();
-    mostrarApp();
-
-  } catch (e) {
-    console.error("Erro no onAuthStateChanged:", e);
-    alert("Erro ao inicializar login. Veja o console.");
-    mostrarLogin();
-  }
+  });
 });
-});
-
 
 /* =======================
    FIREBASE READY
@@ -211,7 +217,9 @@ function esperarFirebase(timeoutMs = 8000) {
       } else if (Date.now() - start > timeoutMs) {
         clearInterval(t);
         reject(
-          new Error("Firebase não carregou: auth/db indefinidos (ordem dos scripts).")
+          new Error(
+            "Firebase não carregou: auth/db indefinidos (ordem dos scripts)."
+          )
         );
       }
     }, 50);
@@ -266,7 +274,6 @@ async function carregarRegistrosFirebase() {
   registros = snap.docs.map((doc) => ({ id: doc.id, ...doc.data() }));
 }
 
-
 /* =======================
    UI LOGIN / APP
 ======================= */
@@ -288,6 +295,7 @@ function mostrarApp() {
   if (userInfo) userInfo.textContent = "Logado como: " + getCurrentUserName();
 
   preencherSelectRepresentadas();
+  initUnidadesMantex();
   renderTabela();
   renderTabelaClientes();
   renderTabelaRepresentadas();
@@ -299,7 +307,6 @@ function logout() {
     alert("Erro ao sair: " + err.message);
   });
 }
-
 
 /* =======================
    LOGIN (EMAIL/SENHA)
@@ -332,7 +339,9 @@ function initLogin() {
         alert("Enviamos um e-mail para trocar a senha.");
       } catch (e) {
         console.error(e);
-        setLoginMsg("❌ Não consegui enviar o e-mail de troca. Verifique o e-mail digitado.");
+        setLoginMsg(
+          "❌ Não consegui enviar o e-mail de troca. Verifique o e-mail digitado."
+        );
       }
 
       pEl?.focus();
@@ -366,8 +375,6 @@ function initLogin() {
     }
   });
 }
-
-
 
 /* =======================
    TOTP (Google Authenticator) - MODAL
@@ -442,9 +449,12 @@ function formatarNomeUsuario(raw) {
 }
 
 async function apiGetQr(userEmail) {
-  const r = await fetch(`${API_BASE}/mfa/qr?user=${encodeURIComponent(userEmail)}`);
+  const r = await fetch(
+    `${API_BASE}/mfa/qr?user=${encodeURIComponent(userEmail)}`
+  );
   const j = await r.json().catch(() => ({}));
-  if (!r.ok || !j.ok) throw new Error(j.error || j.message || "Falha ao gerar QR");
+  if (!r.ok || !j.ok)
+    throw new Error(j.error || j.message || "Falha ao gerar QR");
   return j;
 }
 
@@ -455,7 +465,8 @@ async function apiActivate(userEmail, token) {
     body: JSON.stringify({ user: userEmail, token }),
   });
   const j = await r.json().catch(() => ({}));
-  if (!r.ok || !j.ok) throw new Error(j.error || j.message || "Falha ao ativar");
+  if (!r.ok || !j.ok)
+    throw new Error(j.error || j.message || "Falha ao ativar");
   return j;
 }
 
@@ -466,7 +477,8 @@ async function apiVerify(userEmail, token) {
     body: JSON.stringify({ user: userEmail, token }),
   });
   const j = await r.json().catch(() => ({}));
-  if (!r.ok || !j.ok) throw new Error(j.error || j.message || "Falha ao validar");
+  if (!r.ok || !j.ok)
+    throw new Error(j.error || j.message || "Falha ao validar");
   return j;
 }
 
@@ -494,13 +506,17 @@ async function iniciarFluxoTOTP(user) {
 
     if (totpIsActive) {
       if (img) img.style.display = "none";
-      if (msg) msg.textContent = "Usuário já tem 2FA ativo. Digite o código do Google Authenticator.";
+      if (msg)
+        msg.textContent =
+          "Usuário já tem 2FA ativo. Digite o código do Google Authenticator.";
     } else {
       if (img) {
         img.src = qr.qrDataUrl;
         img.style.display = "block";
       }
-      if (msg) msg.textContent = "Escaneie o QR no Google Authenticator e digite o código.";
+      if (msg)
+        msg.textContent =
+          "Escaneie o QR no Google Authenticator e digite o código.";
     }
 
     setTotpStatus("");
@@ -511,10 +527,16 @@ async function iniciarFluxoTOTP(user) {
 
     // ⛔ NÃO desloga aqui (senão some rápido)
     // só mostra erro e deixa tentar novamente
-    setTotpStatus("❌ Erro no 2FA: " + (e?.message || e) + " (verifique se o backend está ligado)");
+    setTotpStatus(
+      "❌ Erro no 2FA: " +
+        (e?.message || e) +
+        " (verifique se o backend está ligado)"
+    );
 
     const msg = document.getElementById("totp_qr_msg");
-    if (msg) msg.textContent = "Backend do 2FA não respondeu. Ligue o servidor e clique em 'Tentar novamente'.";
+    if (msg)
+      msg.textContent =
+        "Backend do 2FA não respondeu. Ligue o servidor e clique em 'Tentar novamente'.";
 
     // opcional: adiciona um botão de retry
     let btnRetry = document.getElementById("btnTotpRetry");
@@ -526,7 +548,10 @@ async function iniciarFluxoTOTP(user) {
       btnRetry.textContent = "Tentar novamente";
       btnRetry.style.marginTop = "10px";
       btnRetry.onclick = async () => iniciarFluxoTOTP(user);
-      document.getElementById("modalTOTP")?.querySelector(".modal-body")?.appendChild(btnRetry);
+      document
+        .getElementById("modalTOTP")
+        ?.querySelector(".modal-body")
+        ?.appendChild(btnRetry);
     }
 
     return false;
@@ -537,7 +562,9 @@ async function iniciarFluxoTOTP(user) {
 
 async function confirmarTotpNoModal() {
   const btn = document.getElementById("btnTotpConfirm");
-  const token = String(document.getElementById("totp_code")?.value || "").trim();
+  const token = String(
+    document.getElementById("totp_code")?.value || ""
+  ).trim();
   const clean = token.replace(/\D/g, "");
 
   if (clean.length !== 6) {
@@ -579,7 +606,6 @@ async function confirmarTotpNoModal() {
   }
 }
 
-
 /* =======================
    MODAL DETALHES (OFERTA/CLIENTE/REP)
 ======================= */
@@ -597,7 +623,6 @@ function fecharModalDetalhes() {
   const modal = document.getElementById("modalDetalhes");
   if (modal) modal.classList.add("hidden");
 }
-
 
 /* =======================
    THEME / SIDEBAR
@@ -629,7 +654,6 @@ function toggleSidebar() {
   if (window.innerWidth <= 780) sidebar.classList.toggle("open");
   else sidebar.classList.toggle("collapsed");
 }
-
 
 /* =======================
    MASKS
@@ -710,9 +734,15 @@ function formatCnpjValue(value) {
   value = value.slice(0, 14);
 
   if (value.length >= 3) value = value.replace(/^(\d{2})(\d)/, "$1.$2");
-  if (value.length >= 7) value = value.replace(/^(\d{2})\.(\d{3})(\d)/, "$1.$2.$3");
-  if (value.length >= 11) value = value.replace(/^(\d{2})\.(\d{3})\.(\d{3})(\d)/, "$1.$2.$3/$4");
-  if (value.length >= 15) value = value.replace(/^(\d{2})\.(\d{3})\.(\d{3})\/(\d{4})(\d)/, "$1.$2.$3/$4-$5");
+  if (value.length >= 7)
+    value = value.replace(/^(\d{2})\.(\d{3})(\d)/, "$1.$2.$3");
+  if (value.length >= 11)
+    value = value.replace(/^(\d{2})\.(\d{3})\.(\d{3})(\d)/, "$1.$2.$3/$4");
+  if (value.length >= 15)
+    value = value.replace(
+      /^(\d{2})\.(\d{3})\.(\d{3})\/(\d{4})(\d)/,
+      "$1.$2.$3/$4-$5"
+    );
 
   return value;
 }
@@ -738,7 +768,6 @@ function onCnpjBlur(e) {
     input.focus();
   }
 }
-
 
 /* =======================
    FORM OFERTA (CRUD)
@@ -775,6 +804,8 @@ function initForm() {
     const oferta = document.getElementById("oferta");
     const nome_projeto = document.getElementById("nome_projeto");
     const representadaSelect = document.getElementById("representada");
+    const unidadeEl = document.getElementById("unidade"); // ou unidade_mantex se esse for seu id
+    const unidade = unidadeEl?.value || "";
     const valor_total = document.getElementById("valor_total");
     const oportunidade = document.getElementById("oportunidade");
     const data_entrada = document.getElementById("data_entrada");
@@ -818,7 +849,9 @@ function initForm() {
       nome_projeto: nome_projeto.value,
       representadaId: representadaSelect.value || null,
       representadaNome:
-        representadaSelect.options[representadaSelect.selectedIndex]?.text || "",
+        representadaSelect.options[representadaSelect.selectedIndex]?.text ||
+        "",
+      unidade: unidade,
       valor_total: valor_total.value,
       oportunidade: oportunidade.value,
       data_entrada: data_entrada.value,
@@ -842,7 +875,9 @@ function initForm() {
 
       const data_nf = document.getElementById("data_nf");
       const valor_nf = document.getElementById("valor_nf");
-      const prazo_entrega_contratual = document.getElementById("prazo_entrega_contratual");
+      const prazo_entrega_contratual = document.getElementById(
+        "prazo_entrega_contratual"
+      );
 
       const solicitacao_oc =
         document.querySelector("input[name='sol_oc']:checked")?.value || "nao";
@@ -936,7 +971,6 @@ function initForm() {
   });
 }
 
-
 /* =======================
    FILTROS / PAGINAÇÃO OFERTAS
 ======================= */
@@ -962,11 +996,26 @@ function initFiltrosEPaginacao() {
     });
   }
 
-  searchTerm?.addEventListener("input", () => ((currentPage = 1), renderTabela()));
-  filterField?.addEventListener("change", () => ((currentPage = 1), renderTabela()));
-  statusFilter?.addEventListener("input", () => ((currentPage = 1), renderTabela()));
-  pedidoFilter?.addEventListener("change", () => ((currentPage = 1), renderTabela()));
-  revisaoFilter?.addEventListener("change", () => ((currentPage = 1), renderTabela()));
+  searchTerm?.addEventListener(
+    "input",
+    () => ((currentPage = 1), renderTabela())
+  );
+  filterField?.addEventListener(
+    "change",
+    () => ((currentPage = 1), renderTabela())
+  );
+  statusFilter?.addEventListener(
+    "input",
+    () => ((currentPage = 1), renderTabela())
+  );
+  pedidoFilter?.addEventListener(
+    "change",
+    () => ((currentPage = 1), renderTabela())
+  );
+  revisaoFilter?.addEventListener(
+    "change",
+    () => ((currentPage = 1), renderTabela())
+  );
 
   if (btnVerTudo) {
     btnVerTudo.addEventListener("click", () => {
@@ -1001,55 +1050,100 @@ function initFiltrosEPaginacao() {
 }
 
 function getRegistrosFiltrados() {
-  const term = (document.getElementById("searchTerm")?.value || "").trim().toLowerCase();
+  const term = (document.getElementById("searchTerm")?.value || "")
+    .trim()
+    .toLowerCase();
   const field = document.getElementById("filterField")?.value || "todos";
-  const statusFilter = (document.getElementById("statusFilter")?.value || "").trim().toLowerCase();
-  const pedidoFilter = document.getElementById("pedidoFilter")?.value || "todos";
-  const revisaoFilter = document.getElementById("revisaoFilter")?.value || "todos";
+  const statusFilter = (document.getElementById("statusFilter")?.value || "")
+    .trim()
+    .toLowerCase();
+  const pedidoFilter =
+    document.getElementById("pedidoFilter")?.value || "todos";
+  const revisaoFilter =
+    document.getElementById("revisaoFilter")?.value || "todos";
 
   return registros.filter((reg) => {
     if (term) {
       if (field === "todos") {
         const textos = [
-          reg.bu, reg.segmento, reg.razao, reg.cnpj_cliente, reg.nome_projeto,
-          reg.representadaNome, reg.solicitante, reg.telefone, reg.email,
-          reg.oferta, reg.valor_total, reg.oportunidade, reg.data_entrada,
-          reg.status, reg.data_envio, reg.obs_geral, reg.tipo_oferta,
+          reg.bu,
+          reg.segmento,
+          reg.razao,
+          reg.cnpj_cliente,
+          reg.nome_projeto,
+          reg.representadaNome,
+          reg.solicitante,
+          reg.telefone,
+          reg.email,
+          reg.oferta,
+          reg.valor_total,
+          reg.oportunidade,
+          reg.data_entrada,
+          reg.status,
+          reg.data_envio,
+          reg.obs_geral,
+          reg.tipo_oferta,
         ];
 
         if (reg.pedido) {
           textos.push(
-            reg.pedido.numero_pedido, reg.pedido.valor_pedido, reg.pedido.ref_projeto,
-            reg.pedido.tipo_produto, reg.pedido.obs, reg.pedido.data_nf,
-            reg.pedido.valor_nf, reg.pedido.prazo_entrega_contratual,
-            reg.pedido.solicitacao_oc, reg.pedido.ref_oc
+            reg.pedido.numero_pedido,
+            reg.pedido.valor_pedido,
+            reg.pedido.ref_projeto,
+            reg.pedido.tipo_produto,
+            reg.pedido.obs,
+            reg.pedido.data_nf,
+            reg.pedido.valor_nf,
+            reg.pedido.prazo_entrega_contratual,
+            reg.pedido.solicitacao_oc,
+            reg.pedido.ref_oc
           );
         }
-        if (reg.revisao) textos.push(reg.revisao.numero_oferta_anterior, reg.revisao.mudou);
+        if (reg.revisao)
+          textos.push(reg.revisao.numero_oferta_anterior, reg.revisao.mudou);
 
         const textoUnico = textos.filter(Boolean).join(" ").toLowerCase();
         if (!textoUnico.includes(term)) return false;
       } else {
         let valorCampo = "";
         switch (field) {
-          case "bu": valorCampo = reg.bu || ""; break;
-          case "razao": valorCampo = reg.razao || ""; break;
-          case "cnpj": valorCampo = reg.cnpj_cliente || ""; break;
-          case "projeto": valorCampo = reg.nome_projeto || ""; break;
-          case "representada": valorCampo = reg.representadaNome || ""; break;
-          case "tipo_oferta": valorCampo = reg.tipo_oferta || ""; break;
-          case "status": valorCampo = reg.status || ""; break;
-          case "usuario":
-            valorCampo = formatarNomeUsuario(reg.atualizadoPor || reg.criadoPor || "");
+          case "bu":
+            valorCampo = reg.bu || "";
             break;
-          default: valorCampo = ""; break;
+          case "razao":
+            valorCampo = reg.razao || "";
+            break;
+          case "cnpj":
+            valorCampo = reg.cnpj_cliente || "";
+            break;
+          case "projeto":
+            valorCampo = reg.nome_projeto || "";
+            break;
+          case "representada":
+            valorCampo = reg.representadaNome || "";
+            break;
+          case "tipo_oferta":
+            valorCampo = reg.tipo_oferta || "";
+            break;
+          case "status":
+            valorCampo = reg.status || "";
+            break;
+          case "usuario":
+            valorCampo = formatarNomeUsuario(
+              reg.atualizadoPor || reg.criadoPor || ""
+            );
+            break;
+          default:
+            valorCampo = "";
+            break;
         }
         if (!valorCampo.toLowerCase().includes(term)) return false;
       }
     }
 
     if (statusFilter) {
-      if (!reg.status || !reg.status.toLowerCase().includes(statusFilter)) return false;
+      if (!reg.status || !reg.status.toLowerCase().includes(statusFilter))
+        return false;
     }
 
     if (pedidoFilter === "com" && reg.possuiPedido !== "sim") return false;
@@ -1087,7 +1181,9 @@ function renderTabela() {
     tbody.appendChild(tr);
   } else {
     pageData.forEach((reg, index) => {
-      const usuario = formatarNomeUsuario(reg.atualizadoPor || reg.criadoPor || "");
+      const usuario = formatarNomeUsuario(
+        reg.atualizadoPor || reg.criadoPor || ""
+      );
       const pedidoIcon = reg.possuiPedido === "sim" ? "✅" : "—";
       const revisaoIcon = reg.possuiRevisao === "sim" ? "✅" : "—";
 
@@ -1106,8 +1202,12 @@ function renderTabela() {
         <td>${usuario}</td>
         <td>
           <button class="btn-sm" onclick="verOferta('${reg.id}')">Ver</button>
-          <button class="btn-sm" onclick="editarRegistro('${reg.id}')">Editar</button>
-          <button class="btn-sm btn-danger" onclick="excluirRegistro('${reg.id}')">Excluir</button>
+          <button class="btn-sm" onclick="editarRegistro('${
+            reg.id
+          }')">Editar</button>
+          <button class="btn-sm btn-danger" onclick="excluirRegistro('${
+            reg.id
+          }')">Excluir</button>
         </td>
       `;
       tbody.appendChild(tr);
@@ -1144,8 +1244,49 @@ function editarRegistro(id) {
   document.getElementById("oferta").value = reg.oferta || "";
   document.getElementById("nome_projeto").value = reg.nome_projeto || "";
   document.getElementById("valor_total").value = reg.valor_total || "";
-  document.getElementById("oportunidade").value = reg.oportunidade || "";
-  document.getElementById("data_entrada").value = reg.data_entrada || "";
+function initUnidadesMantex() {
+  const repEl = document.getElementById("representada");
+  
+  const wrap = document.getElementById("wrapUnidade");
+  const unidadeEl = document.getElementById("unidade"); // se for outro id, troca aqui
+
+  if (!repEl || !unidadeEl) return;
+
+  const unidades = [
+    "Mantex (matriz)",
+    "Mantex (filial)",
+    "Sierra",
+  ];
+
+  function atualizar() {
+    const repNome =
+      repEl.options[repEl.selectedIndex]?.text?.trim().toLowerCase() || "";
+
+    const isMantex = repNome.includes("mantex");
+
+    if (!isMantex) {
+      if (wrap) wrap.classList.add("hidden");
+      unidadeEl.innerHTML = `<option value="">Selecione...</option>`;
+      unidadeEl.value = "";
+      return;
+    }
+
+    if (wrap) wrap.classList.remove("hidden");
+
+    unidadeEl.innerHTML =
+      `<option value="">Selecione...</option>` +
+      unidades.map((u) => `<option value="${u}">${u}</option>`).join("");
+  }
+
+  // não duplica listener
+  if (!repEl.dataset.mantexBound) {
+    repEl.dataset.mantexBound = "1";
+    repEl.addEventListener("change", atualizar);
+  }
+
+  // render inicial
+  atualizar();
+}  document.getElementById("data_entrada").value = reg.data_entrada || "";
   document.getElementById("status").value = reg.status || "";
   document.getElementById("data_envio").value = reg.data_envio || "";
   document.getElementById("obs_geral").value = reg.obs_geral || "";
@@ -1154,21 +1295,37 @@ function editarRegistro(id) {
   if (tipoNegocio) tipoNegocio.value = reg.tipo_oferta || "";
 
   const representadaSelect = document.getElementById("representada");
-  if (representadaSelect && reg.representadaId) representadaSelect.value = reg.representadaId;
+  if (representadaSelect && reg.representadaId)
+    representadaSelect.value = reg.representadaId;
   else if (representadaSelect) representadaSelect.value = "";
 
-  document.querySelector(`input[name="pedido"][value="${reg.possuiPedido || "nao"}"]`)?.click();
-  document.querySelector(`input[name="revisao"][value="${reg.possuiRevisao || "nao"}"]`)?.click();
+// 🔥 MOSTRA o campo unidade se for Mantex e preenche a unidade salva
+initUnidadesMantex();
+const unidadeEl = document.getElementById("unidade");
+if (unidadeEl) unidadeEl.value = reg.unidade || "";
+
+  document
+    .querySelector(`input[name="pedido"][value="${reg.possuiPedido || "nao"}"]`)
+    ?.click();
+  document
+    .querySelector(
+      `input[name="revisao"][value="${reg.possuiRevisao || "nao"}"]`
+    )
+    ?.click();
 
   // pedido
   if (reg.possuiPedido === "sim" && reg.pedido) {
     document.getElementById("secaoPedido").classList.remove("hidden");
-    document.getElementById("numero_pedido").value = reg.pedido.numero_pedido || "";
+    document.getElementById("numero_pedido").value =
+      reg.pedido.numero_pedido || "";
     document.getElementById("data_po").value = reg.pedido.data_po || "";
-    document.getElementById("valor_pedido").value = reg.pedido.valor_pedido || "";
-    document.getElementById("cond_pagamento").value = reg.pedido.cond_pagamento || "";
+    document.getElementById("valor_pedido").value =
+      reg.pedido.valor_pedido || "";
+    document.getElementById("cond_pagamento").value =
+      reg.pedido.cond_pagamento || "";
     document.getElementById("ref_projeto").value = reg.pedido.ref_projeto || "";
-    document.getElementById("tipo_produto").value = reg.pedido.tipo_produto || "";
+    document.getElementById("tipo_produto").value =
+      reg.pedido.tipo_produto || "";
     document.getElementById("obs").value = reg.pedido.obs || "";
 
     document.getElementById("data_nf").value = reg.pedido.data_nf || "";
@@ -1177,7 +1334,11 @@ function editarRegistro(id) {
       reg.pedido.prazo_entrega_contratual || "";
     document.getElementById("ref_oc").value = reg.pedido.ref_oc || "";
 
-    document.querySelector(`input[name="sol_oc"][value="${reg.pedido.solicitacao_oc || "nao"}"]`)?.click();
+    document
+      .querySelector(
+        `input[name="sol_oc"][value="${reg.pedido.solicitacao_oc || "nao"}"]`
+      )
+      ?.click();
   } else {
     document.getElementById("secaoPedido").classList.add("hidden");
   }
@@ -1210,7 +1371,6 @@ async function excluirRegistro(id) {
   salvarRegistros();
   renderTabela();
 }
-
 
 /* =======================
    EXPORT
@@ -1369,7 +1529,6 @@ function exportPdf() {
   win.print();
 }
 
-
 /* =======================
    BACKUP UI
 ======================= */
@@ -1379,13 +1538,17 @@ function initBackupUI() {
   const inputBackupFile = document.getElementById("inputBackupFile");
 
   btnBackupExport?.addEventListener("click", () => {
-    const tipo = (prompt("Exportar backup em qual formato? Digite 'json' ou 'excel':") || "")
+    const tipo = (
+      prompt("Exportar backup em qual formato? Digite 'json' ou 'excel':") || ""
+    )
       .trim()
       .toLowerCase();
 
     if (tipo === "json") {
       const data = { registros, clientes, representadas };
-      const blob = new Blob([JSON.stringify(data, null, 2)], { type: "application/json" });
+      const blob = new Blob([JSON.stringify(data, null, 2)], {
+        type: "application/json",
+      });
       const url = URL.createObjectURL(blob);
       const a = document.createElement("a");
       a.href = url;
@@ -1403,7 +1566,10 @@ function initBackupUI() {
 
   if (btnBackupImport && inputBackupFile) {
     btnBackupImport.addEventListener("click", () => {
-      const tipo = (prompt("Importar backup de qual formato? Digite 'json' ou 'excel':") || "")
+      const tipo = (
+        prompt("Importar backup de qual formato? Digite 'json' ou 'excel':") ||
+        ""
+      )
         .trim()
         .toLowerCase();
 
@@ -1470,7 +1636,9 @@ function exportBackupExcel() {
     AtualizadoPor: c.atualizadoPor || "",
   }));
   const wsClientes = XLSX.utils.json_to_sheet(
-    clientesSheetData.length ? clientesSheetData : [{ Mensagem: "Sem clientes" }]
+    clientesSheetData.length
+      ? clientesSheetData
+      : [{ Mensagem: "Sem clientes" }]
   );
   XLSX.utils.book_append_sheet(wb, wsClientes, "Clientes");
 
@@ -1491,7 +1659,9 @@ function exportBackupExcel() {
     });
   });
   const wsContatos = XLSX.utils.json_to_sheet(
-    contatosSheetData.length ? contatosSheetData : [{ Mensagem: "Sem contatos" }]
+    contatosSheetData.length
+      ? contatosSheetData
+      : [{ Mensagem: "Sem contatos" }]
   );
   XLSX.utils.book_append_sheet(wb, wsContatos, "Contatos");
 
@@ -1501,7 +1671,9 @@ function exportBackupExcel() {
     CriadoPor: r.criadoPor || "",
     AtualizadoPor: r.atualizadoPor || "",
   }));
-  const wsRep = XLSX.utils.json_to_sheet(repsData.length ? repsData : [{ Mensagem: "Sem representadas" }]);
+  const wsRep = XLSX.utils.json_to_sheet(
+    repsData.length ? repsData : [{ Mensagem: "Sem representadas" }]
+  );
   XLSX.utils.book_append_sheet(wb, wsRep, "Representadas");
 
   const ofertasData = registros.map((r) => ({
@@ -1545,7 +1717,9 @@ function exportBackupExcel() {
     AtualizadoPor: r.atualizadoPor || "",
   }));
 
-  const wsOfertas = XLSX.utils.json_to_sheet(ofertasData.length ? ofertasData : [{ Mensagem: "Sem ofertas" }]);
+  const wsOfertas = XLSX.utils.json_to_sheet(
+    ofertasData.length ? ofertasData : [{ Mensagem: "Sem ofertas" }]
+  );
   XLSX.utils.book_append_sheet(wb, wsOfertas, "Ofertas");
 
   XLSX.writeFile(wb, "backup_crm.xlsx");
@@ -1604,7 +1778,9 @@ function importBackupExcel(file) {
           if (cid) cliente = clientes.find((c) => c.id == cid);
           if (!cliente && cnpj) {
             const clean = cnpj.replace(/\D/g, "");
-            cliente = clientes.find((c) => (c.cnpj || "").replace(/\D/g, "") === clean);
+            cliente = clientes.find(
+              (c) => (c.cnpj || "").replace(/\D/g, "") === clean
+            );
           }
           if (!cliente) return;
 
@@ -1628,9 +1804,17 @@ function importBackupExcel(file) {
           .filter((row) => row.NumeroOferta || row.RazaoSocial)
           .map((row) => {
             const pedidoExiste =
-              row.NumeroPedido || row.ValorPedido || row.RefProjetoPedido || row.TipoProduto ||
-              row.CondicaoPagamento || row.ObsPedido || row.DataNF || row.ValorNF ||
-              row.PrazoEntregaContratual || row.SolicitacaoOC || row.RefOC;
+              row.NumeroPedido ||
+              row.ValorPedido ||
+              row.RefProjetoPedido ||
+              row.TipoProduto ||
+              row.CondicaoPagamento ||
+              row.ObsPedido ||
+              row.DataNF ||
+              row.ValorNF ||
+              row.PrazoEntregaContratual ||
+              row.SolicitacaoOC ||
+              row.RefOC;
 
             const pedido = pedidoExiste
               ? {
@@ -1644,18 +1828,30 @@ function importBackupExcel(file) {
                   data_nf: row.DataNF || "",
                   valor_nf: row.ValorNF || "",
                   prazo_entrega_contratual: row.PrazoEntregaContratual || "",
-                  solicitacao_oc: (row.SolicitacaoOC || "").toString().toLowerCase() || "",
+                  solicitacao_oc:
+                    (row.SolicitacaoOC || "").toString().toLowerCase() || "",
                   ref_oc: row.RefOC || "",
                 }
               : null;
 
-            const possuiRevisao = (row.PossuiRevisao || "nao").toString().toLowerCase();
+            const possuiRevisao = (row.PossuiRevisao || "nao")
+              .toString()
+              .toLowerCase();
             const revisao =
-              possuiRevisao === "sim" || row.RevisaoOfertaAnterior || row.RevisaoMudou
-                ? { numero_oferta_anterior: row.RevisaoOfertaAnterior || "", mudou: row.RevisaoMudou || "" }
+              possuiRevisao === "sim" ||
+              row.RevisaoOfertaAnterior ||
+              row.RevisaoMudou
+                ? {
+                    numero_oferta_anterior: row.RevisaoOfertaAnterior || "",
+                    mudou: row.RevisaoMudou || "",
+                  }
                 : null;
 
-            const possuiPedido = (row.PossuiPedido || (pedidoExiste ? "sim" : "nao")).toString().toLowerCase();
+            const possuiPedido = (
+              row.PossuiPedido || (pedidoExiste ? "sim" : "nao")
+            )
+              .toString()
+              .toLowerCase();
 
             return {
               id: row.ID || gerarId(),
@@ -1706,7 +1902,6 @@ function importBackupExcel(file) {
   reader.readAsArrayBuffer(file);
 }
 
-
 /* =======================
    CLIENTES (CRUD)
 ======================= */
@@ -1722,9 +1917,9 @@ function initClientesUI() {
     const funcao = document.getElementById("ct_funcao").value.trim();
     const principalChecked = document.getElementById("ct_principal").checked;
 
-const selResp = document.getElementById("ct_responsavel");
-const responsavelNome = selResp ? selResp.value : "";
-const responsavelId = responsavelNome; // mantém campo sem quebrar seu modelo
+    const selResp = document.getElementById("ct_responsavel");
+    const responsavelNome = selResp ? selResp.value : "";
+    const responsavelId = responsavelNome; // mantém campo sem quebrar seu modelo
 
     if (!nome) {
       alert("Informe pelo menos o nome do contato.");
@@ -1854,7 +2049,10 @@ const responsavelId = responsavelNome; // mantém campo sem quebrar seu modelo
   });
 
   document.getElementById("btnNextClientes")?.addEventListener("click", () => {
-    const totalPages = Math.max(1, Math.ceil(clientes.length / clientesPageSize));
+    const totalPages = Math.max(
+      1,
+      Math.ceil(clientes.length / clientesPageSize)
+    );
     if (clientesCurrentPage < totalPages) {
       clientesCurrentPage++;
       renderTabelaClientes();
@@ -1882,7 +2080,13 @@ function renderListaContatos() {
       ${ct.funcao || ""}
       <br>
       Tel: ${ct.telefone || ""} • E-mail: ${ct.email || ""}
-      ${ct.responsavelNome ? `<br><strong>Responsável:</strong> ${primeiroNome(ct.responsavelNome)}` : ""}
+      ${
+        ct.responsavelNome
+          ? `<br><strong>Responsável:</strong> ${primeiroNome(
+              ct.responsavelNome
+            )}`
+          : ""
+      }
       <br>
       <button class="btn-sm" onclick="editarContato(${index})">Editar</button>
       <button class="btn-sm btn-danger" onclick="excluirContato(${index})">Excluir</button>
@@ -1940,7 +2144,9 @@ function renderTabelaClientes() {
     pageData.forEach((cli) => {
       const tr = document.createElement("tr");
       const qtdContatos = cli.contatos ? cli.contatos.length : 0;
-      const usuario = formatarNomeUsuario(cli.atualizadoPor || cli.criadoPor || "-");
+      const usuario = formatarNomeUsuario(
+        cli.atualizadoPor || cli.criadoPor || "-"
+      );
 
       tr.innerHTML = `
         <td>${cli.razao || ""}</td>
@@ -1950,9 +2156,15 @@ function renderTabelaClientes() {
         <td>${usuario}</td>
         <td>
           <button class="btn-sm" onclick="verCliente('${cli.id}')">Ver</button>
-          <button class="btn-sm" onclick="abrirPainelCliente('${cli.id}')">Contatos</button>
-          <button class="btn-sm" onclick="editarCliente('${cli.id}')">Editar</button>
-          <button class="btn-sm btn-danger" onclick="excluirCliente('${cli.id}')">Excluir</button>
+          <button class="btn-sm" onclick="abrirPainelCliente('${
+            cli.id
+          }')">Contatos</button>
+          <button class="btn-sm" onclick="editarCliente('${
+            cli.id
+          }')">Editar</button>
+          <button class="btn-sm btn-danger" onclick="excluirCliente('${
+            cli.id
+          }')">Excluir</button>
         </td>
       `;
       tbody.appendChild(tr);
@@ -2002,7 +2214,6 @@ async function excluirCliente(id) {
   renderTabelaClientes();
 }
 
-
 /* =======================
    PAINEL CLIENTE
 ======================= */
@@ -2013,8 +2224,10 @@ function abrirPainelCliente(id) {
   const painel = document.getElementById("painelCliente");
   document.getElementById("painelClienteNome").textContent = cli.razao || "";
   document.getElementById("painelClienteCnpj").textContent = cli.cnpj || "";
-  document.getElementById("painelClienteSegmento").textContent = cli.segmento || "";
-  document.getElementById("painelClienteEndereco").textContent = cli.endereco || "";
+  document.getElementById("painelClienteSegmento").textContent =
+    cli.segmento || "";
+  document.getElementById("painelClienteEndereco").textContent =
+    cli.endereco || "";
 
   const divContatos = document.getElementById("painelClienteContatos");
   divContatos.innerHTML = "";
@@ -2029,7 +2242,13 @@ function abrirPainelCliente(id) {
       ${ct.funcao || ""}
       <br>
       Tel: ${ct.telefone || ""} • E-mail: ${ct.email || ""}
-      ${ct.responsavelNome ? `<br><strong>Responsável:</strong> ${primeiroNome(ct.responsavelNome)}` : ""}
+      ${
+        ct.responsavelNome
+          ? `<br><strong>Responsável:</strong> ${primeiroNome(
+              ct.responsavelNome
+            )}`
+          : ""
+      }
       <hr>
     `;
     divContatos.appendChild(div);
@@ -2042,7 +2261,6 @@ function fecharPainelCliente() {
   const painel = document.getElementById("painelCliente");
   if (painel) painel.classList.add("hidden");
 }
-
 
 /* =======================
    LIGAÇÃO CLIENTE -> OFERTA
@@ -2070,7 +2288,6 @@ function initLigacaoClienteOferta() {
   });
 }
 
-
 /* =======================
    REPRESENTADAS (CRUD)
 ======================= */
@@ -2089,7 +2306,12 @@ function initRepresentadasUI() {
 
     if (!editRepresentadaId) {
       const id = gerarId();
-      const rep = { id, nome, criadoPor: currentUser, atualizadoPor: currentUser };
+      const rep = {
+        id,
+        nome,
+        criadoPor: currentUser,
+        atualizadoPor: currentUser,
+      };
       await db.collection("representadas").doc(id).set(rep);
       representadas.push(rep);
       alert("Representada salva!");
@@ -2108,7 +2330,8 @@ function initRepresentadasUI() {
       }
 
       registros.forEach((reg) => {
-        if (reg.representadaId === editRepresentadaId) reg.representadaNome = nome;
+        if (reg.representadaId === editRepresentadaId)
+          reg.representadaNome = nome;
       });
       salvarRegistros();
 
@@ -2130,7 +2353,9 @@ function renderTabelaRepresentadas() {
 
   tbody.innerHTML = "";
   representadas.forEach((rep) => {
-    const usuario = formatarNomeUsuario(rep.atualizadoPor || rep.criadoPor || "");
+    const usuario = formatarNomeUsuario(
+      rep.atualizadoPor || rep.criadoPor || ""
+    );
     const tr = document.createElement("tr");
     tr.innerHTML = `
       <td>${rep.nome}</td>
@@ -2168,7 +2393,9 @@ function editarRepresentada(id) {
   const btn = document.getElementById("btnSalvarRepresentada");
   if (btn) btn.textContent = "Salvar Edição";
 
-  document.getElementById("secRepresentadas").scrollIntoView({ behavior: "smooth" });
+  document
+    .getElementById("secRepresentadas")
+    .scrollIntoView({ behavior: "smooth" });
 }
 
 async function excluirRepresentada(id) {
@@ -2196,7 +2423,6 @@ async function excluirRepresentada(id) {
   renderTabelaRepresentadas();
   preencherSelectRepresentadas();
 }
-
 
 /* =======================
    VIEWS: verOferta / verCliente / verRepresentada
@@ -2230,6 +2456,11 @@ function verOferta(id) {
         <div class="modal-card-title">Projeto & Representada</div>
         <div class="modal-section"><strong>Projeto:</strong> ${reg.nome_projeto || "-"}</div>
         <div class="modal-section"><strong>Representada:</strong> ${reg.representadaNome || "-"}</div>
+         ${
+    (String(reg.representadaNome || "").toLowerCase().includes("mantex") && reg.unidade)
+      ? `<div class="modal-section"><strong>Unidade:</strong> ${reg.unidade}</div>`
+      : ""
+  }
       </div>
     </div>
 
@@ -2302,7 +2533,9 @@ function verCliente(id) {
   const cli = clientes.find((c) => c.id === id);
   if (!cli) return;
 
-  const usuario = formatarNomeUsuario(cli.atualizadoPor || cli.criadoPor || "-");
+  const usuario = formatarNomeUsuario(
+    cli.atualizadoPor || cli.criadoPor || "-"
+  );
 
   let html = `
     <div class="modal-section">
@@ -2325,7 +2558,13 @@ function verCliente(id) {
           Função: ${ct.funcao || "-"}<br>
           Tel: ${ct.telefone || "-"}<br>
           E-mail: ${ct.email || "-"}
-          ${ct.responsavelNome ? `<br><strong>Responsável:</strong> ${primeiroNome(ct.responsavelNome)}` : ""}
+          ${
+            ct.responsavelNome
+              ? `<br><strong>Responsável:</strong> ${primeiroNome(
+                  ct.responsavelNome
+                )}`
+              : ""
+          }
         </div>
       `;
     });
@@ -2342,11 +2581,15 @@ function verRepresentada(id) {
   const rep = representadas.find((r) => r.id === id);
   if (!rep) return;
 
-  const usuario = formatarNomeUsuario(rep.atualizadoPor || rep.criadoPor || "-");
+  const usuario = formatarNomeUsuario(
+    rep.atualizadoPor || rep.criadoPor || "-"
+  );
   const qtdOfertas = registros.filter((r) => r.representadaId === id).length;
 
   const html = `
-    <div class="modal-section"><strong>Nome da Representada:</strong> ${rep.nome || "-"}</div>
+    <div class="modal-section"><strong>Nome da Representada:</strong> ${
+      rep.nome || "-"
+    }</div>
     <div class="modal-section"><strong>Ofertas vinculadas:</strong> ${qtdOfertas}</div>
     <hr>
     <div class="modal-section"><strong>Usuário:</strong> ${usuario}</div>
@@ -2355,16 +2598,18 @@ function verRepresentada(id) {
   abrirModal(`Representada - ${rep.nome || ""}`, html);
 }
 
-
 /* =======================
    AUTOCOMPLETE CNPJ (simples)
 ======================= */
 function formatCnpjMask(digits) {
-  const v = String(digits || "").replace(/\D/g, "").slice(0, 14);
+  const v = String(digits || "")
+    .replace(/\D/g, "")
+    .slice(0, 14);
   if (v.length <= 2) return v;
   if (v.length <= 5) return v.replace(/^(\d{2})(\d+)/, "$1.$2");
   if (v.length <= 8) return v.replace(/^(\d{2})(\d{3})(\d+)/, "$1.$2.$3");
-  if (v.length <= 12) return v.replace(/^(\d{2})(\d{3})(\d{3})(\d+)/, "$1.$2.$3/$4");
+  if (v.length <= 12)
+    return v.replace(/^(\d{2})(\d{3})(\d{3})(\d+)/, "$1.$2.$3/$4");
   return v.replace(/^(\d{2})(\d{3})(\d{3})(\d{4})(\d{2}).*/, "$1.$2.$3/$4-$5");
 }
 
@@ -2436,7 +2681,6 @@ function initAutoCompleteCnpjSimples() {
   });
 }
 
-
 /* =======================
    BU -> SEGMENTO
 ======================= */
@@ -2450,7 +2694,18 @@ function initBuSegmento() {
   const SEGMENTOS_POR_BU = {
     "T&I": [],
     OGP: ["On Shore", "Off Shore", "DW"],
-    OEM: ["infra", "Renew (PV)", "Renew (Wind)", "Mining", "Cranes", "Marine", "Rolling Stock", "Raiways", "Water", "Nuclear"],
+    OEM: [
+      "infra",
+      "Renew (PV)",
+      "Renew (Wind)",
+      "Mining",
+      "Cranes",
+      "Marine",
+      "Rolling Stock",
+      "Raiways",
+      "Water",
+      "Nuclear",
+    ],
     "High Voltage": [],
     OHTZ: [],
     Telecom: [],
@@ -2484,7 +2739,6 @@ function initBuSegmento() {
   renderSegmentos(buEl.value);
 }
 
-
 /* =======================
    SENHA FORTE (LOGIN)
 ======================= */
@@ -2500,7 +2754,6 @@ function senhaForteLogin(s) {
 function msgSenhaForteLogin() {
   return "Senha fraca. Para acessar, você precisa trocar a senha.\n\nRegras: mínimo 8 caracteres, 1 letra MAIÚSCULA, 1 número e 1 símbolo.";
 }
-
 
 /* =======================
    UTIL / STORAGE / USERS
@@ -2534,17 +2787,25 @@ function salvarRepresentadas() {
 
 function irPara(tela) {
   if (tela === "cadastro")
-    document.getElementById("secCadastro")?.scrollIntoView({ behavior: "smooth" });
+    document
+      .getElementById("secCadastro")
+      ?.scrollIntoView({ behavior: "smooth" });
   if (tela === "registros")
-    document.getElementById("secRegistros")?.scrollIntoView({ behavior: "smooth" });
+    document
+      .getElementById("secRegistros")
+      ?.scrollIntoView({ behavior: "smooth" });
   if (tela === "clientes")
-    document.getElementById("secClientes")?.scrollIntoView({ behavior: "smooth" });
+    document
+      .getElementById("secClientes")
+      ?.scrollIntoView({ behavior: "smooth" });
   if (tela === "representadas")
-    document.getElementById("secRepresentadas")?.scrollIntoView({ behavior: "smooth" });
+    document
+      .getElementById("secRepresentadas")
+      ?.scrollIntoView({ behavior: "smooth" });
   if (tela === "aprovacao")
-  document.getElementById("secAprovacaoUsuarios")
-    .scrollIntoView({ behavior: "smooth" });
-
+    document
+      .getElementById("secAprovacaoUsuarios")
+      .scrollIntoView({ behavior: "smooth" });
 }
 
 function preencherSelectResponsaveisContato() {
@@ -2555,12 +2816,11 @@ function preencherSelectResponsaveisContato() {
 
   RESPONSAVEIS_FIXOS.forEach((nome) => {
     const opt = document.createElement("option");
-    opt.value = nome;      // valor real
+    opt.value = nome; // valor real
     opt.textContent = nome; // texto visível
     select.appendChild(opt);
   });
 }
-
 
 function formatarNomeUsuario(valor) {
   if (!valor) return "-";
@@ -2588,7 +2848,9 @@ function atualizarSugestoesCnpj() {
     .filter(Boolean);
 
   const unicos = Array.from(new Set(lista));
-  dl.innerHTML = unicos.map((cnpj) => `<option value="${cnpj}"></option>`).join("");
+  dl.innerHTML = unicos
+    .map((cnpj) => `<option value="${cnpj}"></option>`)
+    .join("");
 }
 function initAuthTabs() {
   const tabLogin = document.getElementById("tabLogin");
@@ -2620,7 +2882,9 @@ function initForgotPassword() {
   if (!btn) return;
 
   btn.addEventListener("click", async () => {
-    const email = String(prompt("Digite seu e-mail para enviar o link de troca de senha:") || "").trim();
+    const email = String(
+      prompt("Digite seu e-mail para enviar o link de troca de senha:") || ""
+    ).trim();
 
     if (!email) return;
 
@@ -2630,18 +2894,21 @@ function initForgotPassword() {
 
       await auth.sendPasswordResetEmail(email);
 
-      setLoginMsg("✅ Enviamos um e-mail para você trocar a senha (verifique spam/promoções).");
+      setLoginMsg(
+        "✅ Enviamos um e-mail para você trocar a senha (verifique spam/promoções)."
+      );
       alert("E-mail de redefinição enviado!");
     } catch (e) {
       console.error(e);
-      setLoginMsg("❌ Não consegui enviar. Verifique se o e-mail está correto.");
+      setLoginMsg(
+        "❌ Não consegui enviar. Verifique se o e-mail está correto."
+      );
       alert("Erro ao enviar e-mail: " + (e?.message || e));
     } finally {
       btn.disabled = false;
     }
   });
 }
-
 
 function initResendEmailVerification() {
   const btn = document.getElementById("btnResendVerify");
@@ -2662,7 +2929,9 @@ function initResendEmailVerification() {
       setLoginMsg("Enviando e-mail de verificação...");
 
       // Faz login “silencioso” só para conseguir enviar a verificação
-      const pass = String(document.getElementById("loginPass")?.value || "").trim();
+      const pass = String(
+        document.getElementById("loginPass")?.value || ""
+      ).trim();
       if (!pass) {
         setLoginMsg("Digite sua senha também (para reenviar a verificação).");
         alert("Digite sua senha para reenviar a verificação.");
@@ -2685,8 +2954,12 @@ function initResendEmailVerification() {
 
       await cred.user.sendEmailVerification(actionCodeSettings);
 
-      setLoginMsg("✅ E-mail de verificação reenviado! Verifique Caixa de entrada/Spam.");
-      alert("E-mail de verificação reenviado! Verifique Caixa de entrada/Spam.");
+      setLoginMsg(
+        "✅ E-mail de verificação reenviado! Verifique Caixa de entrada/Spam."
+      );
+      alert(
+        "E-mail de verificação reenviado! Verifique Caixa de entrada/Spam."
+      );
 
       // Opcional: desloga pra voltar ao fluxo normal
       await auth.signOut();
@@ -2726,7 +2999,9 @@ function initSignup() {
       .trim()
       .toLowerCase();
 
-    const pass = String(document.getElementById("signupPass")?.value || "").trim();
+    const pass = String(
+      document.getElementById("signupPass")?.value || ""
+    ).trim();
 
     setSignupMsg("");
 
@@ -2749,42 +3024,53 @@ function initSignup() {
       const cred = await auth.createUserWithEmailAndPassword(email, pass);
 
       // cria doc no Firestore como pendente
-      await db.collection("usuarios").doc(cred.user.uid).set(
-        {
-          uid: cred.user.uid,
-          email: cred.user.email,
-          nome: primeiroNome(cred.user.email),
-          aprovado: false,
-          ativo: true,
-          criadoEm: new Date().toISOString(),
-          atualizadoEm: new Date().toISOString(),
-        },
-        { merge: true }
-      );
+      await db
+        .collection("usuarios")
+        .doc(cred.user.uid)
+        .set(
+          {
+            uid: cred.user.uid,
+            email: cred.user.email,
+            nome: primeiroNome(cred.user.email),
+            aprovado: false,
+            ativo: true,
+            criadoEm: new Date().toISOString(),
+            atualizadoEm: new Date().toISOString(),
+          },
+          { merge: true }
+        );
 
-// envia e-mail de verificação (com URL certa)
-try {
-  const actionCodeSettings = {
-    url: window.location.origin, // ou coloque sua URL do GitHub Pages
-    handleCodeInApp: false,
-  };
+      // envia e-mail de verificação (com URL certa)
+      try {
+        const actionCodeSettings = {
+          url: window.location.origin, // ou coloque sua URL do GitHub Pages
+          handleCodeInApp: false,
+        };
 
-  await cred.user.sendEmailVerification(actionCodeSettings);
+        await cred.user.sendEmailVerification(actionCodeSettings);
 
-  setSignupMsg("✅ Conta criada! Enviamos um e-mail para verificação. Depois, aguarde aprovação.");
-  alert("Conta criada! Enviamos um e-mail para verificação. Verifique a caixa de entrada e SPAM.");
-} catch (errMail) {
-  console.error("Falha ao enviar email de verificação:", errMail);
-  setSignupMsg("✅ Conta criada! (Não consegui enviar o e-mail agora). Use 'Reenviar verificação' no login.");
-  alert("Conta criada, mas não consegui enviar o e-mail agora. Tente reenviar no login.");
-}
+        setSignupMsg(
+          "✅ Conta criada! Enviamos um e-mail para verificação. Depois, aguarde aprovação."
+        );
+        alert(
+          "Conta criada! Enviamos um e-mail para verificação. Verifique a caixa de entrada e SPAM."
+        );
+      } catch (errMail) {
+        console.error("Falha ao enviar email de verificação:", errMail);
+        setSignupMsg(
+          "✅ Conta criada! (Não consegui enviar o e-mail agora). Use 'Reenviar verificação' no login."
+        );
+        alert(
+          "Conta criada, mas não consegui enviar o e-mail agora. Tente reenviar no login."
+        );
+      }
 
       // sempre desloga para impedir entrar sem verificação/aprovação
       await auth.signOut();
       mostrarLogin();
     } catch (e) {
-  console.error("ERRO SIGNUP:", e?.code, e?.message, e);
-  alert("ERRO SIGNUP: " + (e?.code || "") + " - " + (e?.message || e));
+      console.error("ERRO SIGNUP:", e?.code, e?.message, e);
+      alert("ERRO SIGNUP: " + (e?.code || "") + " - " + (e?.message || e));
 
       const msg =
         e?.code === "auth/email-already-in-use"
@@ -2830,39 +3116,39 @@ async function carregarUsuariosPendentes() {
   try {
     console.log("Carregando usuários pendentes...");
     const snap = await db.collection("usuarios").get();
-    const all = snap.docs.map(d => ({ id: d.id, ...d.data() }));
+    const all = snap.docs.map((d) => ({ id: d.id, ...d.data() }));
     console.log("Total usuarios no Firestore:", all.length, all);
 
+    console.table(
+      all.map((u) => ({
+        id: u.id,
+        uid: u.uid,
+        email: u.email,
+        aprovado: u.aprovado,
+        ativo: u.ativo,
+        criadoEm: u.criadoEm,
+      }))
+    );
 
-console.table(all.map(u => ({
-  id: u.id,
-  uid: u.uid,
-  email: u.email,
-  aprovado: u.aprovado,
-  ativo: u.ativo,
-  criadoEm: u.criadoEm
-})));
+    const pendentes = all
 
+      .filter((u) => {
+        const temUid = !!u.uid; // doc de usuário real
+        const aprovado = u.aprovado;
 
-const pendentes = all
+        const naoAprovado =
+          aprovado === false ||
+          aprovado === "false" ||
+          aprovado === 0 ||
+          aprovado === undefined ||
+          aprovado === null;
 
-  .filter(u => {
-    const temUid = !!u.uid;                 // doc de usuário real
-    const aprovado = u.aprovado;
+        const ativo = u.ativo === undefined ? true : !!u.ativo;
 
-    const naoAprovado =
-      aprovado === false ||
-      aprovado === "false" ||
-      aprovado === 0 ||
-      aprovado === undefined ||
-      aprovado === null;
+        return temUid && naoAprovado && ativo;
+      })
 
-    const ativo = (u.ativo === undefined) ? true : !!u.ativo;
-
-    return temUid && naoAprovado && ativo;
-  })
-  
-  .sort((a,b) => (b.criadoEm || "").localeCompare(a.criadoEm || ""));
+      .sort((a, b) => (b.criadoEm || "").localeCompare(a.criadoEm || ""));
 
     console.log("Pendentes:", pendentes.length, pendentes);
 
@@ -2872,7 +3158,7 @@ const pendentes = all
     }
 
     tbody.innerHTML = "";
-    pendentes.forEach(u => {
+    pendentes.forEach((u) => {
       const tr = document.createElement("tr");
       tr.innerHTML = `
         <td>${u.nome || "-"}</td>
@@ -2880,13 +3166,16 @@ const pendentes = all
         <td>${u.ativo === false ? "Inativo" : "Pendente"}</td>
         <td>${u.criadoEm || u.atualizadoEm || "-"}</td>
         <td>
-          <button class="btn-sm" type="button" onclick="aprovarUsuario('${u.id}')">Aprovar</button>
-          <button class="btn-sm btn-danger" type="button" onclick="bloquearUsuario('${u.id}')">Bloquear</button>
+          <button class="btn-sm" type="button" onclick="aprovarUsuario('${
+            u.id
+          }')">Aprovar</button>
+          <button class="btn-sm btn-danger" type="button" onclick="bloquearUsuario('${
+            u.id
+          }')">Bloquear</button>
         </td>
       `;
       tbody.appendChild(tr);
     });
-
   } catch (e) {
     console.error("ERRO carregarUsuariosPendentes:", e);
     alert("ERRO ao carregar usuários: " + (e?.message || e));
@@ -2899,7 +3188,9 @@ function initUsuariosExistentesUI() {
   const search = document.getElementById("searchUsuariosExistentes");
 
   btn?.addEventListener("click", carregarUsuariosExistentes);
-  search?.addEventListener("input", () => carregarUsuariosExistentes(search.value));
+  search?.addEventListener("input", () =>
+    carregarUsuariosExistentes(search.value)
+  );
 
   // quando for admin e entrar na tela, já carrega
   auth.onAuthStateChanged((user) => {
@@ -2917,29 +3208,40 @@ async function carregarUsuariosExistentes(filtroTexto = "") {
 
   try {
     const snap = await db.collection("usuarios").get();
-    const all = snap.docs.map(d => ({ id: d.id, ...d.data() }));
+    const all = snap.docs.map((d) => ({ id: d.id, ...d.data() }));
 
     // existentes = aprovados true (e opcionalmente também os que não têm aprovado definido mas já existem)
     let existentes = all
-      .filter(u => !!u.uid && (u.aprovado === true || u.aprovado === "true" || u.aprovado === 1))
-      .map(u => ({
+      .filter(
+        (u) =>
+          !!u.uid &&
+          (u.aprovado === true || u.aprovado === "true" || u.aprovado === 1)
+      )
+      .map((u) => ({
         ...u,
         nome: u.nome || primeiroNome(u.email || ""),
         email: (u.email || "").toLowerCase(),
-        ativo: (u.ativo === undefined) ? true : !!u.ativo
+        ativo: u.ativo === undefined ? true : !!u.ativo,
       }));
 
     // filtro por texto
-    const ft = String(filtroTexto || "").trim().toLowerCase();
+    const ft = String(filtroTexto || "")
+      .trim()
+      .toLowerCase();
     if (ft) {
-      existentes = existentes.filter(u =>
-        (u.nome || "").toLowerCase().includes(ft) ||
-        (u.email || "").toLowerCase().includes(ft)
+      existentes = existentes.filter(
+        (u) =>
+          (u.nome || "").toLowerCase().includes(ft) ||
+          (u.email || "").toLowerCase().includes(ft)
       );
     }
 
     // ordenar alfabeticamente por nome
-    existentes.sort((a, b) => (a.nome || "").localeCompare((b.nome || ""), "pt-BR", { sensitivity: "base" }));
+    existentes.sort((a, b) =>
+      (a.nome || "").localeCompare(b.nome || "", "pt-BR", {
+        sensitivity: "base",
+      })
+    );
 
     if (!existentes.length) {
       tbody.innerHTML = `<tr><td colspan="5">Nenhum usuário aprovado encontrado.</td></tr>`;
@@ -2947,7 +3249,7 @@ async function carregarUsuariosExistentes(filtroTexto = "") {
     }
 
     tbody.innerHTML = "";
-    existentes.forEach(u => {
+    existentes.forEach((u) => {
       const statusTxt = u.ativo ? "Ativo" : "Inativo";
       const criado = u.criadoEm || u.atualizadoEm || "-";
 
@@ -2958,18 +3260,21 @@ async function carregarUsuariosExistentes(filtroTexto = "") {
         <td>${statusTxt}</td>
         <td>${escapeHtml(criado)}</td>
         <td style="display:flex; gap:8px; flex-wrap:wrap;">
-          <button class="btn-sm" type="button" onclick="toggleAtivoUsuario('${u.id}', ${u.ativo ? "false" : "true"})">
+          <button class="btn-sm" type="button" onclick="toggleAtivoUsuario('${
+            u.id
+          }', ${u.ativo ? "false" : "true"})">
             ${u.ativo ? "Desativar" : "Ativar"}
           </button>
 
-          <button class="btn-sm btn-danger" type="button" onclick="excluirUsuarioFirestore('${u.id}')">
+          <button class="btn-sm btn-danger" type="button" onclick="excluirUsuarioFirestore('${
+            u.id
+          }')">
             Excluir (Firestore)
           </button>
         </td>
       `;
       tbody.appendChild(tr);
     });
-
   } catch (e) {
     console.error("ERRO carregarUsuariosExistentes:", e);
     tbody.innerHTML = `<tr><td colspan="5">Erro ao carregar usuários existentes.</td></tr>`;
@@ -2983,13 +3288,18 @@ async function toggleAtivoUsuario(docId, novoAtivo) {
     return;
   }
 
-  await db.collection("usuarios").doc(docId).set({
-    ativo: !!novoAtivo,
-    atualizadoEm: new Date().toISOString(),
-    atualizadoPorAdmin: user.email
-  }, { merge: true });
+  await db.collection("usuarios").doc(docId).set(
+    {
+      ativo: !!novoAtivo,
+      atualizadoEm: new Date().toISOString(),
+      atualizadoPorAdmin: user.email,
+    },
+    { merge: true }
+  );
 
-  await carregarUsuariosExistentes(document.getElementById("searchUsuariosExistentes")?.value || "");
+  await carregarUsuariosExistentes(
+    document.getElementById("searchUsuariosExistentes")?.value || ""
+  );
 }
 
 async function excluirUsuarioFirestore(docId) {
@@ -3008,9 +3318,10 @@ async function excluirUsuarioFirestore(docId) {
 
   // atualiza as duas listas
   await carregarUsuariosPendentes();
-  await carregarUsuariosExistentes(document.getElementById("searchUsuariosExistentes")?.value || "");
+  await carregarUsuariosExistentes(
+    document.getElementById("searchUsuariosExistentes")?.value || ""
+  );
 }
-
 
 async function aprovarUsuario(uid) {
   const user = auth.currentUser;
@@ -3021,16 +3332,20 @@ async function aprovarUsuario(uid) {
 
   if (!confirm("Aprovar este usuário?")) return;
 
-  await db.collection("usuarios").doc(uid).set({
-    aprovado: true,
-    ativo: true,
-    aprovadoPor: user.email,
-    aprovadoEm: new Date().toISOString()
-  }, { merge: true });
+  await db.collection("usuarios").doc(uid).set(
+    {
+      aprovado: true,
+      ativo: true,
+      aprovadoPor: user.email,
+      aprovadoEm: new Date().toISOString(),
+    },
+    { merge: true }
+  );
 
   await carregarUsuariosPendentes();
-  await carregarUsuariosExistentes(document.getElementById("searchUsuariosExistentes")?.value || "");
-
+  await carregarUsuariosExistentes(
+    document.getElementById("searchUsuariosExistentes")?.value || ""
+  );
 }
 
 async function bloquearUsuario(uid) {
@@ -3042,12 +3357,15 @@ async function bloquearUsuario(uid) {
 
   if (!confirm("Bloquear este usuário?")) return;
 
-  await db.collection("usuarios").doc(uid).set({
-    aprovado: false,
-    ativo: false,
-    bloqueadoPor: user.email,
-    bloqueadoEm: new Date().toISOString()
-  }, { merge: true });
+  await db.collection("usuarios").doc(uid).set(
+    {
+      aprovado: false,
+      ativo: false,
+      bloqueadoPor: user.email,
+      bloqueadoEm: new Date().toISOString(),
+    },
+    { merge: true }
+  );
 
   await carregarUsuariosPendentes();
 }
@@ -3055,9 +3373,52 @@ async function bloquearUsuario(uid) {
 // evita quebrar tabela por caracteres especiais
 function escapeHtml(s) {
   return String(s || "")
-    .replaceAll("&","&amp;")
-    .replaceAll("<","&lt;")
-    .replaceAll(">","&gt;")
-    .replaceAll('"',"&quot;")
-    .replaceAll("'","&#039;");
+    .replaceAll("&", "&amp;")
+    .replaceAll("<", "&lt;")
+    .replaceAll(">", "&gt;")
+    .replaceAll('"', "&quot;")
+    .replaceAll("'", "&#039;");
+}
+
+function initUnidadesMantex() {
+  const repEl = document.getElementById("representada");
+  const wrap = document.getElementById("wrapUnidade");
+  const unidadeEl = document.getElementById("unidade"); // se for outro id, troca aqui
+
+  if (!repEl || !unidadeEl) return;
+
+  const unidades = [
+    "Mantex (matriz)",
+    "Mantex (filial)",
+    "Sierra",
+  ];
+
+  function atualizar() {
+    const repNome =
+      repEl.options[repEl.selectedIndex]?.text?.trim().toLowerCase() || "";
+
+    const isMantex = repNome.includes("mantex");
+
+    if (!isMantex) {
+      if (wrap) wrap.classList.add("hidden");
+      unidadeEl.innerHTML = `<option value="">Selecione...</option>`;
+      unidadeEl.value = "";
+      return;
+    }
+
+    if (wrap) wrap.classList.remove("hidden");
+
+    unidadeEl.innerHTML =
+      `<option value="">Selecione...</option>` +
+      unidades.map((u) => `<option value="${u}">${u}</option>`).join("");
+  }
+
+  // não duplica listener
+  if (!repEl.dataset.mantexBound) {
+    repEl.dataset.mantexBound = "1";
+    repEl.addEventListener("change", atualizar);
+  }
+
+  // render inicial
+  atualizar();
 }

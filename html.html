@@ -13,7 +13,7 @@
 
 <body>
 
-  
+
   <!-- MODAL DETALHES -->
   <div id="modalDetalhes" class="modal hidden">
     <div class="modal-content">
@@ -24,7 +24,7 @@
       <div class="modal-body" id="modalCorpo"></div>
     </div>
   </div>
-  
+
 
   <!-- MODAL TOTP (Google Authenticator) -->
   <div id="modalTOTP" class="modal hidden">
@@ -87,11 +87,11 @@
 
 
 
-      
-<button type="button" class="menu-item hidden" id="menuAprovacao" onclick="irPara('aprovacao')">
-  <span class="icon">✅</span>
-  <span class="label">Aprovar Usuários</span>
-</button>
+
+      <button type="button" class="menu-item hidden" id="menuAprovacao" onclick="irPara('aprovacao')">
+        <span class="icon">✅</span>
+        <span class="label">Aprovar Usuários</span>
+      </button>
 
       <button type="button" class="menu-item" onclick="toggleTheme()">
         <span class="icon">🌙</span>
@@ -111,51 +111,51 @@
 
   <div class="main-content">
 
-<div id="loginContainer" class="container">
-  <h1>
-CRM - Three Ar
-  </h1>
-  <div style="display:flex; gap:10px; margin:12px 0;">
-    <button id="tabLogin" type="button" class="secondary" style="flex:1;">Log in</button>
-    <button id="tabSignup" type="button" class="secondary" style="flex:1;">Sign up</button>
-  </div>
-  <!-- LOGIN -->
-  <div id="panelLogin">
-    <p>Entre com seu e-mail e senha.</p>
+    <div id="loginContainer" class="container">
+      <h1>
+        CRM - Three Ar
+      </h1>
+      <div style="display:flex; gap:10px; margin:12px 0;">
+        <button id="tabLogin" type="button" class="secondary" style="flex:1;">Log in</button>
+        <button id="tabSignup" type="button" class="secondary" style="flex:1;">Sign up</button>
+      </div>
+      <!-- LOGIN -->
+      <div id="panelLogin">
+        <p>Entre com seu e-mail e senha.</p>
 
-    <label for="loginUser">E-mail</label>
-    <input type="email" id="loginUser" placeholder="email@dominio.com" />
+        <label for="loginUser">E-mail</label>
+        <input type="email" id="loginUser" placeholder="email@dominio.com" />
 
-    <label for="loginPass">Senha</label>
-    <input type="password" id="loginPass" placeholder="********" />
+        <label for="loginPass">Senha</label>
+        <input type="password" id="loginPass" placeholder="********" />
 
-    <button id="btnLogin" type="button">Entrar</button>
+        <button id="btnLogin" type="button">Entrar</button>
 
-    <button id="btnForgot" type="button" class="secondary" style="margin-top:10px;">
-      Esqueci minha senha
-    </button>
+        <button id="btnForgot" type="button" class="secondary" style="margin-top:10px;">
+          Esqueci minha senha
+        </button>
 
-    <button id="btnResendVerify" type="button" class="secondary" style="margin-top:10px;">
-  Reenviar verificação de e-mail
-</button>
-    <div id="loginMsg" style="margin-top:10px; font-size:13px; opacity:.9;"></div>
-  </div>
+        <button id="btnResendVerify" type="button" class="secondary" style="margin-top:10px;">
+          Reenviar verificação de e-mail
+        </button>
+        <div id="loginMsg" style="margin-top:10px; font-size:13px; opacity:.9;"></div>
+      </div>
 
-  <!-- SIGN UP -->
-  <div id="panelSignup" class="hidden">
-    <p>Crie sua conta (precisa de aprovação para acessar).</p>
+      <!-- SIGN UP -->
+      <div id="panelSignup" class="hidden">
+        <p>Crie sua conta (precisa de aprovação para acessar).</p>
 
-    <label for="signupEmail">E-mail</label>
-    <input type="email" id="signupEmail" placeholder="email@dominio.com" />
+        <label for="signupEmail">E-mail</label>
+        <input type="email" id="signupEmail" placeholder="email@dominio.com" />
 
-    <label for="signupPass">Senha</label>
-    <input type="password" id="signupPass" placeholder="Mín. 8, maiúscula, número, símbolo" />
+        <label for="signupPass">Senha</label>
+        <input type="password" id="signupPass" placeholder="Mín. 8, maiúscula, número, símbolo" />
 
-    <button id="btnSignup" type="button">Criar conta</button>
+        <button id="btnSignup" type="button">Criar conta</button>
 
-    <div id="signupMsg" style="margin-top:10px; font-size:13px; opacity:.9;"></div>
-  </div>
-</div>
+        <div id="signupMsg" style="margin-top:10px; font-size:13px; opacity:.9;"></div>
+      </div>
+    </div>
 
 
     <div id="appContainer" class="container hidden">
@@ -233,6 +233,12 @@ CRM - Three Ar
                 <option value="">Selecione</option>
               </select>
 
+              <div class="form-col hidden" id="wrapUnidade">
+                <label for="unidade">Unidade (Mantex)</label>
+                <select id="unidade">
+                  <option value="">Selecione...</option>
+                </select>
+              </div>
               <label for="valor_total">Vl. Total</label>
               <input type="text" id="valor_total" class="money" placeholder="R$">
 
@@ -510,50 +516,51 @@ CRM - Three Ar
           <tbody></tbody>
         </table>
       </section>
-<section id="secAprovacaoUsuarios" class="hidden">
-  <h3>Aprovar Usuários</h3>
-  <p style="opacity:.85">Somente o administrador pode aprovar novos acessos.</p>
+      <section id="secAprovacaoUsuarios" class="hidden">
+        <h3>Aprovar Usuários</h3>
+        <p style="opacity:.85">Somente o administrador pode aprovar novos acessos.</p>
 
-  <div class="actions-row">
-    <button id="btnReloadUsuariosPendentes" class="secondary" type="button">Atualizar</button>
-  </div>
-  <table id="tabelaUsuariosPendentes">
-    <thead>
-      <tr>
-        <th>Nome</th>
-        <th>Email</th>
-        <th>Status</th>
-        <th>Criado em</th>
-        <th>Ações</th>
-      </tr>
-    </thead>
-    <tbody></tbody>
-  </table>
+        <div class="actions-row">
+          <button id="btnReloadUsuariosPendentes" class="secondary" type="button">Atualizar</button>
+        </div>
+        <table id="tabelaUsuariosPendentes">
+          <thead>
+            <tr>
+              <th>Nome</th>
+              <th>Email</th>
+              <th>Status</th>
+              <th>Criado em</th>
+              <th>Ações</th>
+            </tr>
+          </thead>
+          <tbody></tbody>
+        </table>
 
-  <hr style="margin:18px 0; opacity:.25">
+        <hr style="margin:18px 0; opacity:.25">
 
-<h3>Usuários existentes</h3>
-<p style="opacity:.85">Usuários já aprovados (ativos/inativos). Você pode bloquear/desativar ou excluir </p>
+        <h3>Usuários existentes</h3>
+        <p style="opacity:.85">Usuários já aprovados (ativos/inativos). Você pode bloquear/desativar ou excluir </p>
 
-<div class="actions-row">
-  <input id="searchUsuariosExistentes" class="input" style="max-width:320px" placeholder="Buscar por nome ou email..." />
-  <button id="btnReloadUsuariosExistentes" class="secondary" type="button">Atualizar</button>
-</div>
+        <div class="actions-row">
+          <input id="searchUsuariosExistentes" class="input" style="max-width:320px"
+            placeholder="Buscar por nome ou email..." />
+          <button id="btnReloadUsuariosExistentes" class="secondary" type="button">Atualizar</button>
+        </div>
 
-<table id="tabelaUsuariosExistentes">
-  <thead>
-    <tr>
-      <th>Nome</th>
-      <th>Email</th>
-      <th>Status</th>
-      <th>Criado em</th>
-      <th>Ações</th>
-    </tr>
-  </thead>
-  <tbody></tbody>
-</table>
+        <table id="tabelaUsuariosExistentes">
+          <thead>
+            <tr>
+              <th>Nome</th>
+              <th>Email</th>
+              <th>Status</th>
+              <th>Criado em</th>
+              <th>Ações</th>
+            </tr>
+          </thead>
+          <tbody></tbody>
+        </table>
 
-</section>
+      </section>
 
     </div>
   </div>
