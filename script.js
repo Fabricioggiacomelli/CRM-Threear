@@ -52,6 +52,9 @@ let editContatoIndex = null;
 
 let currentPage = 1;
 let pageSize = 5;
+let clientesSearchPageSize = 5; // se quiser separar do clientesPageSize atual
+let representadasCurrentPage = 1;
+let representadasPageSize = 5;
 
 let clientesCurrentPage = 1;
 let clientesPageSize = 5;
@@ -93,6 +96,16 @@ window.addEventListener("load", async () => {
   initTotpUI();
 
   initForm();
+
+document.getElementById("btnCancelarEdicao")
+  ?.addEventListener("click", cancelarEdicao);
+  document
+    .getElementById("btnCancelarCliente")
+    ?.addEventListener("click", cancelarEdicaoCliente);
+  document
+    .getElementById("btnCancelarRepresentada")
+    ?.addEventListener("click", cancelarEdicaoRepresentada);
+
   initFiltrosEPaginacao();
   initMoneyMask();
   initPhoneMask();
@@ -146,7 +159,7 @@ window.addEventListener("load", async () => {
             criadoEm: new Date().toISOString(),
             atualizadoEm: new Date().toISOString(),
           },
-          { merge: true }
+          { merge: true },
         );
       } else {
         const data = snap.data() || {};
@@ -159,7 +172,7 @@ window.addEventListener("load", async () => {
               (user.email ? user.email.split("@")[0] : data.nome || "Usuário"),
             atualizadoEm: new Date().toISOString(),
           },
-          { merge: true }
+          { merge: true },
         );
       }
 
@@ -218,8 +231,8 @@ function esperarFirebase(timeoutMs = 8000) {
         clearInterval(t);
         reject(
           new Error(
-            "Firebase não carregou: auth/db indefinidos (ordem dos scripts)."
-          )
+            "Firebase não carregou: auth/db indefinidos (ordem dos scripts).",
+          ),
         );
       }
     }, 50);
@@ -340,7 +353,7 @@ function initLogin() {
       } catch (e) {
         console.error(e);
         setLoginMsg(
-          "❌ Não consegui enviar o e-mail de troca. Verifique o e-mail digitado."
+          "❌ Não consegui enviar o e-mail de troca. Verifique o e-mail digitado.",
         );
       }
 
@@ -363,10 +376,10 @@ function initLogin() {
         err?.code === "auth/user-not-found"
           ? "Usuário não encontrado."
           : err?.code === "auth/wrong-password"
-          ? "Senha incorreta."
-          : err?.code === "auth/invalid-email"
-          ? "Email inválido."
-          : "Erro ao fazer login: " + (err?.message || err);
+            ? "Senha incorreta."
+            : err?.code === "auth/invalid-email"
+              ? "Email inválido."
+              : "Erro ao fazer login: " + (err?.message || err);
 
       alert(msg);
     } finally {
@@ -450,7 +463,7 @@ function formatarNomeUsuario(raw) {
 
 async function apiGetQr(userEmail) {
   const r = await fetch(
-    `${API_BASE}/mfa/qr?user=${encodeURIComponent(userEmail)}`
+    `${API_BASE}/mfa/qr?user=${encodeURIComponent(userEmail)}`,
   );
   const j = await r.json().catch(() => ({}));
   if (!r.ok || !j.ok)
@@ -530,7 +543,7 @@ async function iniciarFluxoTOTP(user) {
     setTotpStatus(
       "❌ Erro no 2FA: " +
         (e?.message || e) +
-        " (verifique se o backend está ligado)"
+        " (verifique se o backend está ligado)",
     );
 
     const msg = document.getElementById("totp_qr_msg");
@@ -563,7 +576,7 @@ async function iniciarFluxoTOTP(user) {
 async function confirmarTotpNoModal() {
   const btn = document.getElementById("btnTotpConfirm");
   const token = String(
-    document.getElementById("totp_code")?.value || ""
+    document.getElementById("totp_code")?.value || "",
   ).trim();
   const clean = token.replace(/\D/g, "");
 
@@ -599,7 +612,7 @@ async function confirmarTotpNoModal() {
   } catch (e) {
     console.error("confirmarTotpNoModal erro:", e);
     setTotpStatus(
-      "Código inválido/expirado. Verifique o relógio do PC/celular e tente novamente."
+      "Código inválido/expirado. Verifique o relógio do PC/celular e tente novamente.",
     );
   } finally {
     if (btn) btn.disabled = false;
@@ -741,7 +754,7 @@ function formatCnpjValue(value) {
   if (value.length >= 15)
     value = value.replace(
       /^(\d{2})\.(\d{3})\.(\d{3})\/(\d{4})(\d)/,
-      "$1.$2.$3/$4-$5"
+      "$1.$2.$3/$4-$5",
     );
 
   return value;
@@ -876,7 +889,7 @@ function initForm() {
       const data_nf = document.getElementById("data_nf");
       const valor_nf = document.getElementById("valor_nf");
       const prazo_entrega_contratual = document.getElementById(
-        "prazo_entrega_contratual"
+        "prazo_entrega_contratual",
       );
 
       const solicitacao_oc =
@@ -953,6 +966,7 @@ function initForm() {
       }
       editId = null;
       btnAdicionar.textContent = "Adicionar";
+      document.getElementById("btnCancelarEdicao")?.classList.add("hidden");
     }
 
     salvarRegistros();
@@ -971,6 +985,120 @@ function initForm() {
   });
 }
 
+let actionsMenuState = { open: false, type: null, id: null };
+
+function ensureActionsMenu() {
+  let menu = document.getElementById("actionsMenu");
+  if (menu) return menu;
+
+  menu = document.createElement("div");
+  menu.id = "actionsMenu";
+  menu.innerHTML = `
+    <button id="actVer" type="button">Ver</button>
+    <button id="actVerContatos" type="button">Ver contatos</button>
+    <button id="actEditar" type="button">Editar</button>
+    <button id="actExcluir" type="button" class="danger">Excluir</button>
+  `;
+  document.body.appendChild(menu);
+
+  document.addEventListener("click", () => closeActionsMenu());
+  window.addEventListener("scroll", () => closeActionsMenu(), true);
+  window.addEventListener("resize", () => closeActionsMenu());
+  menu.addEventListener("click", (e) => e.stopPropagation());
+
+  return menu;
+}
+
+function openActionsMenu(ev, type, id) {
+  ev.preventDefault();
+  ev.stopPropagation();
+
+  const menu = ensureActionsMenu();
+  actionsMenuState = { open: true, type, id };
+
+  // liga ações (igual você já tem)
+  const btnVer = document.getElementById("actVer");
+  const btnVerContatos = document.getElementById("actVerContatos");
+  const btnEditar = document.getElementById("actEditar");
+  const btnExcluir = document.getElementById("actExcluir");
+
+  btnVer.onclick = () => {
+    closeActionsMenu();
+    if (type === "oferta") verOferta(id);
+    if (type === "cliente") verCliente(id);
+    if (type === "rep") verRepresentada(id);
+  };
+
+if (btnVerContatos) {
+  const isCliente = type === "cliente";
+  btnVerContatos.style.display = isCliente ? "block" : "none";
+  btnVerContatos.onclick = () => {
+    closeActionsMenu();
+    verContatosCliente(id);
+  };
+}
+
+  btnEditar.onclick = () => {
+    closeActionsMenu();
+    if (type === "oferta") editarRegistro(id);
+    if (type === "cliente") editarCliente(id);
+    if (type === "rep") editarRepresentada(id);
+  };
+
+  btnExcluir.onclick = () => {
+    closeActionsMenu();
+    if (type === "oferta") excluirRegistro(id);
+    if (type === "cliente") excluirCliente(id);
+    if (type === "rep") excluirRepresentada(id);
+  };
+
+  // mede o botão
+  const r = ev.currentTarget.getBoundingClientRect();
+  const margin = 10;
+
+  // mostra (mas invisível) pra medir tamanho do menu
+  menu.classList.add("open");
+  menu.style.left = "0px";
+  menu.style.top = "0px";
+  menu.style.transformOrigin = "top center";
+
+  const mw = menu.offsetWidth;
+  const mh = menu.offsetHeight;
+
+  // posição preferida: abaixo
+  let left = r.left + r.width / 2 - mw / 2;
+  let top = r.bottom + margin;
+
+  // limita na tela
+  if (left < margin) left = margin;
+  if (left + mw > window.innerWidth - margin) {
+    left = window.innerWidth - mw - margin;
+  }
+
+  // se não couber embaixo, abre em cima
+  let abrirEmCima = false;
+  if (top + mh > window.innerHeight - margin) {
+    top = r.top - mh - margin;
+    abrirEmCima = true;
+  }
+  if (top < margin) top = margin;
+
+  // seta direção do caret
+  menu.dataset.placement = abrirEmCima ? "top" : "bottom";
+
+  // define posição final
+  menu.style.left = `${left}px`;
+  menu.style.top = `${top}px`;
+}
+
+function closeActionsMenu() {
+  const menu = document.getElementById("actionsMenu");
+  if (!menu) return;
+  menu.classList.remove("open");
+  actionsMenuState.open = false;
+}
+
+
 /* =======================
    FILTROS / PAGINAÇÃO OFERTAS
 ======================= */
@@ -986,35 +1114,50 @@ function initFiltrosEPaginacao() {
   const btnExportExcel = document.getElementById("btnExportExcel");
   const btnExportPdf = document.getElementById("btnExportPdf");
 
-  const pageSizeSelect = document.getElementById("pageSizeSelect");
-  if (pageSizeSelect) {
-    pageSizeSelect.value = String(pageSize);
-    pageSizeSelect.addEventListener("change", () => {
-      pageSize = parseInt(pageSizeSelect.value, 10) || 5;
+  const pageSizeInput = document.getElementById("pageSizeInput");
+
+  if (pageSizeInput) {
+    const saved = parseInt(localStorage.getItem("pageSize") || "", 10);
+    if (!isNaN(saved) && saved > 0) pageSize = saved;
+
+    pageSizeInput.value = String(pageSize);
+
+    const apply = () => {
+      const v = parseInt(pageSizeInput.value, 10);
+      if (!v || v < 1) return;
+
+      pageSize = Math.min(Math.max(v, 1), 200);
+      localStorage.setItem("pageSize", String(pageSize));
       currentPage = 1;
       renderTabela();
+    };
+
+    pageSizeInput.addEventListener("change", apply);
+    pageSizeInput.addEventListener("blur", apply);
+    pageSizeInput.addEventListener("keydown", (e) => {
+      if (e.key === "Enter") apply();
     });
   }
 
   searchTerm?.addEventListener(
     "input",
-    () => ((currentPage = 1), renderTabela())
+    () => ((currentPage = 1), renderTabela()),
   );
   filterField?.addEventListener(
     "change",
-    () => ((currentPage = 1), renderTabela())
+    () => ((currentPage = 1), renderTabela()),
   );
   statusFilter?.addEventListener(
     "input",
-    () => ((currentPage = 1), renderTabela())
+    () => ((currentPage = 1), renderTabela()),
   );
   pedidoFilter?.addEventListener(
     "change",
-    () => ((currentPage = 1), renderTabela())
+    () => ((currentPage = 1), renderTabela()),
   );
   revisaoFilter?.addEventListener(
     "change",
-    () => ((currentPage = 1), renderTabela())
+    () => ((currentPage = 1), renderTabela()),
   );
 
   if (btnVerTudo) {
@@ -1096,7 +1239,7 @@ function getRegistrosFiltrados() {
             reg.pedido.valor_nf,
             reg.pedido.prazo_entrega_contratual,
             reg.pedido.solicitacao_oc,
-            reg.pedido.ref_oc
+            reg.pedido.ref_oc,
           );
         }
         if (reg.revisao)
@@ -1130,7 +1273,7 @@ function getRegistrosFiltrados() {
             break;
           case "usuario":
             valorCampo = formatarNomeUsuario(
-              reg.atualizadoPor || reg.criadoPor || ""
+              reg.atualizadoPor || reg.criadoPor || "",
             );
             break;
           default:
@@ -1153,6 +1296,37 @@ function getRegistrosFiltrados() {
     if (revisaoFilter === "sem" && reg.possuiRevisao !== "nao") return false;
 
     return true;
+  });
+}
+
+function getClientesFiltrados() {
+  const term = (document.getElementById("searchClientes")?.value || "")
+    .trim().toLowerCase();
+
+  const field = document.getElementById("filterClientesField")?.value || "todos";
+
+  return clientes.filter((cli) => {
+    if (!term) return true;
+
+    const usuario = formatarNomeUsuario(cli.atualizadoPor || cli.criadoPor || "");
+
+    if (field === "todos") {
+      const texto = [
+        cli.razao,
+        cli.cnpj,
+        cli.segmento,
+        usuario
+      ].filter(Boolean).join(" ").toLowerCase();
+      return texto.includes(term);
+    }
+
+    let v = "";
+    if (field === "razao") v = cli.razao || "";
+    if (field === "cnpj") v = cli.cnpj || "";
+    if (field === "segmento") v = cli.segmento || "";
+    if (field === "usuario") v = usuario || "";
+
+    return v.toLowerCase().includes(term);
   });
 }
 
@@ -1182,7 +1356,7 @@ function renderTabela() {
   } else {
     pageData.forEach((reg, index) => {
       const usuario = formatarNomeUsuario(
-        reg.atualizadoPor || reg.criadoPor || ""
+        reg.atualizadoPor || reg.criadoPor || "",
       );
       const pedidoIcon = reg.possuiPedido === "sim" ? "✅" : "—";
       const revisaoIcon = reg.possuiRevisao === "sim" ? "✅" : "—";
@@ -1200,15 +1374,9 @@ function renderTabela() {
         <td>${pedidoIcon}</td>
         <td>${revisaoIcon}</td>
         <td>${usuario}</td>
-        <td>
-          <button class="btn-sm" onclick="verOferta('${reg.id}')">Ver</button>
-          <button class="btn-sm" onclick="editarRegistro('${
-            reg.id
-          }')">Editar</button>
-          <button class="btn-sm btn-danger" onclick="excluirRegistro('${
-            reg.id
-          }')">Excluir</button>
-        </td>
+<td style="text-align:center;">
+  <button class="btn-kebab" onclick="openActionsMenu(event,'oferta','${reg.id}')">...</button>
+</td>
       `;
       tbody.appendChild(tr);
     });
@@ -1244,49 +1412,7 @@ function editarRegistro(id) {
   document.getElementById("oferta").value = reg.oferta || "";
   document.getElementById("nome_projeto").value = reg.nome_projeto || "";
   document.getElementById("valor_total").value = reg.valor_total || "";
-function initUnidadesMantex() {
-  const repEl = document.getElementById("representada");
-  
-  const wrap = document.getElementById("wrapUnidade");
-  const unidadeEl = document.getElementById("unidade"); // se for outro id, troca aqui
-
-  if (!repEl || !unidadeEl) return;
-
-  const unidades = [
-    "Mantex (matriz)",
-    "Mantex (filial)",
-    "Sierra",
-  ];
-
-  function atualizar() {
-    const repNome =
-      repEl.options[repEl.selectedIndex]?.text?.trim().toLowerCase() || "";
-
-    const isMantex = repNome.includes("mantex");
-
-    if (!isMantex) {
-      if (wrap) wrap.classList.add("hidden");
-      unidadeEl.innerHTML = `<option value="">Selecione...</option>`;
-      unidadeEl.value = "";
-      return;
-    }
-
-    if (wrap) wrap.classList.remove("hidden");
-
-    unidadeEl.innerHTML =
-      `<option value="">Selecione...</option>` +
-      unidades.map((u) => `<option value="${u}">${u}</option>`).join("");
-  }
-
-  // não duplica listener
-  if (!repEl.dataset.mantexBound) {
-    repEl.dataset.mantexBound = "1";
-    repEl.addEventListener("change", atualizar);
-  }
-
-  // render inicial
-  atualizar();
-}  document.getElementById("data_entrada").value = reg.data_entrada || "";
+  document.getElementById("data_entrada").value = reg.data_entrada || "";
   document.getElementById("status").value = reg.status || "";
   document.getElementById("data_envio").value = reg.data_envio || "";
   document.getElementById("obs_geral").value = reg.obs_geral || "";
@@ -1295,21 +1421,25 @@ function initUnidadesMantex() {
   if (tipoNegocio) tipoNegocio.value = reg.tipo_oferta || "";
 
   const representadaSelect = document.getElementById("representada");
-  if (representadaSelect && reg.representadaId)
+  if (representadaSelect && reg.representadaId) {
     representadaSelect.value = reg.representadaId;
-  else if (representadaSelect) representadaSelect.value = "";
+  }
 
-// 🔥 MOSTRA o campo unidade se for Mantex e preenche a unidade salva
-initUnidadesMantex();
-const unidadeEl = document.getElementById("unidade");
-if (unidadeEl) unidadeEl.value = reg.unidade || "";
+  setTimeout(() => {
+    initUnidadesMantex();
+
+    const unidadeEl = document.getElementById("unidade");
+    if (unidadeEl) {
+      unidadeEl.value = reg.unidade || "";
+    }
+  }, 0);
 
   document
     .querySelector(`input[name="pedido"][value="${reg.possuiPedido || "nao"}"]`)
     ?.click();
   document
     .querySelector(
-      `input[name="revisao"][value="${reg.possuiRevisao || "nao"}"]`
+      `input[name="revisao"][value="${reg.possuiRevisao || "nao"}"]`,
     )
     ?.click();
 
@@ -1336,7 +1466,7 @@ if (unidadeEl) unidadeEl.value = reg.unidade || "";
 
     document
       .querySelector(
-        `input[name="sol_oc"][value="${reg.pedido.solicitacao_oc || "nao"}"]`
+        `input[name="sol_oc"][value="${reg.pedido.solicitacao_oc || "nao"}"]`,
       )
       ?.click();
   } else {
@@ -1354,6 +1484,7 @@ if (unidadeEl) unidadeEl.value = reg.unidade || "";
   }
 
   document.getElementById("btnAdicionar").textContent = "Salvar Edição";
+  document.getElementById("btnCancelarEdicao")?.classList.remove("hidden");
   window.scrollTo({ top: 0, behavior: "smooth" });
 }
 
@@ -1391,8 +1522,8 @@ function exportExcel() {
       reg.tipo_oferta === "compra"
         ? "Compra"
         : reg.tipo_oferta === "orcamento"
-        ? "Orçamento"
-        : "";
+          ? "Orçamento"
+          : "";
 
     return {
       "#": i + 1,
@@ -1492,8 +1623,8 @@ function exportPdf() {
       reg.tipo_oferta === "compra"
         ? "Compra"
         : reg.tipo_oferta === "orcamento"
-        ? "Orçamento"
-        : "";
+          ? "Orçamento"
+          : "";
 
     html += `
       <tr>
@@ -1638,7 +1769,7 @@ function exportBackupExcel() {
   const wsClientes = XLSX.utils.json_to_sheet(
     clientesSheetData.length
       ? clientesSheetData
-      : [{ Mensagem: "Sem clientes" }]
+      : [{ Mensagem: "Sem clientes" }],
   );
   XLSX.utils.book_append_sheet(wb, wsClientes, "Clientes");
 
@@ -1661,7 +1792,7 @@ function exportBackupExcel() {
   const wsContatos = XLSX.utils.json_to_sheet(
     contatosSheetData.length
       ? contatosSheetData
-      : [{ Mensagem: "Sem contatos" }]
+      : [{ Mensagem: "Sem contatos" }],
   );
   XLSX.utils.book_append_sheet(wb, wsContatos, "Contatos");
 
@@ -1672,7 +1803,7 @@ function exportBackupExcel() {
     AtualizadoPor: r.atualizadoPor || "",
   }));
   const wsRep = XLSX.utils.json_to_sheet(
-    repsData.length ? repsData : [{ Mensagem: "Sem representadas" }]
+    repsData.length ? repsData : [{ Mensagem: "Sem representadas" }],
   );
   XLSX.utils.book_append_sheet(wb, wsRep, "Representadas");
 
@@ -1718,7 +1849,7 @@ function exportBackupExcel() {
   }));
 
   const wsOfertas = XLSX.utils.json_to_sheet(
-    ofertasData.length ? ofertasData : [{ Mensagem: "Sem ofertas" }]
+    ofertasData.length ? ofertasData : [{ Mensagem: "Sem ofertas" }],
   );
   XLSX.utils.book_append_sheet(wb, wsOfertas, "Ofertas");
 
@@ -1779,7 +1910,7 @@ function importBackupExcel(file) {
           if (!cliente && cnpj) {
             const clean = cnpj.replace(/\D/g, "");
             cliente = clientes.find(
-              (c) => (c.cnpj || "").replace(/\D/g, "") === clean
+              (c) => (c.cnpj || "").replace(/\D/g, "") === clean,
             );
           }
           if (!cliente) return;
@@ -1902,24 +2033,97 @@ function importBackupExcel(file) {
   reader.readAsArrayBuffer(file);
 }
 
-/* =======================
-   CLIENTES (CRUD)
-======================= */
 function initClientesUI() {
+  // ✅ binds SEM depender do return (pra não “morrer” caso falte algum elemento)
+  document
+    .getElementById("btnCancelarEdicaoCliente")
+    ?.addEventListener("click", cancelarEdicaoCliente);
+
+  document
+    .getElementById("btnCancelarEdicaoContato")
+    ?.addEventListener("click", cancelarEdicaoContato);
+
+  // filtros clientes
+  document.getElementById("searchClientes")?.addEventListener("input", () => {
+    clientesCurrentPage = 1;
+    renderTabelaClientes();
+  });
+  document
+    .getElementById("filterClientesField")
+    ?.addEventListener("change", () => {
+      clientesCurrentPage = 1;
+      renderTabelaClientes();
+    });
+
+  // itens por página clientes (igual ofertas)
+  const pageSizeClientesInput = document.getElementById("pageSizeClientes");
+  if (pageSizeClientesInput) {
+    const saved = parseInt(localStorage.getItem("pageSizeClientes") || "", 10);
+    if (!isNaN(saved) && saved > 0) clientesPageSize = saved;
+
+    pageSizeClientesInput.value = String(clientesPageSize);
+
+    const apply = () => {
+      const v = parseInt(pageSizeClientesInput.value, 10);
+      if (!v || v < 1) return;
+
+      clientesPageSize = Math.min(Math.max(v, 1), 200);
+      localStorage.setItem("pageSizeClientes", String(clientesPageSize));
+      clientesCurrentPage = 1;
+      renderTabelaClientes();
+    };
+
+    pageSizeClientesInput.addEventListener("change", apply);
+    pageSizeClientesInput.addEventListener("blur", apply);
+    pageSizeClientesInput.addEventListener("keydown", (e) => {
+      if (e.key === "Enter") apply();
+    });
+  }
+
+  // paginação
+  document.getElementById("btnPrevClientes")?.addEventListener("click", () => {
+    if (clientesCurrentPage > 1) {
+      clientesCurrentPage--;
+      renderTabelaClientes();
+    }
+  });
+
+  document.getElementById("btnNextClientes")?.addEventListener("click", () => {
+    const totalPages = Math.max(1, Math.ceil(clientes.length / clientesPageSize));
+    if (clientesCurrentPage < totalPages) {
+      clientesCurrentPage++;
+      renderTabelaClientes();
+    }
+  });
+
+  // ✅ agora sim pega os botões principais (se não existir, só não inicializa o CRUD)
   const btnAddContato = document.getElementById("btnAddContato");
   const btnSalvarCliente = document.getElementById("btnSalvarCliente");
-  if (!btnAddContato || !btnSalvarCliente) return;
+  if (!btnAddContato || !btnSalvarCliente) {
+    renderTabelaClientes();
+    return;
+  }
 
+  // evita duplicar listeners se initClientesUI rodar 2x
+  if (btnAddContato.dataset.bound === "1") {
+    renderTabelaClientes();
+    return;
+  }
+  btnAddContato.dataset.bound = "1";
+
+  /* =======================
+     CONTATOS (ADD / EDIT)
+  ======================= */
   btnAddContato.addEventListener("click", () => {
-    const nome = document.getElementById("ct_nome").value.trim();
-    const telefone = document.getElementById("ct_tel").value.trim();
-    const email = document.getElementById("ct_email").value.trim();
-    const funcao = document.getElementById("ct_funcao").value.trim();
-    const principalChecked = document.getElementById("ct_principal").checked;
+    const nome = document.getElementById("ct_nome")?.value.trim() || "";
+    const telefone = document.getElementById("ct_tel")?.value.trim() || "";
+    const email = document.getElementById("ct_email")?.value.trim() || "";
+    const funcao = document.getElementById("ct_funcao")?.value.trim() || "";
+    const principalChecked = !!document.getElementById("ct_principal")?.checked;
 
     const selResp = document.getElementById("ct_responsavel");
     const responsavelNome = selResp ? selResp.value : "";
-    const responsavelId = responsavelNome; // mantém campo sem quebrar seu modelo
+    const responsavelId = responsavelNome; // mantém seu modelo
 
     if (!nome) {
       alert("Informe pelo menos o nome do contato.");
@@ -1929,7 +2133,7 @@ function initClientesUI() {
     const telDigits = telefone.replace(/\D/g, "");
     if (telefone && telDigits.length < 10) {
       alert("Telefone do contato inválido. Informe DDD + 8 ou 9 dígitos.");
-      document.getElementById("ct_tel").focus();
+      document.getElementById("ct_tel")?.focus();
       return;
     }
 
@@ -1943,16 +2147,20 @@ function initClientesUI() {
       responsavelNome,
     };
 
-    if (contatoBase.principal)
+    if (contatoBase.principal) {
       contatosTemp = contatosTemp.map((c) => ({ ...c, principal: false }));
+    }
 
-    if (editContatoIndex === null) contatosTemp.push(contatoBase);
-    else {
+    if (editContatoIndex === null) {
+      contatosTemp.push(contatoBase);
+    } else {
       contatosTemp[editContatoIndex] = contatoBase;
       editContatoIndex = null;
       btnAddContato.textContent = "Adicionar Contato";
+      document.getElementById("btnCancelarEdicaoContato")?.classList.add("hidden");
     }
 
+    // limpa campos contato
     document.getElementById("ct_nome").value = "";
     document.getElementById("ct_tel").value = "";
     document.getElementById("ct_email").value = "";
@@ -1963,12 +2171,15 @@ function initClientesUI() {
     renderListaContatos();
   });
 
+  /* =======================
+     CLIENTE (SAVE / EDIT)
+  ======================= */
   btnSalvarCliente.addEventListener("click", async () => {
-    const razao = document.getElementById("cli_razao").value.trim();
-    const cnpj = document.getElementById("cli_cnpj").value.trim();
-    const ie = document.getElementById("cli_ie").value.trim();
-    const endereco = document.getElementById("cli_endereco").value.trim();
-    const segmento = document.getElementById("cli_segmento").value.trim();
+    const razao = document.getElementById("cli_razao")?.value.trim() || "";
+    const cnpj = document.getElementById("cli_cnpj")?.value.trim() || "";
+    const ie = document.getElementById("cli_ie")?.value.trim() || "";
+    const endereco = document.getElementById("cli_endereco")?.value.trim() || "";
+    const segmento = document.getElementById("cli_segmento")?.value.trim() || "";
     const currentUser = getCurrentUserName();
 
     if (!razao || !cnpj) {
@@ -1979,12 +2190,14 @@ function initClientesUI() {
     const cnpjDigits = cnpj.replace(/\D/g, "");
     if (cnpjDigits.length !== 14) {
       alert("CNPJ do cliente inválido. Deve conter 14 dígitos.");
-      document.getElementById("cli_cnpj").focus();
+      document.getElementById("cli_cnpj")?.focus();
       return;
     }
 
-    if (contatosTemp.length > 0 && !contatosTemp.some((c) => c.principal))
+    // garante principal
+    if (contatosTemp.length > 0 && !contatosTemp.some((c) => c.principal)) {
       contatosTemp[0].principal = true;
+    }
 
     const clienteBase = {
       razao,
@@ -1995,69 +2208,66 @@ function initClientesUI() {
       contatos: contatosTemp.slice(),
     };
 
-    if (!editClienteId) {
-      const id = gerarId();
-      const cliente = {
-        id,
-        ...clienteBase,
-        criadoPor: currentUser,
-        atualizadoPor: currentUser,
-      };
-      await db.collection("clientes").doc(id).set(cliente);
-      clientes.push(cliente);
-      alert("Cliente salvo!");
-    } else {
-      const idx = clientes.findIndex((c) => c.id === editClienteId);
-      const antigo = clientes[idx] || {};
-      if (idx !== -1) {
+    try {
+      if (!editClienteId) {
+        const id = gerarId();
         const cliente = {
-          id: editClienteId,
+          id,
           ...clienteBase,
-          criadoPor: antigo.criadoPor || currentUser,
+          criadoPor: currentUser,
           atualizadoPor: currentUser,
         };
-        await db.collection("clientes").doc(editClienteId).set(cliente);
-        clientes[idx] = cliente;
-        atualizarSugestoesCnpj();
+        await db.collection("clientes").doc(id).set(cliente);
+        clientes.push(cliente);
+        alert("Cliente salvo!");
+      } else {
+        const idx = clientes.findIndex((c) => c.id === editClienteId);
+        const antigo = clientes[idx] || {};
+
+        if (idx !== -1) {
+          const cliente = {
+            id: editClienteId,
+            ...clienteBase,
+            criadoPor: antigo.criadoPor || currentUser,
+            atualizadoPor: currentUser,
+          };
+          await db.collection("clientes").doc(editClienteId).set(cliente);
+          clientes[idx] = cliente;
+          atualizarSugestoesCnpj();
+        }
+
+        alert("Cliente atualizado!");
+        editClienteId = null;
+        btnSalvarCliente.textContent = "Salvar Cliente";
+        document.getElementById("btnCancelarEdicaoCliente")?.classList.add("hidden");
       }
-      alert("Cliente atualizado!");
-      editClienteId = null;
-      btnSalvarCliente.textContent = "Salvar Cliente";
+
+      salvarClientes();
+
+      // reseta estado e UI
+      contatosTemp = [];
+      editContatoIndex = null;
+
+      btnAddContato.textContent = "Adicionar Contato";
+      document.getElementById("btnCancelarEdicaoContato")?.classList.add("hidden");
+
+      renderListaContatos();
+      renderTabelaClientes();
+
+      // limpa campos cliente
+      document.getElementById("cli_razao").value = "";
+      document.getElementById("cli_cnpj").value = "";
+      document.getElementById("cli_ie").value = "";
+      document.getElementById("cli_endereco").value = "";
+      document.getElementById("cli_segmento").value = "";
+    } catch (e) {
+      console.error(e);
+      alert("Erro ao salvar cliente: " + (e?.message || e));
     }
-
-    salvarClientes();
-    contatosTemp = [];
-    editContatoIndex = null;
-    btnAddContato.textContent = "Adicionar Contato";
-    renderListaContatos();
-    renderTabelaClientes();
-
-    document.getElementById("cli_razao").value = "";
-    document.getElementById("cli_cnpj").value = "";
-    document.getElementById("cli_ie").value = "";
-    document.getElementById("cli_endereco").value = "";
-    document.getElementById("cli_segmento").value = "";
   });
 
+  // render inicial
   renderTabelaClientes();
-
-  document.getElementById("btnPrevClientes")?.addEventListener("click", () => {
-    if (clientesCurrentPage > 1) {
-      clientesCurrentPage--;
-      renderTabelaClientes();
-    }
-  });
-
-  document.getElementById("btnNextClientes")?.addEventListener("click", () => {
-    const totalPages = Math.max(
-      1,
-      Math.ceil(clientes.length / clientesPageSize)
-    );
-    if (clientesCurrentPage < totalPages) {
-      clientesCurrentPage++;
-      renderTabelaClientes();
-    }
-  });
 }
 
 function renderListaContatos() {
@@ -2083,7 +2293,7 @@ function renderListaContatos() {
       ${
         ct.responsavelNome
           ? `<br><strong>Responsável:</strong> ${primeiroNome(
-              ct.responsavelNome
+              ct.responsavelNome,
             )}`
           : ""
       }
@@ -2109,6 +2319,7 @@ function editarContato(index) {
 
   editContatoIndex = index;
   document.getElementById("btnAddContato").textContent = "Salvar Edição";
+  document.getElementById("btnCancelarEdicaoContato")?.classList.remove("hidden");
 }
 
 function excluirContato(index) {
@@ -2126,12 +2337,13 @@ function renderTabelaClientes() {
 
   tbody.innerHTML = "";
 
-  const totalPages = Math.max(1, Math.ceil(clientes.length / clientesPageSize));
+  const filtrados = getClientesFiltrados();
+  const totalPages = Math.max(1, Math.ceil(filtrados.length / clientesPageSize));
   if (clientesCurrentPage > totalPages) clientesCurrentPage = totalPages;
 
   const start = (clientesCurrentPage - 1) * clientesPageSize;
   const end = start + clientesPageSize;
-  const pageData = clientes.slice(start, end);
+  const pageData = filtrados.slice(start, end);
 
   if (pageData.length === 0) {
     const tr = document.createElement("tr");
@@ -2144,35 +2356,23 @@ function renderTabelaClientes() {
     pageData.forEach((cli) => {
       const tr = document.createElement("tr");
       const qtdContatos = cli.contatos ? cli.contatos.length : 0;
-      const usuario = formatarNomeUsuario(
-        cli.atualizadoPor || cli.criadoPor || "-"
-      );
+      const usuario = formatarNomeUsuario(cli.atualizadoPor || cli.criadoPor || "-");
 
       tr.innerHTML = `
         <td>${cli.razao || ""}</td>
         <td>${cli.cnpj || ""}</td>
         <td>${cli.segmento || ""}</td>
-        <td>${qtdContatos}</td>
+        <td class="col-center">${qtdContatos}</td>
         <td>${usuario}</td>
-        <td>
-          <button class="btn-sm" onclick="verCliente('${cli.id}')">Ver</button>
-          <button class="btn-sm" onclick="abrirPainelCliente('${
-            cli.id
-          }')">Contatos</button>
-          <button class="btn-sm" onclick="editarCliente('${
-            cli.id
-          }')">Editar</button>
-          <button class="btn-sm btn-danger" onclick="excluirCliente('${
-            cli.id
-          }')">Excluir</button>
+        <td style="text-align:center;">
+          <button class="btn-kebab" onclick="openActionsMenu(event,'cliente','${cli.id}')">...</button>
         </td>
       `;
       tbody.appendChild(tr);
     });
   }
 
-  if (pageInfoClientes)
-    pageInfoClientes.textContent = `Página ${clientesCurrentPage} de ${totalPages}`;
+  if (pageInfoClientes) pageInfoClientes.textContent = `Página ${clientesCurrentPage} de ${totalPages}`;
 }
 
 function editarCliente(id) {
@@ -2197,6 +2397,7 @@ function editarCliente(id) {
   if (btnSalvarCliente) btnSalvarCliente.textContent = "Salvar Edição";
 
   document.getElementById("secClientes").scrollIntoView({ behavior: "smooth" });
+  document.getElementById("btnCancelarEdicaoCliente")?.classList.remove("hidden");
 }
 
 async function excluirCliente(id) {
@@ -2245,7 +2446,7 @@ function abrirPainelCliente(id) {
       ${
         ct.responsavelNome
           ? `<br><strong>Responsável:</strong> ${primeiroNome(
-              ct.responsavelNome
+              ct.responsavelNome,
             )}`
           : ""
       }
@@ -2338,6 +2539,7 @@ function initRepresentadasUI() {
       alert("Representada atualizada!");
       editRepresentadaId = null;
       btn.textContent = "Salvar Representada";
+document.getElementById("btnCancelarEdicaoRepresentada")?.classList.add("hidden");
     }
 
     salvarRepresentadas();
@@ -2345,6 +2547,34 @@ function initRepresentadasUI() {
     renderTabelaRepresentadas();
     preencherSelectRepresentadas();
   });
+  // filtro representadas
+document.getElementById("searchRepresentadas")?.addEventListener("input", () => {
+  representadasCurrentPage = 1;
+  renderTabelaRepresentadas();
+});
+
+// itens por página representadas
+const pageSizeRepInput = document.getElementById("pageSizeRepresentadas");
+if (pageSizeRepInput) {
+  const saved = parseInt(localStorage.getItem("pageSizeRepresentadas") || "", 10);
+  if (!isNaN(saved) && saved > 0) representadasPageSize = saved;
+  pageSizeRepInput.value = String(representadasPageSize);
+
+  const apply = () => {
+    const v = parseInt(pageSizeRepInput.value, 10);
+    if (!v || v < 1) return;
+    representadasPageSize = Math.min(Math.max(v, 1), 200);
+    localStorage.setItem("pageSizeRepresentadas", String(representadasPageSize));
+    representadasCurrentPage = 1;
+    renderTabelaRepresentadas();
+  };
+
+  pageSizeRepInput.addEventListener("change", apply);
+  pageSizeRepInput.addEventListener("blur", apply);
+  pageSizeRepInput.addEventListener("keydown", (e) => {
+    if (e.key === "Enter") apply();
+  });
+}
 }
 
 function renderTabelaRepresentadas() {
@@ -2352,22 +2582,44 @@ function renderTabelaRepresentadas() {
   if (!tbody) return;
 
   tbody.innerHTML = "";
-  representadas.forEach((rep) => {
-    const usuario = formatarNomeUsuario(
-      rep.atualizadoPor || rep.criadoPor || ""
-    );
+
+  const filtrados = getRepresentadasFiltradas();
+  const totalPages = Math.max(1, Math.ceil(filtrados.length / representadasPageSize));
+  if (representadasCurrentPage > totalPages) representadasCurrentPage = totalPages;
+
+  const start = (representadasCurrentPage - 1) * representadasPageSize;
+  const end = start + representadasPageSize;
+  const pageData = filtrados.slice(start, end);
+
+  if (!pageData.length) {
+    const tr = document.createElement("tr");
+    const td = document.createElement("td");
+    td.colSpan = 4;
+    td.textContent = "Nenhuma representada encontrada.";
+    tr.appendChild(td);
+    tbody.appendChild(tr);
+    return;
+  }
+
+  pageData.forEach((rep) => {
+    const usuario = formatarNomeUsuario(rep.atualizadoPor || rep.criadoPor || "");
+    const qtdOfertas = registros.filter((r) => r.representadaId === rep.id).length;
+
     const tr = document.createElement("tr");
     tr.innerHTML = `
       <td>${rep.nome}</td>
+      <td class="col-center">${qtdOfertas}</td>
       <td>${usuario}</td>
-      <td>
-        <button class="btn-sm" onclick="verRepresentada('${rep.id}')">Ver</button>
-        <button class="btn-sm" onclick="editarRepresentada('${rep.id}')">Editar</button>
-        <button class="btn-sm btn-danger" onclick="excluirRepresentada('${rep.id}')">Excluir</button>
+      <td style="text-align:center;">
+        <button class="btn-kebab" onclick="openActionsMenu(event,'rep','${rep.id}')">...</button>
       </td>
     `;
     tbody.appendChild(tr);
   });
+
+  // se você tiver pageInfoRepresentadas no HTML, atualize aqui (opcional)
+  const pageInfo = document.getElementById("pageInfoRepresentadas");
+  if (pageInfo) pageInfo.textContent = `Página ${representadasCurrentPage} de ${totalPages}`;
 }
 
 function preencherSelectRepresentadas() {
@@ -2396,6 +2648,7 @@ function editarRepresentada(id) {
   document
     .getElementById("secRepresentadas")
     .scrollIntoView({ behavior: "smooth" });
+document.getElementById("btnCancelarEdicaoRepresentada")?.classList.remove("hidden");
 }
 
 async function excluirRepresentada(id) {
@@ -2433,14 +2686,16 @@ function verOferta(id) {
 
   const pedido = reg.pedido || {};
   const revisao = reg.revisao || {};
-  const usuario = formatarNomeUsuario(reg.atualizadoPor || reg.criadoPor || "-");
+  const usuario = formatarNomeUsuario(
+    reg.atualizadoPor || reg.criadoPor || "-",
+  );
 
   const tipoTexto =
     reg.tipo_oferta === "compra"
       ? "Compra"
       : reg.tipo_oferta === "orcamento"
-      ? "Orçamento"
-      : "-";
+        ? "Orçamento"
+        : "-";
 
   let html = `
     <div class="modal-grid">
@@ -2457,10 +2712,12 @@ function verOferta(id) {
         <div class="modal-section"><strong>Projeto:</strong> ${reg.nome_projeto || "-"}</div>
         <div class="modal-section"><strong>Representada:</strong> ${reg.representadaNome || "-"}</div>
          ${
-    (String(reg.representadaNome || "").toLowerCase().includes("mantex") && reg.unidade)
-      ? `<div class="modal-section"><strong>Unidade:</strong> ${reg.unidade}</div>`
-      : ""
-  }
+           String(reg.representadaNome || "")
+             .toLowerCase()
+             .includes("mantex") && reg.unidade
+             ? `<div class="modal-section"><strong>Unidade:</strong> ${reg.unidade}</div>`
+             : ""
+         }
       </div>
     </div>
 
@@ -2534,7 +2791,7 @@ function verCliente(id) {
   if (!cli) return;
 
   const usuario = formatarNomeUsuario(
-    cli.atualizadoPor || cli.criadoPor || "-"
+    cli.atualizadoPor || cli.criadoPor || "-",
   );
 
   let html = `
@@ -2561,7 +2818,7 @@ function verCliente(id) {
           ${
             ct.responsavelNome
               ? `<br><strong>Responsável:</strong> ${primeiroNome(
-                  ct.responsavelNome
+                  ct.responsavelNome,
                 )}`
               : ""
           }
@@ -2582,7 +2839,7 @@ function verRepresentada(id) {
   if (!rep) return;
 
   const usuario = formatarNomeUsuario(
-    rep.atualizadoPor || rep.criadoPor || "-"
+    rep.atualizadoPor || rep.criadoPor || "-",
   );
   const qtdOfertas = registros.filter((r) => r.representadaId === id).length;
 
@@ -2883,7 +3140,7 @@ function initForgotPassword() {
 
   btn.addEventListener("click", async () => {
     const email = String(
-      prompt("Digite seu e-mail para enviar o link de troca de senha:") || ""
+      prompt("Digite seu e-mail para enviar o link de troca de senha:") || "",
     ).trim();
 
     if (!email) return;
@@ -2895,13 +3152,13 @@ function initForgotPassword() {
       await auth.sendPasswordResetEmail(email);
 
       setLoginMsg(
-        "✅ Enviamos um e-mail para você trocar a senha (verifique spam/promoções)."
+        "✅ Enviamos um e-mail para você trocar a senha (verifique spam/promoções).",
       );
       alert("E-mail de redefinição enviado!");
     } catch (e) {
       console.error(e);
       setLoginMsg(
-        "❌ Não consegui enviar. Verifique se o e-mail está correto."
+        "❌ Não consegui enviar. Verifique se o e-mail está correto.",
       );
       alert("Erro ao enviar e-mail: " + (e?.message || e));
     } finally {
@@ -2930,7 +3187,7 @@ function initResendEmailVerification() {
 
       // Faz login “silencioso” só para conseguir enviar a verificação
       const pass = String(
-        document.getElementById("loginPass")?.value || ""
+        document.getElementById("loginPass")?.value || "",
       ).trim();
       if (!pass) {
         setLoginMsg("Digite sua senha também (para reenviar a verificação).");
@@ -2955,10 +3212,10 @@ function initResendEmailVerification() {
       await cred.user.sendEmailVerification(actionCodeSettings);
 
       setLoginMsg(
-        "✅ E-mail de verificação reenviado! Verifique Caixa de entrada/Spam."
+        "✅ E-mail de verificação reenviado! Verifique Caixa de entrada/Spam.",
       );
       alert(
-        "E-mail de verificação reenviado! Verifique Caixa de entrada/Spam."
+        "E-mail de verificação reenviado! Verifique Caixa de entrada/Spam.",
       );
 
       // Opcional: desloga pra voltar ao fluxo normal
@@ -2971,10 +3228,10 @@ function initResendEmailVerification() {
         e?.code === "auth/wrong-password"
           ? "Senha incorreta."
           : e?.code === "auth/user-not-found"
-          ? "Usuário não encontrado."
-          : e?.code === "auth/too-many-requests"
-          ? "Muitas tentativas. Aguarde alguns minutos e tente novamente."
-          : "Não consegui reenviar. Erro: " + (e?.message || e);
+            ? "Usuário não encontrado."
+            : e?.code === "auth/too-many-requests"
+              ? "Muitas tentativas. Aguarde alguns minutos e tente novamente."
+              : "Não consegui reenviar. Erro: " + (e?.message || e);
 
       setLoginMsg("❌ " + msg);
       alert(msg);
@@ -3000,7 +3257,7 @@ function initSignup() {
       .toLowerCase();
 
     const pass = String(
-      document.getElementById("signupPass")?.value || ""
+      document.getElementById("signupPass")?.value || "",
     ).trim();
 
     setSignupMsg("");
@@ -3037,7 +3294,7 @@ function initSignup() {
             criadoEm: new Date().toISOString(),
             atualizadoEm: new Date().toISOString(),
           },
-          { merge: true }
+          { merge: true },
         );
 
       // envia e-mail de verificação (com URL certa)
@@ -3050,18 +3307,18 @@ function initSignup() {
         await cred.user.sendEmailVerification(actionCodeSettings);
 
         setSignupMsg(
-          "✅ Conta criada! Enviamos um e-mail para verificação. Depois, aguarde aprovação."
+          "✅ Conta criada! Enviamos um e-mail para verificação. Depois, aguarde aprovação.",
         );
         alert(
-          "Conta criada! Enviamos um e-mail para verificação. Verifique a caixa de entrada e SPAM."
+          "Conta criada! Enviamos um e-mail para verificação. Verifique a caixa de entrada e SPAM.",
         );
       } catch (errMail) {
         console.error("Falha ao enviar email de verificação:", errMail);
         setSignupMsg(
-          "✅ Conta criada! (Não consegui enviar o e-mail agora). Use 'Reenviar verificação' no login."
+          "✅ Conta criada! (Não consegui enviar o e-mail agora). Use 'Reenviar verificação' no login.",
         );
         alert(
-          "Conta criada, mas não consegui enviar o e-mail agora. Tente reenviar no login."
+          "Conta criada, mas não consegui enviar o e-mail agora. Tente reenviar no login.",
         );
       }
 
@@ -3076,10 +3333,10 @@ function initSignup() {
         e?.code === "auth/email-already-in-use"
           ? "Esse e-mail já está cadastrado."
           : e?.code === "auth/invalid-email"
-          ? "E-mail inválido."
-          : e?.code === "auth/weak-password"
-          ? "Senha fraca."
-          : "Erro ao cadastrar: " + (e?.message || e);
+            ? "E-mail inválido."
+            : e?.code === "auth/weak-password"
+              ? "Senha fraca."
+              : "Erro ao cadastrar: " + (e?.message || e);
 
       setSignupMsg("❌ " + msg);
       alert(msg);
@@ -3127,7 +3384,7 @@ async function carregarUsuariosPendentes() {
         aprovado: u.aprovado,
         ativo: u.ativo,
         criadoEm: u.criadoEm,
-      }))
+      })),
     );
 
     const pendentes = all
@@ -3189,7 +3446,7 @@ function initUsuariosExistentesUI() {
 
   btn?.addEventListener("click", carregarUsuariosExistentes);
   search?.addEventListener("input", () =>
-    carregarUsuariosExistentes(search.value)
+    carregarUsuariosExistentes(search.value),
   );
 
   // quando for admin e entrar na tela, já carrega
@@ -3215,7 +3472,7 @@ async function carregarUsuariosExistentes(filtroTexto = "") {
       .filter(
         (u) =>
           !!u.uid &&
-          (u.aprovado === true || u.aprovado === "true" || u.aprovado === 1)
+          (u.aprovado === true || u.aprovado === "true" || u.aprovado === 1),
       )
       .map((u) => ({
         ...u,
@@ -3232,7 +3489,7 @@ async function carregarUsuariosExistentes(filtroTexto = "") {
       existentes = existentes.filter(
         (u) =>
           (u.nome || "").toLowerCase().includes(ft) ||
-          (u.email || "").toLowerCase().includes(ft)
+          (u.email || "").toLowerCase().includes(ft),
       );
     }
 
@@ -3240,7 +3497,7 @@ async function carregarUsuariosExistentes(filtroTexto = "") {
     existentes.sort((a, b) =>
       (a.nome || "").localeCompare(b.nome || "", "pt-BR", {
         sensitivity: "base",
-      })
+      }),
     );
 
     if (!existentes.length) {
@@ -3294,11 +3551,11 @@ async function toggleAtivoUsuario(docId, novoAtivo) {
       atualizadoEm: new Date().toISOString(),
       atualizadoPorAdmin: user.email,
     },
-    { merge: true }
+    { merge: true },
   );
 
   await carregarUsuariosExistentes(
-    document.getElementById("searchUsuariosExistentes")?.value || ""
+    document.getElementById("searchUsuariosExistentes")?.value || "",
   );
 }
 
@@ -3310,7 +3567,7 @@ async function excluirUsuarioFirestore(docId) {
   }
 
   const ok = confirm(
-    "Tem certeza?\n\nIsso vai apagar o usuário do Firestore.\n⚠️ Ele pode continuar existindo no Firebase Authentication."
+    "Tem certeza?\n\nIsso vai apagar o usuário do Firestore.\n⚠️ Ele pode continuar existindo no Firebase Authentication.",
   );
   if (!ok) return;
 
@@ -3319,7 +3576,7 @@ async function excluirUsuarioFirestore(docId) {
   // atualiza as duas listas
   await carregarUsuariosPendentes();
   await carregarUsuariosExistentes(
-    document.getElementById("searchUsuariosExistentes")?.value || ""
+    document.getElementById("searchUsuariosExistentes")?.value || "",
   );
 }
 
@@ -3339,12 +3596,12 @@ async function aprovarUsuario(uid) {
       aprovadoPor: user.email,
       aprovadoEm: new Date().toISOString(),
     },
-    { merge: true }
+    { merge: true },
   );
 
   await carregarUsuariosPendentes();
   await carregarUsuariosExistentes(
-    document.getElementById("searchUsuariosExistentes")?.value || ""
+    document.getElementById("searchUsuariosExistentes")?.value || "",
   );
 }
 
@@ -3364,7 +3621,7 @@ async function bloquearUsuario(uid) {
       bloqueadoPor: user.email,
       bloqueadoEm: new Date().toISOString(),
     },
-    { merge: true }
+    { merge: true },
   );
 
   await carregarUsuariosPendentes();
@@ -3387,11 +3644,7 @@ function initUnidadesMantex() {
 
   if (!repEl || !unidadeEl) return;
 
-  const unidades = [
-    "Mantex (matriz)",
-    "Mantex (filial)",
-    "Sierra",
-  ];
+  const unidades = ["Mantex (matriz)", "Mantex (filial)", "Sierra"];
 
   function atualizar() {
     const repNome =
@@ -3421,4 +3674,127 @@ function initUnidadesMantex() {
 
   // render inicial
   atualizar();
+}
+function cancelarEdicao() {
+  editId = null;
+
+  const form = document.getElementById("formOferta");
+  if (form) form.reset();
+
+  // esconde seções condicionais
+  document.getElementById("secaoPedido")?.classList.add("hidden");
+  document.getElementById("secaoRevisao")?.classList.add("hidden");
+
+  // reseta radios
+  document.querySelector("input[name='pedido'][value='nao']")?.click();
+  document.querySelector("input[name='revisao'][value='nao']")?.click();
+  document.querySelector("input[name='sol_oc'][value='nao']")?.click();
+
+  // esconde unidade Mantex
+  document.getElementById("wrapUnidade")?.classList.add("hidden");
+  const unidadeEl = document.getElementById("unidade");
+  if (unidadeEl) unidadeEl.value = "";
+
+  // volta texto do botão principal
+  const btnAdicionar = document.getElementById("btnAdicionar");
+  if (btnAdicionar) btnAdicionar.textContent = "Adicionar";
+
+  // esconde botão cancelar
+  document.getElementById("btnCancelarEdicao")?.classList.add("hidden");
+
+  window.scrollTo({ top: 0, behavior: "smooth" });
+}
+
+function cancelarEdicaoCliente() {
+  editClienteId = null;
+  contatosTemp = [];
+  editContatoIndex = null;
+
+  // limpa inputs do cliente
+  document.getElementById("cli_razao").value = "";
+  document.getElementById("cli_cnpj").value = "";
+  document.getElementById("cli_ie").value = "";
+  document.getElementById("cli_endereco").value = "";
+  document.getElementById("cli_segmento").value = "";
+
+  // reseta botões/textos
+  document.getElementById("btnSalvarCliente").textContent = "Salvar Cliente";
+  document.getElementById("btnAddContato").textContent = "Adicionar Contato";
+
+  // esconde botão cancelar
+  document.getElementById("btnCancelarEdicaoCliente")?.classList.add("hidden");
+
+  // limpa lista visual dos contatos do cliente
+  renderListaContatos();
+
+  window.scrollTo({ top: 0, behavior: "smooth" });
+}
+
+function cancelarEdicaoRepresentada(){
+  editRepresentadaId = null;
+  document.getElementById("rep_nome").value = "";
+
+  const btn = document.getElementById("btnSalvarRepresentada");
+  if (btn) btn.textContent = "Salvar Representada";
+
+  document.getElementById("btnCancelarEdicaoRepresentada")?.classList.add("hidden");
+  window.scrollTo({ top: 0, behavior: "smooth" });
+}
+document.getElementById("btnCancelarEdicaoRepresentada")
+  ?.addEventListener("click", cancelarEdicaoRepresentada);
+
+
+function getRepresentadasFiltradas(){
+  const term = (document.getElementById("searchRepresentadas")?.value || "")
+    .trim().toLowerCase();
+
+  if (!term) return representadas.slice();
+
+  return representadas.filter(r =>
+    String(r.nome || "").toLowerCase().includes(term)
+  );
+}
+
+function verContatosCliente(id){
+  const cli = clientes.find(c => c.id === id);
+  if (!cli) return;
+
+  let html = `<div class="modal-section">
+    <strong>${cli.razao || "-"}</strong><br>
+    CNPJ: ${cli.cnpj || "-"}
+  </div><hr>`;
+
+  const contatos = cli.contatos || [];
+  if (!contatos.length) {
+    html += `<div class="modal-section">Nenhum contato cadastrado.</div>`;
+    return abrirModal("Contatos do Cliente", html);
+  }
+
+  html += contatos.map(ct => `
+    <div class="modal-section">
+      <strong>${ct.nome || "-"}</strong>
+      ${ct.principal ? ` <span class="modal-badge">Principal</span>` : ``}
+      <br>Função: ${ct.funcao || "-"}
+      <br>Tel: ${ct.telefone || "-"}
+      <br>E-mail: ${ct.email || "-"}
+      ${ct.responsavelNome ? `<br><strong>Responsável:</strong> ${primeiroNome(ct.responsavelNome)}` : ""}
+    </div>
+    <hr>
+  `).join("");
+
+  abrirModal("Contatos do Cliente", html);
+}
+
+function cancelarEdicaoContato() {
+  editContatoIndex = null;
+
+  document.getElementById("ct_nome").value = "";
+  document.getElementById("ct_tel").value = "";
+  document.getElementById("ct_email").value = "";
+  document.getElementById("ct_funcao").value = "";
+  document.getElementById("ct_principal").checked = false;
+  document.getElementById("ct_responsavel").value = "";
+
+  document.getElementById("btnAddContato").textContent = "Adicionar Contato";
+  document.getElementById("btnCancelarEdicaoContato")?.classList.add("hidden");
 }

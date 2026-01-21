@@ -998,6 +998,177 @@ body.dark .modal {
 body .modal-open {
   overflow: hidden;
 }
+/* ===== MENU AÇÕES (⋯) ===== */
+#actionsMenu{
+  position: fixed;
+  z-index: 99999;
 
+  min-width: 180px;
+  padding: 10px;
+  border-radius: 14px;
 
+  background: rgba(18, 34, 74, .98);
+  border: 1px solid rgba(255,255,255,.14);
+  box-shadow: 0 18px 50px rgba(0,0,0,.55);
 
+  opacity: 0;
+  transform: translateY(-6px) scale(.98);
+  pointer-events: none;
+  transition: opacity .12s ease, transform .12s ease;
+}
+
+#actionsMenu.open{
+  opacity: 1;
+  transform: translateY(0) scale(1);
+  pointer-events: auto;
+}
+
+#actionsMenu::before{
+  content: "";
+  position: absolute;
+  left: 50%;
+  width: 10px;
+  height: 10px;
+  background: rgba(18, 34, 74, .98);
+  border-left: 1px solid rgba(255,255,255,.14);
+  border-top: 1px solid rgba(255,255,255,.14);
+  transform: translateX(-50%) rotate(45deg);
+}
+
+#actionsMenu[data-placement="bottom"]::before{ top: -6px; }
+#actionsMenu[data-placement="top"]::before{
+  bottom: -6px;
+  transform: translateX(-50%) rotate(225deg);
+}
+
+#actionsMenu button{
+  width: 100%;
+  text-align: left;
+  padding: 11px 12px;
+  border: 0;
+  border-radius: 12px;
+  background: rgba(45, 37, 145, 0.06);
+  color: rgba(255,255,255,.92);
+  cursor: pointer;
+  font-size: 14px;
+  font-weight: 700;
+}
+
+#actionsMenu button + button{ margin-top: 8px; }
+
+#actionsMenu button:hover{
+  background: rgba(255, 255, 255, 0.12);
+  color: #fff;
+}
+
+#actionsMenu button.danger{
+  background: rgba(255, 91, 91, .10);
+  color: #ff6b6b;
+}
+#actionsMenu button.danger:hover{
+  background: rgba(255, 91, 91, .18);
+  color: #fff;
+}
+
+/* ===== BOTÃO ⋯ ===== */
+.btn-kebab{
+  width: 38px;
+  height: 34px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  line-height: 1;
+  font-size: 18px;
+  font-weight: 900;
+
+  border-radius: 13px;
+  border: 1px solid rgba(255,255,255,.14);
+  background: rgba(255, 255, 255, 0.08);
+  color: rgba(255,255,255,.92);
+  cursor: pointer;
+}
+.btn-kebab:hover{ background: rgba(255,255,255,.14); }
+
+/* ===== LINHA "itens por página" (sem quebrar linha) ===== */
+.page-size-row{
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-wrap: nowrap;
+}
+.page-size-row label{
+  margin: 0;
+  white-space: nowrap;
+}
+.page-size-row input{
+  width: 70px;
+}
+
+/* centralizar colunas numéricas */
+.col-center{ text-align: center !important; }
+
+/* ===== CANCELAR EDIÇÃO (igual ao de ofertas) ===== */
+.btn-cancelar-edicao{
+  width: 100%;
+  margin-top: 10px;
+  border-radius: 999px;
+  padding: 12px 14px;
+  border: 0;
+
+  background: rgb(153, 43, 43);
+  color: #fff;
+  cursor: pointer;
+}
+.btn-cancelar-edicao:hover{
+  background: rgb(204, 60, 60);
+}
+
+/* filtros (clientes / representadas) */
+.filters-row {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  flex-wrap: wrap;
+}
+
+.filters-row .field {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.filters-row input,
+.filters-row select {
+  height: 38px;
+  padding: 0 12px;
+  border-radius: 12px;
+  border: 1px solid rgba(255,255,255,.12);
+  background: rgba(255,255,255,.06);
+  color: #fff;
+  outline: none;
+}
+
+/* ✅ input de buscar com espaço pra digitar */
+.filters-row input[type="text"],
+.filters-row input[type="search"]{
+  min-width: 240px;
+  width: 320px;
+  max-width: 100%;
+}
+
+/* ✅ select do campo ocupa bem também */
+.filters-row select{
+  min-width: 220px;
+  width: 360px;
+  max-width: 100%;
+}
+
+/* mobile */
+@media (max-width: 600px){
+  .filters-row input[type="text"],
+  .filters-row input[type="search"],
+  .filters-row select{
+    width: 100%;
+    min-width: 0;
+  }
+}
