@@ -895,6 +895,9 @@ function initForm() {
       const solicitacao_oc =
         document.querySelector("input[name='sol_oc']:checked")?.value || "nao";
       const ref_oc = document.getElementById("ref_oc");
+      const data_implantacao = document.getElementById("data_implantacao");
+      const numero_nf = document.getElementById("numero_nf");
+
 
       registroBase.pedido = {
         numero_pedido: numero_pedido?.value || "",
@@ -909,6 +912,8 @@ function initForm() {
         prazo_entrega_contratual: prazo_entrega_contratual?.value || "",
         solicitacao_oc,
         ref_oc: ref_oc?.value || "",
+        data_implantacao: data_implantacao?.value || "",
+        numero_nf: numero_nf?.value || ""
       };
     } else {
       registroBase.pedido = null;
@@ -1463,6 +1468,8 @@ function editarRegistro(id) {
     document.getElementById("prazo_entrega_contratual").value =
       reg.pedido.prazo_entrega_contratual || "";
     document.getElementById("ref_oc").value = reg.pedido.ref_oc || "";
+    document.getElementById("data_implantacao").value = reg.pedido?.data_implantacao || "";
+    document.getElementById("numero_nf").value = reg.pedido?.numero_nf || "";
 
     document
       .querySelector(
@@ -1543,8 +1550,8 @@ function exportExcel() {
       "Data Entrada": reg.data_entrada || "",
       Status: reg.status || "",
       "Data Envio": reg.data_envio || "",
-      "Pedido?": reg.possuiPedido === "sim" ? "✅" : "—",
-      "Revisão?": reg.possuiRevisao === "sim" ? "✅" : "—",
+      "Pedido?": reg.possuiPedido === "sim" ? "Sim" : "Não",
+      "Revisão?": reg.possuiRevisao === "sim" ? "Sim" : "Não",
       "Observações Gerais": reg.obs_geral || "",
       "Oferta anterior (revisão)": revisao.numero_oferta_anterior || "",
       "O que mudou (revisão)": revisao.mudou || "",
@@ -2760,10 +2767,12 @@ function verOferta(id) {
           <strong>Obs:</strong> ${pedido.obs || "-"}<br><br>
 
           <strong>Data NF:</strong> ${pedido.data_nf || "-"}<br>
+          <strong>Número NF:</strong> ${pedido.numero_nf || "-"}<br>
           <strong>Valor NF:</strong> ${pedido.valor_nf || "-"}<br>
           <strong>Prazo entrega contratual:</strong> ${pedido.prazo_entrega_contratual || "-"}<br>
           <strong>Solicitação OC?</strong> ${pedido.solicitacao_oc === "sim" ? "Sim" : "Não"}<br>
           <strong>Ref. OC:</strong> ${pedido.ref_oc || "-"}
+          <strong>Data de Implantação:</strong> ${pedido.data_implantacao || "-"}
         </div>
       </div>
     `;
@@ -3797,4 +3806,51 @@ function cancelarEdicaoContato() {
 
   document.getElementById("btnAddContato").textContent = "Adicionar Contato";
   document.getElementById("btnCancelarEdicaoContato")?.classList.add("hidden");
+}
+
+function normalizarRegistroParaExport(reg) {
+  return {
+    id: reg.id,
+    bu: reg.bu,
+    segmento: reg.segmento,
+    razao: reg.razao,
+    cnpj_cliente: reg.cnpj_cliente,
+    solicitante: reg.solicitante,
+    telefone: reg.telefone,
+    email: reg.email,
+    oferta: reg.oferta,
+    nome_projeto: reg.nome_projeto,
+
+    representada: reg.representadaNome || "",
+    unidade: reg.unidade || "",
+
+    valor_total: reg.valor_total,
+    oportunidade: reg.oportunidade,
+    status: reg.status,
+    data_entrada: reg.data_entrada,
+    data_envio: reg.data_envio,
+
+    possui_pedido: reg.possuiPedido === "sim" ? "Sim" : "Não",
+    possui_revisao: reg.possuiRevisao === "sim" ? "Sim" : "Não",
+
+    numero_pedido: reg.pedido?.numero_pedido || "",
+    data_po: reg.pedido?.data_po || "",
+    valor_pedido: reg.pedido?.valor_pedido || "",
+    cond_pagamento: reg.pedido?.cond_pagamento || "",
+
+    numero_nf: reg.pedido?.numero_nf || "",
+    data_nf: reg.pedido?.data_nf || "",
+    valor_nf: reg.pedido?.valor_nf || "",
+
+    data_implantacao: reg.pedido?.data_implantacao || "",
+
+    prazo_entrega_contratual: reg.pedido?.prazo_entrega_contratual || "",
+    ref_oc: reg.pedido?.ref_oc || "",
+
+    revisao_oferta_anterior: reg.revisao?.numero_oferta_anterior || "",
+    revisao_mudou: reg.revisao?.mudou || "",
+
+    criado_por: reg.criadoPor,
+    atualizado_por: reg.atualizadoPor
+  };
 }

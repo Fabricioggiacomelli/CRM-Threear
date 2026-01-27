@@ -1082,8 +1082,8 @@ body .modal-open {
   font-weight: 900;
 
   border-radius: 13px;
-  border: 1px solid rgba(255,255,255,.14);
-  background: rgba(255, 255, 255, 0.08);
+  border: 1px solid rgba(56, 55, 55, 0.315);
+  background: rgba(99, 97, 97, 0.322);
   color: rgba(255,255,255,.92);
   cursor: pointer;
 }
@@ -1171,4 +1171,139 @@ body .modal-open {
     width: 100%;
     min-width: 0;
   }
+}
+
+.filters-row input,
+.filters-row select {
+  height: 38px;
+  padding: 0 12px;
+  border-radius: 12px;
+  border: 1px solid var(--border-soft);
+  background: rgba(249, 250, 251, 0.85);
+  color: var(--text-main);
+}
+body.dark .filters-row input,
+body.dark .filters-row select {
+  border: 1px solid rgba(255,255,255,.12);
+  background: rgba(255,255,255,.06);
+  color: #fff;
+}
+
+/* =========================
+   MENU AÇÕES (⋯) - MODO CLARO (padrão)
+   (cole no FINAL do CSS)
+========================= */
+
+#actionsMenu{
+  position: fixed;
+  z-index: 99999;
+
+  min-width: 180px;
+  padding: 10px;
+  border-radius: 14px;
+
+  /* claro */
+  background: rgba(255, 255, 255, .98);
+  border: 1px solid rgba(17, 24, 39, .12);
+  box-shadow: 0 18px 50px rgba(15, 23, 42, .18);
+
+  opacity: 0;
+  transform: translateY(-6px) scale(.98);
+  pointer-events: none;
+  transition: opacity .12s ease, transform .12s ease;
+}
+
+#actionsMenu.open{
+  opacity: 1;
+  transform: translateY(0) scale(1);
+  pointer-events: auto;
+}
+
+/* setinha */
+#actionsMenu::before{
+  content: "";
+  position: absolute;
+  left: 50%;
+  width: 10px;
+  height: 10px;
+
+  background: rgba(255, 255, 255, .98);
+  border-left: 1px solid rgba(17, 24, 39, .12);
+  border-top: 1px solid rgba(17, 24, 39, .12);
+
+  transform: translateX(-50%) rotate(45deg);
+}
+
+#actionsMenu[data-placement="bottom"]::before{ top: -6px; }
+#actionsMenu[data-placement="top"]::before{
+  bottom: -6px;
+  transform: translateX(-50%) rotate(225deg);
+}
+
+/* botões do menu */
+#actionsMenu button{
+  width: 100%;
+  text-align: left;
+  padding: 11px 12px;
+  border: 0;
+  border-radius: 12px;
+
+  background: rgba(37, 99, 235, .06);
+  color: rgba(17, 24, 39, .92);
+
+  cursor: pointer;
+  font-size: 14px;
+  font-weight: 700;
+}
+
+#actionsMenu button + button{ margin-top: 8px; }
+
+#actionsMenu button:hover{
+  background: rgba(37, 99, 235, .12);
+  color: #111827;
+}
+
+/* excluir */
+#actionsMenu button.danger{
+  background: rgba(220, 38, 38, .08);
+  color: #dc2626;
+}
+#actionsMenu button.danger:hover{
+  background: rgba(220, 38, 38, .14);
+  color: #991b1b;
+}
+
+/* =========================
+   MENU AÇÕES (⋯) - MODO ESCURO (override)
+========================= */
+
+body.dark #actionsMenu{
+  background: rgba(18, 34, 74, .98);
+  border: 1px solid rgba(255,255,255,.14);
+  box-shadow: 0 18px 50px rgba(0,0,0,.55);
+}
+
+body.dark #actionsMenu::before{
+  background: rgba(18, 34, 74, .98);
+  border-left: 1px solid rgba(255,255,255,.14);
+  border-top: 1px solid rgba(255,255,255,.14);
+}
+
+body.dark #actionsMenu button{
+  background: rgba(255, 255, 255, .06);
+  color: rgba(255,255,255,.92);
+}
+
+body.dark #actionsMenu button:hover{
+  background: rgba(255,255,255,.12);
+  color: #fff;
+}
+
+body.dark #actionsMenu button.danger{
+  background: rgba(255, 91, 91, .10);
+  color: #ff6b6b;
+}
+body.dark #actionsMenu button.danger:hover{
+  background: rgba(255, 91, 91, .18);
+  color: #fff;
 }
