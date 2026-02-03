@@ -1,0 +1,51 @@
+// schema.js
+window.OFERTA_SCHEMA = [
+  { key: "bu", label: "BU" },
+  { key: "segmento", label: "Segmento" },
+  { key: "razao", label: "Razão Social" },
+  { key: "cnpj_cliente", label: "CNPJ" },
+  { key: "solicitante", label: "Solicitante" },
+  { key: "telefone", label: "Telefone" },
+  { key: "email", label: "E-mail" },
+
+  // ⚠️ aqui seu registro usa "oferta" e não "numero_oferta"
+  { key: "oferta", label: "Nº da Oferta" },
+
+  { key: "nome_projeto", label: "Nome do Projeto" },
+  { key: "representadaNome", label: "Representada" },
+  { key: "unidade", label: "Unidade (Mantex / Filial / Sierra)" },
+  { key: "valor_total", label: "Valor Total", type: "money" },
+  { key: "ref_cliente", label: "Ref. do Cliente" },
+  { key: "data_entrada", label: "Data Entrada", type: "date" },
+  { key: "status", label: "Status" },
+  { key: "tipo_oferta", label: "Tipo (Compra / Orçamento)" },
+  { key: "data_envio", label: "Data Envio", type: "date" },
+
+  { key: "possuiPedido", label: "Possui Pedido (Sim / Não)", type: "yesno" },
+  { key: "pedido.numero_pedido", label: "Nº Pedido" },
+  { key: "pedido.data_po", label: "Data Entrada P.O", type: "date" },
+  { key: "pedido.valor_pedido", label: "Valor Total Pedido", type: "money" },
+  { key: "pedido.cond_pagamento", label: "Condição de Pagamento" },
+  { key: "pedido.ref_projeto", label: "Ref. Projeto" },
+  { key: "pedido.tipo_produto", label: "Tipo de Produto" },
+  { key: "pedido.obs", label: "Obs" },
+  { key: "pedido.data_nf", label: "Data Nota Fiscal", type: "date" },
+  { key: "pedido.numero_nf", label: "Número da NF" },
+  { key: "pedido.valor_nf", label: "Valor da Nota Fiscal", type: "money" },
+  { key: "pedido.prazo_entrega_contratual", label: "Prazo de Entrega Contratual", type: "date" },
+  { key: "pedido.solicitacao_oc", label: "Solicitação OC", type: "yesno" },
+  { key: "pedido.ref_oc", label: "Ref OC" },
+  { key: "pedido.data_implantacao", label: "Data de Implantação", type: "date" },
+
+  { key: "possuiRevisao", label: "Revisão (Sim / Não)", type: "yesno" },
+  { key: "revisao.numero_oferta_anterior", label: "Nº Oferta Anterior" },
+  { key: "revisao.mudou", label: "O que mudou" },
+
+  { key: "obs_geral", label: "Observações Gerais" },
+  { key: "criadoPor", label: "Criado por" },
+  { key: "atualizadoPor", label: "Atualizado por" },
+];
+
+console.log("schema carregado:", window.OFERTA_SCHEMA.length);
+
+

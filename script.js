@@ -97,14 +97,19 @@ window.addEventListener("load", async () => {
 
   initForm();
 
-document.getElementById("btnCancelarEdicao")
-  ?.addEventListener("click", cancelarEdicao);
+  document
+    .getElementById("btnCancelarEdicao")
+    ?.addEventListener("click", cancelarEdicao);
   document
     .getElementById("btnCancelarCliente")
     ?.addEventListener("click", cancelarEdicaoCliente);
   document
     .getElementById("btnCancelarRepresentada")
     ?.addEventListener("click", cancelarEdicaoRepresentada);
+
+  document.getElementById("btnDashboard")?.addEventListener("click", () => {
+    window.location.href = "dashboard.html";
+  });
 
   initFiltrosEPaginacao();
   initMoneyMask();
@@ -820,6 +825,7 @@ function initForm() {
     const unidadeEl = document.getElementById("unidade"); // ou unidade_mantex se esse for seu id
     const unidade = unidadeEl?.value || "";
     const valor_total = document.getElementById("valor_total");
+    const ref_cliente = document.getElementById("ref_cliente");
     const oportunidade = document.getElementById("oportunidade");
     const data_entrada = document.getElementById("data_entrada");
     const status = document.getElementById("status");
@@ -866,7 +872,7 @@ function initForm() {
         "",
       unidade: unidade,
       valor_total: valor_total.value,
-      oportunidade: oportunidade.value,
+      ref_cliente: ref_cliente?.value?.trim() || "",
       data_entrada: data_entrada.value,
       status: status.value,
       data_envio: data_envio.value,
@@ -898,7 +904,6 @@ function initForm() {
       const data_implantacao = document.getElementById("data_implantacao");
       const numero_nf = document.getElementById("numero_nf");
 
-
       registroBase.pedido = {
         numero_pedido: numero_pedido?.value || "",
         data_po: data_po?.value || "",
@@ -913,7 +918,7 @@ function initForm() {
         solicitacao_oc,
         ref_oc: ref_oc?.value || "",
         data_implantacao: data_implantacao?.value || "",
-        numero_nf: numero_nf?.value || ""
+        numero_nf: numero_nf?.value || "",
       };
     } else {
       registroBase.pedido = null;
@@ -1034,14 +1039,14 @@ function openActionsMenu(ev, type, id) {
     if (type === "rep") verRepresentada(id);
   };
 
-if (btnVerContatos) {
-  const isCliente = type === "cliente";
-  btnVerContatos.style.display = isCliente ? "block" : "none";
-  btnVerContatos.onclick = () => {
-    closeActionsMenu();
-    verContatosCliente(id);
-  };
-}
+  if (btnVerContatos) {
+    const isCliente = type === "cliente";
+    btnVerContatos.style.display = isCliente ? "block" : "none";
+    btnVerContatos.onclick = () => {
+      closeActionsMenu();
+      verContatosCliente(id);
+    };
+  }
 
   btnEditar.onclick = () => {
     closeActionsMenu();
@@ -1102,7 +1107,6 @@ function closeActionsMenu() {
   menu.classList.remove("open");
   actionsMenuState.open = false;
 }
-
 
 /* =======================
    FILTROS / PAGINAÇÃO OFERTAS
@@ -1306,22 +1310,24 @@ function getRegistrosFiltrados() {
 
 function getClientesFiltrados() {
   const term = (document.getElementById("searchClientes")?.value || "")
-    .trim().toLowerCase();
+    .trim()
+    .toLowerCase();
 
-  const field = document.getElementById("filterClientesField")?.value || "todos";
+  const field =
+    document.getElementById("filterClientesField")?.value || "todos";
 
   return clientes.filter((cli) => {
     if (!term) return true;
 
-    const usuario = formatarNomeUsuario(cli.atualizadoPor || cli.criadoPor || "");
+    const usuario = formatarNomeUsuario(
+      cli.atualizadoPor || cli.criadoPor || "",
+    );
 
     if (field === "todos") {
-      const texto = [
-        cli.razao,
-        cli.cnpj,
-        cli.segmento,
-        usuario
-      ].filter(Boolean).join(" ").toLowerCase();
+      const texto = [cli.razao, cli.cnpj, cli.segmento, usuario]
+        .filter(Boolean)
+        .join(" ")
+        .toLowerCase();
       return texto.includes(term);
     }
 
@@ -1417,6 +1423,7 @@ function editarRegistro(id) {
   document.getElementById("oferta").value = reg.oferta || "";
   document.getElementById("nome_projeto").value = reg.nome_projeto || "";
   document.getElementById("valor_total").value = reg.valor_total || "";
+  document.getElementById("ref_cliente").value = reg.ref_cliente || "";
   document.getElementById("data_entrada").value = reg.data_entrada || "";
   document.getElementById("status").value = reg.status || "";
   document.getElementById("data_envio").value = reg.data_envio || "";
@@ -1468,7 +1475,8 @@ function editarRegistro(id) {
     document.getElementById("prazo_entrega_contratual").value =
       reg.pedido.prazo_entrega_contratual || "";
     document.getElementById("ref_oc").value = reg.pedido.ref_oc || "";
-    document.getElementById("data_implantacao").value = reg.pedido?.data_implantacao || "";
+    document.getElementById("data_implantacao").value =
+      reg.pedido?.data_implantacao || "";
     document.getElementById("numero_nf").value = reg.pedido?.numero_nf || "";
 
     document
@@ -1520,62 +1528,37 @@ function exportExcel() {
     return;
   }
 
-  const dados = filtrados.map((reg, i) => {
-    const pedido = reg.pedido || {};
-    const revisao = reg.revisao || {};
-    const usuario = reg.atualizadoPor || reg.criadoPor || "";
-
-    const tipoTexto =
-      reg.tipo_oferta === "compra"
-        ? "Compra"
-        : reg.tipo_oferta === "orcamento"
-          ? "Orçamento"
-          : "";
-
-    return {
-      "#": i + 1,
-      "B.U": reg.bu || "",
-      Segmento: reg.segmento || "",
-      "Razão Social": reg.razao || "",
-      CNPJ: reg.cnpj_cliente || "",
-      Projeto: reg.nome_projeto || "",
-      Representada: reg.representadaNome || "",
-      Solicitante: reg.solicitante || "",
-      Telefone: reg.telefone || "",
-      "E-mail": reg.email || "",
-      "N° Oferta": reg.oferta || "",
-      "Tipo (Compra/Orçamento)": tipoTexto,
-      "Vl. Total": reg.valor_total || "",
-      Oportunidade: reg.oportunidade || "",
-      "Data Entrada": reg.data_entrada || "",
-      Status: reg.status || "",
-      "Data Envio": reg.data_envio || "",
-      "Pedido?": reg.possuiPedido === "sim" ? "Sim" : "Não",
-      "Revisão?": reg.possuiRevisao === "sim" ? "Sim" : "Não",
-      "Observações Gerais": reg.obs_geral || "",
-      "Oferta anterior (revisão)": revisao.numero_oferta_anterior || "",
-      "O que mudou (revisão)": revisao.mudou || "",
-      "N° Pedido": pedido.numero_pedido || "",
-      "Vl. Total Pedido": pedido.valor_pedido || "",
-      "Data P.O": pedido.data_po || "",
-      "Cond. Pagamento": pedido.cond_pagamento || "",
-      "Ref./Projeto (Pedido)": pedido.ref_projeto || "",
-      "Tipo Produto": pedido.tipo_produto || "",
-      "Obs Pedido": pedido.obs || "",
-      "Data NF": pedido.data_nf || "",
-      "Valor NF": pedido.valor_nf || "",
-      "Prazo entrega contratual": pedido.prazo_entrega_contratual || "",
-      "Solicitação OC?": pedido.solicitacao_oc
-        ? pedido.solicitacao_oc === "sim"
-          ? "Sim"
-          : "Não"
-        : "",
-      "Ref. OC": pedido.ref_oc || "",
-      Usuário: usuario,
-    };
+  console.log("DEBUG EXPORT", {
+    registrosLen: registros?.length,
+    filtradosLen: getRegistrosFiltrados()?.length,
+    term: document.getElementById("searchTerm")?.value,
+    field: document.getElementById("filterField")?.value,
+    status: document.getElementById("statusFilter")?.value,
+    pedido: document.getElementById("pedidoFilter")?.value,
+    revisao: document.getElementById("revisaoFilter")?.value,
+    schemaLen: (window.OFERTA_SCHEMA || []).length,
+    schemaSample: (window.OFERTA_SCHEMA || [])[0],
+    sampleRegistro: (getRegistrosFiltrados() || [])[0],
   });
 
-  const ws = XLSX.utils.json_to_sheet(dados);
+  // monta uma linha por registro seguindo o schema
+  const linhas = filtrados.map((reg, i) => {
+    const row = {};
+    row["#"] = i + 1;
+
+    (window.OFERTA_SCHEMA || []).forEach((c) => {
+      let val = getByPath(reg, c.key);
+
+      if (c.type === "yesno") val = asYesNo(val);
+      if (c.type === "date") val = formatDateBR(val);
+
+      row[c.label] = val ?? "";
+    });
+
+    return row;
+  });
+
+  const ws = XLSX.utils.json_to_sheet(linhas);
   const wb = XLSX.utils.book_new();
   XLSX.utils.book_append_sheet(wb, ws, "Registros");
   XLSX.writeFile(wb, "registros_ofertas.xlsx");
@@ -1587,6 +1570,8 @@ function exportPdf() {
     alert("Nenhum registro para exportar.");
     return;
   }
+
+  const cols = ["#", ...(window.OFERTA_SCHEMA || []).map((c) => c.label)];
 
   let html = `
     <html>
@@ -1603,54 +1588,26 @@ function exportPdf() {
       <body>
         <h2>Registros de Ofertas</h2>
         <table>
-          <thead>
-            <tr>
-              <th>#</th>
-              <th>B.U</th>
-              <th>Razão Social</th>
-              <th>CNPJ</th>
-              <th>Projeto</th>
-              <th>Representada</th>
-              <th>N° Oferta</th>
-              <th>Tipo</th>
-              <th>Vl. Total</th>
-              <th>Status</th>
-              <th>Pedido?</th>
-              <th>Revisão?</th>
-              <th>Obs Geral</th>
-              <th>Usuário</th>
-            </tr>
-          </thead>
+          <thead><tr>
+            ${cols.map((c) => `<th>${escapeHtml(c)}</th>`).join("")}
+          </tr></thead>
           <tbody>
   `;
 
   filtrados.forEach((reg, i) => {
-    const usuario = reg.atualizadoPor || reg.criadoPor || "";
-    const tipoTexto =
-      reg.tipo_oferta === "compra"
-        ? "Compra"
-        : reg.tipo_oferta === "orcamento"
-          ? "Orçamento"
-          : "";
+    const tds = [];
+    tds.push(`<td>${i + 1}</td>`);
 
-    html += `
-      <tr>
-        <td>${i + 1}</td>
-        <td>${reg.bu || ""}</td>
-        <td>${reg.razao || ""}</td>
-        <td>${reg.cnpj_cliente || ""}</td>
-        <td>${reg.nome_projeto || ""}</td>
-        <td>${reg.representadaNome || ""}</td>
-        <td>${reg.oferta || ""}</td>
-        <td>${tipoTexto}</td>
-        <td>${reg.valor_total || ""}</td>
-        <td>${reg.status || ""}</td>
-        <td>${reg.possuiPedido === "sim" ? "Sim" : "Não"}</td>
-        <td>${reg.possuiRevisao === "sim" ? "Sim" : "Não"}</td>
-        <td>${(reg.obs_geral || "").toString().replace(/\n/g, "<br>")}</td>
-        <td>${usuario}</td>
-      </tr>
-    `;
+    (window.OFERTA_SCHEMA || []).forEach((c) => {
+      let val = getByPath(reg, c.key);
+
+      if (c.type === "yesno") val = asYesNo(val);
+      if (c.type === "date") val = formatDateBR(val);
+
+      tds.push(`<td>${String(val ?? "").replace(/\n/g, "<br>")}</td>`);
+    });
+
+    html += `<tr>${tds.join("")}</tr>`;
   });
 
   html += `
@@ -1665,6 +1622,59 @@ function exportPdf() {
   win.document.close();
   win.focus();
   win.print();
+}
+
+function getByPath(obj, path) {
+  return path
+    .split(".")
+    .reduce((acc, k) => (acc && acc[k] != null ? acc[k] : ""), obj);
+}
+
+function asYesNo(v) {
+  if (v === "sim") return "Sim";
+  if (v === "nao") return "Não";
+  if (v === true) return "Sim";
+  if (v === false) return "Não";
+  return v ? String(v) : "";
+}
+
+function formatDateBR(v) {
+  if (!v) return "-";
+
+  // Firestore Timestamp (v2 ou compat)
+  if (typeof v === "object") {
+    if (typeof v.toDate === "function") {
+      v = v.toDate(); // vira Date
+    } else if (typeof v.seconds === "number") {
+      v = new Date(v.seconds * 1000); // Timestamp "cru"
+    }
+  }
+
+  // Date JS
+  if (v instanceof Date) {
+    const dd = String(v.getDate()).padStart(2, "0");
+    const mm = String(v.getMonth() + 1).padStart(2, "0");
+    const yy = v.getFullYear();
+    return `${dd}/${mm}/${yy}`;
+  }
+
+  // string (ex: "2026-02-02")
+  const s = String(v).trim();
+  if (!s) return "-";
+
+  if (/^\d{4}-\d{2}-\d{2}$/.test(s)) {
+    const [y, m, d] = s.split("-");
+    return `${d}/${m}/${y}`;
+  }
+
+  // se vier "2026-02-02T..." também converte
+  if (/^\d{4}-\d{2}-\d{2}T/.test(s)) {
+    const [ymd] = s.split("T");
+    const [y, m, d] = ymd.split("-");
+    return `${d}/${m}/${y}`;
+  }
+
+  return s; // fallback
 }
 
 /* =======================
@@ -2096,7 +2106,10 @@ function initClientesUI() {
   });
 
   document.getElementById("btnNextClientes")?.addEventListener("click", () => {
-    const totalPages = Math.max(1, Math.ceil(clientes.length / clientesPageSize));
+    const totalPages = Math.max(
+      1,
+      Math.ceil(clientes.length / clientesPageSize),
+    );
     if (clientesCurrentPage < totalPages) {
       clientesCurrentPage++;
       renderTabelaClientes();
@@ -2164,7 +2177,9 @@ function initClientesUI() {
       contatosTemp[editContatoIndex] = contatoBase;
       editContatoIndex = null;
       btnAddContato.textContent = "Adicionar Contato";
-      document.getElementById("btnCancelarEdicaoContato")?.classList.add("hidden");
+      document
+        .getElementById("btnCancelarEdicaoContato")
+        ?.classList.add("hidden");
     }
 
     // limpa campos contato
@@ -2185,8 +2200,10 @@ function initClientesUI() {
     const razao = document.getElementById("cli_razao")?.value.trim() || "";
     const cnpj = document.getElementById("cli_cnpj")?.value.trim() || "";
     const ie = document.getElementById("cli_ie")?.value.trim() || "";
-    const endereco = document.getElementById("cli_endereco")?.value.trim() || "";
-    const segmento = document.getElementById("cli_segmento")?.value.trim() || "";
+    const endereco =
+      document.getElementById("cli_endereco")?.value.trim() || "";
+    const segmento =
+      document.getElementById("cli_segmento")?.value.trim() || "";
     const currentUser = getCurrentUserName();
 
     if (!razao || !cnpj) {
@@ -2246,7 +2263,9 @@ function initClientesUI() {
         alert("Cliente atualizado!");
         editClienteId = null;
         btnSalvarCliente.textContent = "Salvar Cliente";
-        document.getElementById("btnCancelarEdicaoCliente")?.classList.add("hidden");
+        document
+          .getElementById("btnCancelarEdicaoCliente")
+          ?.classList.add("hidden");
       }
 
       salvarClientes();
@@ -2256,7 +2275,9 @@ function initClientesUI() {
       editContatoIndex = null;
 
       btnAddContato.textContent = "Adicionar Contato";
-      document.getElementById("btnCancelarEdicaoContato")?.classList.add("hidden");
+      document
+        .getElementById("btnCancelarEdicaoContato")
+        ?.classList.add("hidden");
 
       renderListaContatos();
       renderTabelaClientes();
@@ -2326,7 +2347,9 @@ function editarContato(index) {
 
   editContatoIndex = index;
   document.getElementById("btnAddContato").textContent = "Salvar Edição";
-  document.getElementById("btnCancelarEdicaoContato")?.classList.remove("hidden");
+  document
+    .getElementById("btnCancelarEdicaoContato")
+    ?.classList.remove("hidden");
 }
 
 function excluirContato(index) {
@@ -2345,7 +2368,10 @@ function renderTabelaClientes() {
   tbody.innerHTML = "";
 
   const filtrados = getClientesFiltrados();
-  const totalPages = Math.max(1, Math.ceil(filtrados.length / clientesPageSize));
+  const totalPages = Math.max(
+    1,
+    Math.ceil(filtrados.length / clientesPageSize),
+  );
   if (clientesCurrentPage > totalPages) clientesCurrentPage = totalPages;
 
   const start = (clientesCurrentPage - 1) * clientesPageSize;
@@ -2363,7 +2389,9 @@ function renderTabelaClientes() {
     pageData.forEach((cli) => {
       const tr = document.createElement("tr");
       const qtdContatos = cli.contatos ? cli.contatos.length : 0;
-      const usuario = formatarNomeUsuario(cli.atualizadoPor || cli.criadoPor || "-");
+      const usuario = formatarNomeUsuario(
+        cli.atualizadoPor || cli.criadoPor || "-",
+      );
 
       tr.innerHTML = `
         <td>${cli.razao || ""}</td>
@@ -2379,7 +2407,8 @@ function renderTabelaClientes() {
     });
   }
 
-  if (pageInfoClientes) pageInfoClientes.textContent = `Página ${clientesCurrentPage} de ${totalPages}`;
+  if (pageInfoClientes)
+    pageInfoClientes.textContent = `Página ${clientesCurrentPage} de ${totalPages}`;
 }
 
 function editarCliente(id) {
@@ -2404,7 +2433,9 @@ function editarCliente(id) {
   if (btnSalvarCliente) btnSalvarCliente.textContent = "Salvar Edição";
 
   document.getElementById("secClientes").scrollIntoView({ behavior: "smooth" });
-  document.getElementById("btnCancelarEdicaoCliente")?.classList.remove("hidden");
+  document
+    .getElementById("btnCancelarEdicaoCliente")
+    ?.classList.remove("hidden");
 }
 
 async function excluirCliente(id) {
@@ -2546,7 +2577,9 @@ function initRepresentadasUI() {
       alert("Representada atualizada!");
       editRepresentadaId = null;
       btn.textContent = "Salvar Representada";
-document.getElementById("btnCancelarEdicaoRepresentada")?.classList.add("hidden");
+      document
+        .getElementById("btnCancelarEdicaoRepresentada")
+        ?.classList.add("hidden");
     }
 
     salvarRepresentadas();
@@ -2555,33 +2588,41 @@ document.getElementById("btnCancelarEdicaoRepresentada")?.classList.add("hidden"
     preencherSelectRepresentadas();
   });
   // filtro representadas
-document.getElementById("searchRepresentadas")?.addEventListener("input", () => {
-  representadasCurrentPage = 1;
-  renderTabelaRepresentadas();
-});
+  document
+    .getElementById("searchRepresentadas")
+    ?.addEventListener("input", () => {
+      representadasCurrentPage = 1;
+      renderTabelaRepresentadas();
+    });
 
-// itens por página representadas
-const pageSizeRepInput = document.getElementById("pageSizeRepresentadas");
-if (pageSizeRepInput) {
-  const saved = parseInt(localStorage.getItem("pageSizeRepresentadas") || "", 10);
-  if (!isNaN(saved) && saved > 0) representadasPageSize = saved;
-  pageSizeRepInput.value = String(representadasPageSize);
+  // itens por página representadas
+  const pageSizeRepInput = document.getElementById("pageSizeRepresentadas");
+  if (pageSizeRepInput) {
+    const saved = parseInt(
+      localStorage.getItem("pageSizeRepresentadas") || "",
+      10,
+    );
+    if (!isNaN(saved) && saved > 0) representadasPageSize = saved;
+    pageSizeRepInput.value = String(representadasPageSize);
 
-  const apply = () => {
-    const v = parseInt(pageSizeRepInput.value, 10);
-    if (!v || v < 1) return;
-    representadasPageSize = Math.min(Math.max(v, 1), 200);
-    localStorage.setItem("pageSizeRepresentadas", String(representadasPageSize));
-    representadasCurrentPage = 1;
-    renderTabelaRepresentadas();
-  };
+    const apply = () => {
+      const v = parseInt(pageSizeRepInput.value, 10);
+      if (!v || v < 1) return;
+      representadasPageSize = Math.min(Math.max(v, 1), 200);
+      localStorage.setItem(
+        "pageSizeRepresentadas",
+        String(representadasPageSize),
+      );
+      representadasCurrentPage = 1;
+      renderTabelaRepresentadas();
+    };
 
-  pageSizeRepInput.addEventListener("change", apply);
-  pageSizeRepInput.addEventListener("blur", apply);
-  pageSizeRepInput.addEventListener("keydown", (e) => {
-    if (e.key === "Enter") apply();
-  });
-}
+    pageSizeRepInput.addEventListener("change", apply);
+    pageSizeRepInput.addEventListener("blur", apply);
+    pageSizeRepInput.addEventListener("keydown", (e) => {
+      if (e.key === "Enter") apply();
+    });
+  }
 }
 
 function renderTabelaRepresentadas() {
@@ -2591,8 +2632,12 @@ function renderTabelaRepresentadas() {
   tbody.innerHTML = "";
 
   const filtrados = getRepresentadasFiltradas();
-  const totalPages = Math.max(1, Math.ceil(filtrados.length / representadasPageSize));
-  if (representadasCurrentPage > totalPages) representadasCurrentPage = totalPages;
+  const totalPages = Math.max(
+    1,
+    Math.ceil(filtrados.length / representadasPageSize),
+  );
+  if (representadasCurrentPage > totalPages)
+    representadasCurrentPage = totalPages;
 
   const start = (representadasCurrentPage - 1) * representadasPageSize;
   const end = start + representadasPageSize;
@@ -2609,8 +2654,12 @@ function renderTabelaRepresentadas() {
   }
 
   pageData.forEach((rep) => {
-    const usuario = formatarNomeUsuario(rep.atualizadoPor || rep.criadoPor || "");
-    const qtdOfertas = registros.filter((r) => r.representadaId === rep.id).length;
+    const usuario = formatarNomeUsuario(
+      rep.atualizadoPor || rep.criadoPor || "",
+    );
+    const qtdOfertas = registros.filter(
+      (r) => r.representadaId === rep.id,
+    ).length;
 
     const tr = document.createElement("tr");
     tr.innerHTML = `
@@ -2626,7 +2675,8 @@ function renderTabelaRepresentadas() {
 
   // se você tiver pageInfoRepresentadas no HTML, atualize aqui (opcional)
   const pageInfo = document.getElementById("pageInfoRepresentadas");
-  if (pageInfo) pageInfo.textContent = `Página ${representadasCurrentPage} de ${totalPages}`;
+  if (pageInfo)
+    pageInfo.textContent = `Página ${representadasCurrentPage} de ${totalPages}`;
 }
 
 function preencherSelectRepresentadas() {
@@ -2655,7 +2705,9 @@ function editarRepresentada(id) {
   document
     .getElementById("secRepresentadas")
     .scrollIntoView({ behavior: "smooth" });
-document.getElementById("btnCancelarEdicaoRepresentada")?.classList.remove("hidden");
+  document
+    .getElementById("btnCancelarEdicaoRepresentada")
+    ?.classList.remove("hidden");
 }
 
 async function excluirRepresentada(id) {
@@ -2689,6 +2741,11 @@ async function excluirRepresentada(id) {
 ======================= */
 function verOferta(id) {
   const reg = registros.find((r) => r.id === id);
+  console.log("DEBUG tipo_oferta:", {
+    tipo_oferta: reg.tipo_oferta,
+    raw: JSON.stringify(reg.tipo_oferta),
+    typeof: typeof reg.tipo_oferta,
+  });
   if (!reg) return;
 
   const pedido = reg.pedido || {};
@@ -2697,12 +2754,21 @@ function verOferta(id) {
     reg.atualizadoPor || reg.criadoPor || "-",
   );
 
+  const tipoRaw = String(reg.tipo_oferta ?? "")
+    .trim()
+    .toLowerCase();
+
+  // normaliza acento (orçamento -> orcamento)
+  const tipoNorm = tipoRaw.normalize("NFD").replace(/[\u0300-\u036f]/g, "");
+
   const tipoTexto =
-    reg.tipo_oferta === "compra"
+    tipoNorm === "compra"
       ? "Compra"
-      : reg.tipo_oferta === "orcamento"
+      : tipoNorm === "orcamento"
         ? "Orçamento"
-        : "-";
+        : tipoRaw
+          ? reg.tipo_oferta
+          : "-";
 
   let html = `
     <div class="modal-grid">
@@ -2728,13 +2794,23 @@ function verOferta(id) {
       </div>
     </div>
 
-    <div class="modal-card">
+<div class="modal-card">
       <div class="modal-card-title">Oferta</div>
+
       <div class="modal-section"><strong>N° Oferta:</strong> ${reg.oferta || "-"}</div>
+
+      <div class="modal-section"><strong>Solicitante:</strong> ${reg.solicitante || "-"}</div>
+      <div class="modal-section"><strong>Telefone:</strong> ${reg.telefone || "-"}</div>
+      <div class="modal-section"><strong>E-mail:</strong> ${reg.email || "-"}</div>
+
       <div class="modal-section"><strong>Tipo:</strong> ${tipoTexto}</div>
-      <div class="modal-section"><strong>Valor Total:</strong> ${reg.valor_total || "-"}</div>
-      <div class="modal-section"><strong>Oportunidade:</strong> ${reg.oportunidade || "-"}</div>
+      <div class="modal-section"><strong>Valor:</strong> ${reg.valor_total || "-"}</div>
       <div class="modal-section"><strong>Status:</strong> ${reg.status || "-"}</div>
+
+      <div class="modal-section"><strong>Referência:</strong> ${reg.ref_cliente || "-"}</div>
+
+      <div class="modal-section"><strong>Data Entrada:</strong> ${formatDateBR(reg.data_entrada) || "-"}</div>
+      <div class="modal-section"><strong>Data Envio:</strong> ${formatDateBR(reg.data_envio) || "-"}</div>
     </div>
 
     <div class="modal-card">
@@ -2752,40 +2828,40 @@ function verOferta(id) {
     `;
   }
 
-  if (reg.possuiPedido === "sim") {
-    html += `
-      <hr>
-      <div class="modal-card">
-        <div class="modal-card-title">Pedido</div>
-        <div class="modal-section">
-          <strong>N° Pedido:</strong> ${pedido.numero_pedido || "-"}<br>
-          <strong>Data P.O:</strong> ${pedido.data_po || "-"}<br>
-          <strong>Valor Pedido:</strong> ${pedido.valor_pedido || "-"}<br>
-          <strong>Condição de Pagamento:</strong> ${pedido.cond_pagamento || "-"}<br>
-          <strong>Ref./Projeto:</strong> ${pedido.ref_projeto || "-"}<br>
-          <strong>Tipo de Produto:</strong> ${pedido.tipo_produto || "-"}<br>
-          <strong>Obs:</strong> ${pedido.obs || "-"}<br><br>
+if (reg.possuiPedido === "sim") {
+  html += `
+    <hr>
+    <div class="modal-card">
+      <div class="modal-card-title">Pedido</div>
+      <div class="modal-section">
+        <strong>N° Pedido:</strong> ${pedido.numero_pedido || "-"}<br>
+        <strong>Data P.O:</strong> ${formatDateBR(pedido.data_po)}<br>
+        <strong>Valor Pedido:</strong> ${pedido.valor_pedido || "-"}<br>
+        <strong>Condição de Pagamento:</strong> ${pedido.cond_pagamento || "-"}<br>
+        <strong>Ref./Projeto:</strong> ${pedido.ref_projeto || "-"}<br>
+        <strong>Tipo de Produto:</strong> ${pedido.tipo_produto || "-"}<br>
+        <strong>Obs:</strong> ${pedido.obs || "-"}<br><br>
 
-          <strong>Data NF:</strong> ${pedido.data_nf || "-"}<br>
-          <strong>Número NF:</strong> ${pedido.numero_nf || "-"}<br>
-          <strong>Valor NF:</strong> ${pedido.valor_nf || "-"}<br>
-          <strong>Prazo entrega contratual:</strong> ${pedido.prazo_entrega_contratual || "-"}<br>
-          <strong>Solicitação OC?</strong> ${pedido.solicitacao_oc === "sim" ? "Sim" : "Não"}<br>
-          <strong>Ref. OC:</strong> ${pedido.ref_oc || "-"}
-          <strong>Data de Implantação:</strong> ${pedido.data_implantacao || "-"}
-        </div>
+        <strong>Data NF:</strong> ${formatDateBR(pedido.data_nf)}<br>
+        <strong>Número NF:</strong> ${pedido.numero_nf || "-"}<br>
+        <strong>Valor NF:</strong> ${pedido.valor_nf || "-"}<br>
+        <strong>Prazo entrega contratual:</strong> ${formatDateBR(pedido.prazo_entrega_contratual)}<br>
+        <strong>Solicitação OC?</strong> ${pedido.solicitacao_oc === "sim" ? "Sim" : "Não"}<br>
+        <strong>Ref. OC:</strong> ${pedido.ref_oc || "-"}<br>
+        <strong>Data de Implantação:</strong> ${formatDateBR(pedido.data_implantacao)}<br>
       </div>
-    `;
-  } else {
-    html += `<div class="modal-section"><strong>Pedido?</strong> Não</div>`;
-  }
+    </div>
+  `;
+} else {
+  html += `<div class="modal-section"><strong>Pedido?</strong> Não</div>`;
+}
 
   if (reg.possuiRevisao === "sim") {
     html += `
       <hr>
       <div class="modal-card">
         <div class="modal-card-title">Revisão</div>
-        <div class="modal-section"><strong>Oferta anterior:</strong> ${revisao.numero_oferta_anterior || "-"}</div>
+        <div class="modal-section"><strong>N° Oferta anterior:</strong> ${revisao.numero_oferta_anterior || "-"}</div>
         <div class="modal-section"><strong>O que mudou:</strong> ${(revisao.mudou || "-").toString().replace(/\n/g, "<br>")}</div>
       </div>
     `;
@@ -3739,33 +3815,38 @@ function cancelarEdicaoCliente() {
   window.scrollTo({ top: 0, behavior: "smooth" });
 }
 
-function cancelarEdicaoRepresentada(){
+function cancelarEdicaoRepresentada() {
   editRepresentadaId = null;
   document.getElementById("rep_nome").value = "";
 
   const btn = document.getElementById("btnSalvarRepresentada");
   if (btn) btn.textContent = "Salvar Representada";
 
-  document.getElementById("btnCancelarEdicaoRepresentada")?.classList.add("hidden");
+  document
+    .getElementById("btnCancelarEdicaoRepresentada")
+    ?.classList.add("hidden");
   window.scrollTo({ top: 0, behavior: "smooth" });
 }
-document.getElementById("btnCancelarEdicaoRepresentada")
+document
+  .getElementById("btnCancelarEdicaoRepresentada")
   ?.addEventListener("click", cancelarEdicaoRepresentada);
 
-
-function getRepresentadasFiltradas(){
+function getRepresentadasFiltradas() {
   const term = (document.getElementById("searchRepresentadas")?.value || "")
-    .trim().toLowerCase();
+    .trim()
+    .toLowerCase();
 
   if (!term) return representadas.slice();
 
-  return representadas.filter(r =>
-    String(r.nome || "").toLowerCase().includes(term)
+  return representadas.filter((r) =>
+    String(r.nome || "")
+      .toLowerCase()
+      .includes(term),
   );
 }
 
-function verContatosCliente(id){
-  const cli = clientes.find(c => c.id === id);
+function verContatosCliente(id) {
+  const cli = clientes.find((c) => c.id === id);
   if (!cli) return;
 
   let html = `<div class="modal-section">
@@ -3779,7 +3860,9 @@ function verContatosCliente(id){
     return abrirModal("Contatos do Cliente", html);
   }
 
-  html += contatos.map(ct => `
+  html += contatos
+    .map(
+      (ct) => `
     <div class="modal-section">
       <strong>${ct.nome || "-"}</strong>
       ${ct.principal ? ` <span class="modal-badge">Principal</span>` : ``}
@@ -3789,7 +3872,9 @@ function verContatosCliente(id){
       ${ct.responsavelNome ? `<br><strong>Responsável:</strong> ${primeiroNome(ct.responsavelNome)}` : ""}
     </div>
     <hr>
-  `).join("");
+  `,
+    )
+    .join("");
 
   abrirModal("Contatos do Cliente", html);
 }
@@ -3806,51 +3891,4 @@ function cancelarEdicaoContato() {
 
   document.getElementById("btnAddContato").textContent = "Adicionar Contato";
   document.getElementById("btnCancelarEdicaoContato")?.classList.add("hidden");
-}
-
-function normalizarRegistroParaExport(reg) {
-  return {
-    id: reg.id,
-    bu: reg.bu,
-    segmento: reg.segmento,
-    razao: reg.razao,
-    cnpj_cliente: reg.cnpj_cliente,
-    solicitante: reg.solicitante,
-    telefone: reg.telefone,
-    email: reg.email,
-    oferta: reg.oferta,
-    nome_projeto: reg.nome_projeto,
-
-    representada: reg.representadaNome || "",
-    unidade: reg.unidade || "",
-
-    valor_total: reg.valor_total,
-    oportunidade: reg.oportunidade,
-    status: reg.status,
-    data_entrada: reg.data_entrada,
-    data_envio: reg.data_envio,
-
-    possui_pedido: reg.possuiPedido === "sim" ? "Sim" : "Não",
-    possui_revisao: reg.possuiRevisao === "sim" ? "Sim" : "Não",
-
-    numero_pedido: reg.pedido?.numero_pedido || "",
-    data_po: reg.pedido?.data_po || "",
-    valor_pedido: reg.pedido?.valor_pedido || "",
-    cond_pagamento: reg.pedido?.cond_pagamento || "",
-
-    numero_nf: reg.pedido?.numero_nf || "",
-    data_nf: reg.pedido?.data_nf || "",
-    valor_nf: reg.pedido?.valor_nf || "",
-
-    data_implantacao: reg.pedido?.data_implantacao || "",
-
-    prazo_entrega_contratual: reg.pedido?.prazo_entrega_contratual || "",
-    ref_oc: reg.pedido?.ref_oc || "",
-
-    revisao_oferta_anterior: reg.revisao?.numero_oferta_anterior || "",
-    revisao_mudou: reg.revisao?.mudou || "",
-
-    criado_por: reg.criadoPor,
-    atualizado_por: reg.atualizadoPor
-  };
 }

@@ -86,9 +86,6 @@
         <span class="label">Representadas</span>
       </button>
 
-
-
-
       <button type="button" class="menu-item hidden" id="menuAprovacao" onclick="irPara('aprovacao')">
         <span class="icon">✅</span>
         <span class="label">Aprovar Usuários</span>
@@ -99,7 +96,10 @@
         <span class="label" id="themeLabel">Modo escuro</span>
       </button>
 
-
+      <button type="button" class="menu-item" id="btnDashboard">
+        <span class="icon">📊</span>
+        <span class="label">Dashboard</span>  
+      </button>
 
       <button type="button" class="menu-item logout" onclick="logout()">
         <span class="icon">🚪</span>
@@ -243,8 +243,8 @@
               <label for="valor_total">Vl. Total</label>
               <input type="text" id="valor_total" class="money" placeholder="R$">
 
-              <label for="oportunidade">Ref. do Cliente</label>
-              <input type="text" id="oportunidade">
+              <label for="ref_cliente">Ref. do Cliente</label>
+              <input id="ref_cliente" type="text">
 
               <label for="data_entrada">Data Entrada</label>
               <input type="date" id="data_entrada">
@@ -255,8 +255,8 @@
               <label for="tipo_oferta">Tipo</label>
               <select id="tipo_oferta">
                 <option value="">Selecione</option>
-                <option value="Compra">Compra</option>
-                <option value="Orçamento">Orçamento</option>
+                <option value="compra">Compra</option>
+                <option value="orcamento">Orçamento</option>
               </select>
 
               <label for="data_envio">Data Envio</label>
@@ -340,7 +340,7 @@
                   <label><input type="radio" name="sol_oc" value="nao" checked> Não</label>
                 </div>
 
-                <label for="ref_oc">Ref de ordem de compra</label>
+                <label for="ref_oc">Ref da ordem de compra</label>
                 <input type="text" id="ref_oc">
 
                 <label for="data_implantacao">Data de Implantação</label>
@@ -657,7 +657,8 @@
   <script src="./firebase.js"></script>
 
   <!-- seu app -->
-  <script src="./script.js" defer></script>
+  <script src="schema.js" defer></script>
+  <script src="script.js" defer></script>
 </body>
 
 </html>

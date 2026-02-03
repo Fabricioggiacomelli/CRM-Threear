@@ -20,4 +20,6 @@ backup_*.xlsx
 .vscode/
 
 
-
+dashboard.html
+dashboard.css
+dashboard.js
