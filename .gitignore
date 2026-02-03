@@ -18,8 +18,3 @@ backup_*.xlsx
 # OS / Editor
 .DS_Store
 .vscode/
-
-
-dashboard.html
-dashboard.css
-dashboard.js

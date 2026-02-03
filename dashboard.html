@@ -1,0 +1,148 @@
+<!DOCTYPE html>
+<html lang="pt-br">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Dashboard - CRM Three Ar</title>
+
+  <!-- seu CSS global -->
+  <link rel="stylesheet" href="style.css" />
+  <!-- CSS do dashboard -->
+  <link rel="stylesheet" href="dashboard.css" />
+
+  <!-- Chart.js (se você já usa, mantém; se não usa ainda, cola esse) -->
+  <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+</head>
+
+<body class="dark">
+  <!-- SIDEBAR (mesma que você já usa) -->
+  <aside class="sidebar" id="sidebar">
+    <!-- seu header/logo -->
+    <div class="sidebar-header">
+      <div class="sidebar-logo">R</div>
+      <div class="sidebar-title">ThreeAr</div>
+    </div>
+
+    <div class="sidebar-menu">
+      <button class="menu-item" id="btnDashboard">
+        <span class="icon">📊</span><span class="label">CRM-Three</span>
+      </button>
+
+      <button class="menu-item logout" id="btnSair"><span class="icon">🚪</span><span class="label">Sair</span></button>
+      
+    </div>
+        <button class="collapse-btn" type="button" onclick="toggleSidebar()">⮜</button>
+
+  </aside>
+
+  <main class="main-content">
+    <div class="container">
+      <div class="topbar">
+        <div>
+          <h1>Dashboard (*FASE TESTE*)</h1>
+          <div class="subtitle">Visão geral + filtros + alertas</div>
+        </div>
+        <div class="topbar-right">
+          <span id="userInfo"></span>
+        </div>
+      </div>
+
+      <!-- FILTROS -->
+      <div class="dash-filters">
+        <div class="field">
+          <label>Período</label>
+          <select id="dashPeriodo">
+            <option value="30">Últimos 30 dias</option>
+            <option value="90">Últimos 90 dias</option>
+            <option value="365">Últimos 12 meses</option>
+            <option value="all">Tudo</option>
+          </select>
+        </div>
+
+        <div class="field">
+          <label>Representada</label>
+          <select id="dashRep">
+            <option value="all">Todas</option>
+          </select>
+        </div>
+
+        <div class="field">
+          <label>Usuário</label>
+          <select id="dashUser">
+            <option value="all">Todos</option>
+          </select>
+        </div>
+
+        <div class="field">
+          <label>Status (grupo)</label>
+          <select id="dashStatusGrup">
+            <option value="all">Todos</option>
+            <option value="ganha">Ganha</option>
+            <option value="aguardando">Aguardando</option>
+            <option value="em_revisao">Em revisão</option>
+            <option value="perdida">Perdida</option>
+            <option value="em_andamento">Em andamento</option>
+            <option value="sem_status">Sem status</option>
+          </select>
+        </div>
+
+        <button id="btnAplicarFiltros">Aplicar</button>
+      </div>
+
+      <!-- KPIs -->
+      <div class="dash-kpis">
+        <div class="kpi"><div class="kpi-title">Propostas</div><div class="kpi-value" id="kpiPropostas">0</div></div>
+        <div class="kpi"><div class="kpi-title">Pedidos</div><div class="kpi-value" id="kpiPedidos">0</div></div>
+        <div class="kpi"><div class="kpi-title">Revisões</div><div class="kpi-value" id="kpiRevisoes">0</div></div>
+        <div class="kpi"><div class="kpi-title">Aguardando pedido</div><div class="kpi-value" id="kpiAguardando">0</div></div>
+
+        <div class="kpi"><div class="kpi-title">R$ Propostas</div><div class="kpi-value" id="kpiValorPropostas">R$ 0</div></div>
+        <div class="kpi"><div class="kpi-title">R$ Pedidos</div><div class="kpi-value" id="kpiValorPedidos">R$ 0</div></div>
+        <div class="kpi"><div class="kpi-title">Clientes</div><div class="kpi-value" id="kpiClientes">0</div></div>
+        <div class="kpi"><div class="kpi-title">Representadas</div><div class="kpi-value" id="kpiRepresentadas">0</div></div>
+      </div>
+
+      <!-- ALERTAS -->
+      <div class="dash-alerts" id="dashAlerts"></div>
+
+      <!-- GRÁFICOS -->
+      <div class="dash-grid">
+        <div class="dash-card">
+          <div class="dash-card-title">Status (grupo)</div>
+          <canvas id="chartStatus"></canvas>
+        </div>
+
+        <div class="dash-card">
+          <div class="dash-card-title">Evolução (propostas x pedidos)</div>
+          <canvas id="chartEvolucao"></canvas>
+        </div>
+
+        <div class="dash-card">
+          <div class="dash-card-title">Top 3 representadas (R$ pedidos)</div>
+          <canvas id="chartTop3"></canvas>
+        </div>
+
+        <div class="dash-card">
+          <div class="dash-card-title">Conversão por representada</div>
+          <canvas id="chartConversao"></canvas>
+        </div>
+      </div>
+
+    </div>
+  </main>
+
+  <!-- ✅ MESMOS scripts do Firebase que você usa no CRM -->
+  <script src="https://www.gstatic.com/firebasejs/8.10.1/firebase-app.js"></script>
+  <script src="https://www.gstatic.com/firebasejs/8.10.1/firebase-auth.js"></script>
+  <script src="https://www.gstatic.com/firebasejs/8.10.1/firebase-firestore.js"></script>
+
+  <!-- ✅ Seu arquivo que inicializa firebase (o mesmo do CRM) -->
+  <script src="firebase.js"></script>
+
+
+  <!-- seu JS global (firebase/auth/utils) -->
+  <script src="./script.js"></script>
+  <!-- JS do dashboard -->
+  <script src="./dashboard.js"></script>
+</body>
+</html>
