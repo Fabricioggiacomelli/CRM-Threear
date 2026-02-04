@@ -106,3 +106,15 @@ body:not(.dark) .dash-card,
 body:not(.dark) .alert{
   background: rgba(243,244,246,.9);
 }
+
+
+body.dark { background:#0b1220; color:#e8eefc; }
+body.light { background:#f6f8fc; color:#0b1220; }
+
+body.light .dash-card,
+body.light .kpi,
+body.light .dash-filters,
+body.light .sidebar {
+  background: rgba(0,0,0,.03);
+  border: 1px solid rgba(0,0,0,.08);
+}

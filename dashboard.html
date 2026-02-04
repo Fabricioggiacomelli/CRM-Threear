@@ -5,58 +5,80 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>Dashboard - CRM Three Ar</title>
 
-  <!-- seu CSS global -->
   <link rel="stylesheet" href="style.css" />
-  <!-- CSS do dashboard -->
   <link rel="stylesheet" href="dashboard.css" />
 
-  <!-- Chart.js (se você já usa, mantém; se não usa ainda, cola esse) -->
   <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
 </head>
 
-<body class="dark">
-  <!-- SIDEBAR (mesma que você já usa) -->
+<body>
   <aside class="sidebar" id="sidebar">
-    <!-- seu header/logo -->
     <div class="sidebar-header">
       <div class="sidebar-logo">R</div>
       <div class="sidebar-title">ThreeAr</div>
     </div>
 
     <div class="sidebar-menu">
+      <!-- ✅ Voltar (NÃO desloga) -->
+
       <button class="menu-item" id="btnDashboard">
-        <span class="icon">📊</span><span class="label">CRM-Three</span>
+        <span class="icon">📊</span><span class="label">Dashboard</span>
       </button>
 
-      <button class="menu-item logout" id="btnSair"><span class="icon">🚪</span><span class="label">Sair</span></button>
-      
-    </div>
-        <button class="collapse-btn" type="button" onclick="toggleSidebar()">⮜</button>
+<button type="button" class="menu-item" id="btnVoltar">
+  <span class="icon">↩️</span><span class="label">Voltar</span>
+</button>
 
+      <!-- ✅ Tema -->
+      <button class="menu-item" id="btnTema">
+        <span class="icon">🌓</span><span class="label" id="temaLabel">Modo escuro</span>
+      </button>
+
+      <!-- ✅ Sair (desloga) -->
+      <button class="menu-item logout" id="btnSair">
+        <span class="icon">🚪</span><span class="label">Sair</span>
+      </button>
+    </div>
+
+    <button class="collapse-btn" type="button" onclick="toggleSidebar()">⮜</button>
   </aside>
+
 
   <main class="main-content">
     <div class="container">
       <div class="topbar">
         <div>
-          <h1>Dashboard (*FASE TESTE*)</h1>
-          <div class="subtitle">Visão geral + filtros + alertas</div>
+          <h1>Dashboard</h1>
+          <div class="subtitle">Visão geral + filtros + métricas</div>
+          <div id="dashStatusText" style="margin-top:6px; opacity:.85;"></div>
         </div>
+
         <div class="topbar-right">
-          <span id="userInfo"></span>
+          <span id="userInfo">—</span>
         </div>
       </div>
 
       <!-- FILTROS -->
       <div class="dash-filters">
         <div class="field">
-          <label>Período</label>
+          <label>Período (preset)</label>
           <select id="dashPeriodo">
             <option value="30">Últimos 30 dias</option>
             <option value="90">Últimos 90 dias</option>
             <option value="365">Últimos 12 meses</option>
             <option value="all">Tudo</option>
+            <option value="custom">Personalizado</option>
           </select>
+        </div>
+
+        <div class="field">
+          <label>Data início</label>
+          <input type="date" id="dashIni" />
+        </div>
+
+        <div class="field">
+          <label>Data fim</label>
+          <input type="date" id="dashFim" />
         </div>
 
         <div class="field">
@@ -74,19 +96,14 @@
         </div>
 
         <div class="field">
-          <label>Status (grupo)</label>
-          <select id="dashStatusGrup">
+          <label>Status</label>
+          <select id="dashStatus">
             <option value="all">Todos</option>
-            <option value="ganha">Ganha</option>
-            <option value="aguardando">Aguardando</option>
-            <option value="em_revisao">Em revisão</option>
-            <option value="perdida">Perdida</option>
-            <option value="em_andamento">Em andamento</option>
-            <option value="sem_status">Sem status</option>
           </select>
         </div>
 
-        <button id="btnAplicarFiltros">Aplicar</button>
+        <button id="btnAplicarFiltros" type="button">Aplicar</button>
+        <button id="btnLimparFiltros" type="button">Limpar</button>
       </div>
 
       <!-- KPIs -->
@@ -94,7 +111,7 @@
         <div class="kpi"><div class="kpi-title">Propostas</div><div class="kpi-value" id="kpiPropostas">0</div></div>
         <div class="kpi"><div class="kpi-title">Pedidos</div><div class="kpi-value" id="kpiPedidos">0</div></div>
         <div class="kpi"><div class="kpi-title">Revisões</div><div class="kpi-value" id="kpiRevisoes">0</div></div>
-        <div class="kpi"><div class="kpi-title">Aguardando pedido</div><div class="kpi-value" id="kpiAguardando">0</div></div>
+        <div class="kpi"><div class="kpi-title">Aguardando Pedido</div><div class="kpi-value" id="kpiAguardando">0</div></div>
 
         <div class="kpi"><div class="kpi-title">R$ Propostas</div><div class="kpi-value" id="kpiValorPropostas">R$ 0</div></div>
         <div class="kpi"><div class="kpi-title">R$ Pedidos</div><div class="kpi-value" id="kpiValorPedidos">R$ 0</div></div>
@@ -105,44 +122,40 @@
       <!-- ALERTAS -->
       <div class="dash-alerts" id="dashAlerts"></div>
 
-      <!-- GRÁFICOS -->
+      <!-- GRID -->
       <div class="dash-grid">
         <div class="dash-card">
-          <div class="dash-card-title">Status (grupo)</div>
+          <div class="dash-card-title">Status (reais)</div>
           <canvas id="chartStatus"></canvas>
         </div>
 
         <div class="dash-card">
-          <div class="dash-card-title">Evolução (propostas x pedidos)</div>
+          <div class="dash-card-title">Evolução (Propostas x Pedidos) por mês</div>
           <canvas id="chartEvolucao"></canvas>
         </div>
 
         <div class="dash-card">
-          <div class="dash-card-title">Top 3 representadas (R$ pedidos)</div>
-          <canvas id="chartTop3"></canvas>
+          <div class="dash-card-title">Conversão por representada (Pedidos / Propostas)</div>
+          <canvas id="chartConversao"></canvas>
         </div>
 
         <div class="dash-card">
-          <div class="dash-card-title">Conversão por representada</div>
-          <canvas id="chartConversao"></canvas>
+          <div class="dash-card-title">Top representadas (R$ em pedidos)</div>
+          <div id="topRepsBox" style="overflow:auto;"></div>
         </div>
       </div>
-
     </div>
   </main>
 
-  <!-- ✅ MESMOS scripts do Firebase que você usa no CRM -->
+  <!-- Firebase -->
   <script src="https://www.gstatic.com/firebasejs/8.10.1/firebase-app.js"></script>
   <script src="https://www.gstatic.com/firebasejs/8.10.1/firebase-auth.js"></script>
   <script src="https://www.gstatic.com/firebasejs/8.10.1/firebase-firestore.js"></script>
 
-  <!-- ✅ Seu arquivo que inicializa firebase (o mesmo do CRM) -->
+  <!-- seu firebase.js (tem que setar window.auth e window.db) -->
   <script src="firebase.js"></script>
 
-
-  <!-- seu JS global (firebase/auth/utils) -->
-  <script src="./script.js"></script>
-  <!-- JS do dashboard -->
+  <!-- ✅ importante: dashboard.js por último -->
   <script src="./dashboard.js"></script>
 </body>
 </html>

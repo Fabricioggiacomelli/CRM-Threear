@@ -204,11 +204,17 @@ window.addEventListener("load", async () => {
       }
 
       // ✅ 4) TOTP gate
-      if (!totpOk) {
-        await iniciarFluxoTOTP(user);
-        mostrarLogin();
-        return;
-      }
+function mostrarTelaBloqueada() {
+  document.getElementById("appContainer")?.classList.add("hidden");
+  // pode manter loginContainer hidden também, se quiser
+  document.getElementById("loginContainer")?.classList.add("hidden");
+}
+
+if (!totpOk) {
+  await iniciarFluxoTOTP(user);
+  mostrarTelaBloqueada();
+  return;
+}
 
       // ✅ 5) Liberou
       await carregarDadosDoFirebase();

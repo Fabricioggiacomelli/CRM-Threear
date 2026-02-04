@@ -91,14 +91,14 @@
         <span class="label">Aprovar Usuários</span>
       </button>
 
-      <button type="button" class="menu-item" onclick="toggleTheme()">
-        <span class="icon">🌙</span>
-        <span class="label" id="themeLabel">Modo escuro</span>
-      </button>
-
       <button type="button" class="menu-item" id="btnDashboard">
         <span class="icon">📊</span>
         <span class="label">Dashboard</span>  
+      </button>
+
+      <button type="button" class="menu-item" onclick="toggleTheme()">
+        <span class="icon">🌙</span>
+        <span class="label" id="themeLabel">Modo escuro</span>
       </button>
 
       <button type="button" class="menu-item logout" onclick="logout()">
@@ -430,6 +430,7 @@
           <label for="pageSizeInput">Itens por página:</label>
           <input id="pageSizeInput" type="text" min="1" max="200" />
         </div>
+      </section>
 
         <section id="secClientes">
           <h3>Cadastro de Clientes</h3>
@@ -581,7 +582,7 @@
 
 
         </section>
-
+        
 
         <section id="secAprovacaoUsuarios" class="hidden">
           <h3>Aprovar Usuários</h3>
