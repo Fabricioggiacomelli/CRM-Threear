@@ -747,12 +747,14 @@ function initCnpjMask() {
   ].filter(Boolean);
 
   campos.forEach((input) => {
+    if (input.dataset.cnpjBound === "1") return;
+    input.dataset.cnpjBound = "1";
+
     input.addEventListener("input", onCnpjInput);
     input.addEventListener("paste", onCnpjPaste);
     input.addEventListener("blur", onCnpjBlur);
   });
 }
-
 function formatCnpjValue(value) {
   value = value.replace(/\D/g, "");
   value = value.slice(0, 14);
@@ -778,19 +780,38 @@ function onCnpjPaste(e) {
   const text = (e.clipboardData || window.clipboardData).getData("text");
   e.target.value = formatCnpjValue(text);
 }
+let cnpjBlurLock = false;
+
 function onCnpjBlur(e) {
   const input = e.target;
 
+  // se veio do autocomplete, não valida
   if (input.dataset.skipBlurValidation === "1") {
     input.dataset.skipBlurValidation = "0";
     return;
   }
 
-  const digits = input.value.replace(/\D/g, "");
+  const digits = (input.value || "").replace(/\D/g, "");
+
+  // se já mostrei alerta pra esse valor inválido, não mostra de novo
+  if (input.dataset.invalidAlertShown === "1") return;
+
   if (digits && digits.length !== 14) {
-    alert("CNPJ inválido. Deve conter 14 dígitos.");
-    input.focus();
+    input.dataset.invalidAlertShown = "1";
+
+    // dá um tempo pro iOS terminar o blur antes do alert
+    setTimeout(() => {
+      alert("CNPJ inválido. Deve conter 14 dígitos.");
+      // opcional: volta o foco depois do alert (sem gerar loop)
+      setTimeout(() => input.focus(), 50);
+    }, 50);
   }
+}
+
+// quando o usuário digitar, libera o alert novamente
+function onCnpjInput(e) {
+  e.target.dataset.invalidAlertShown = "0";
+  e.target.value = formatCnpjValue(e.target.value);
 }
 
 /* =======================
