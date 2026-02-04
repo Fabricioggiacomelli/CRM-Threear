@@ -3061,6 +3061,7 @@ function initBuSegmento() {
     Acessórios: [],
     MMS: [],
     Renováveis: [],
+    Serviços: ["HV", "PV", "Infra", "Industrial", "Data Center"],
   };
 
   function renderSegmentos(buValue) {
