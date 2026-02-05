@@ -1586,6 +1586,33 @@ function exportExcel() {
   });
 
   const ws = XLSX.utils.json_to_sheet(linhas);
+  // largura das colunas
+ws["!cols"] = Object.keys(linhas[0]).map(k => ({ wch: Math.max(12, k.length + 2) }));
+
+// estilo simples: borda + header negrito
+const range = XLSX.utils.decode_range(ws["!ref"]);
+const border = {
+  top: { style: "thin" },
+  bottom: { style: "thin" },
+  left: { style: "thin" },
+  right: { style: "thin" }
+};
+
+for (let R = range.s.r; R <= range.e.r; R++) {
+  for (let C = range.s.c; C <= range.e.c; C++) {
+    const addr = XLSX.utils.encode_cell({ r: R, c: C });
+    const cell = ws[addr];
+    if (!cell) continue;
+
+    cell.s = cell.s || {};
+    cell.s.border = border;
+
+    // header
+    if (R === 0) {
+      cell.s.font = { bold: true };
+    }
+  }
+}
   const wb = XLSX.utils.book_new();
   XLSX.utils.book_append_sheet(wb, ws, "Registros");
   XLSX.writeFile(wb, "registros_ofertas.xlsx");
