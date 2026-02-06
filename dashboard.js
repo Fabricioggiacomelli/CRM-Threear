@@ -1,9 +1,6 @@
-// =====================================
-// Dashboard.js (LIMPO)
-// =====================================
-
-// ---------- Helpers básicos ----------
-function $(id) { return document.getElementById(id); }
+function $(id) {
+  return document.getElementById(id);
+}
 
 function setStatus(msg) {
   const el = $("dashStatusText");
@@ -12,7 +9,9 @@ function setStatus(msg) {
 
 window.addEventListener("error", (e) => {
   const msg = e?.message || "Erro desconhecido";
-  const where = e?.filename ? ` (${e.filename.split("/").pop()}:${e.lineno})` : "";
+  const where = e?.filename
+    ? ` (${e.filename.split("/").pop()}:${e.lineno})`
+    : "";
   setStatus(`ERRO: ${msg}${where}`);
 });
 window.addEventListener("unhandledrejection", (e) => {
@@ -22,24 +21,31 @@ window.addEventListener("unhandledrejection", (e) => {
 
 function norm(s) {
   return String(s || "")
-    .normalize("NFD").replace(/[\u0300-\u036f]/g, "")
-    .toLowerCase().trim();
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .toLowerCase()
+    .trim();
 }
 
 function moneyBR(v) {
-  return (Number(v) || 0).toLocaleString("pt-BR", { style: "currency", currency: "BRL" });
+  return (Number(v) || 0).toLocaleString("pt-BR", {
+    style: "currency",
+    currency: "BRL",
+  });
 }
 
 function parseMoneyBR(v) {
   if (typeof v === "number") return v;
   const s = String(v || "").trim();
   if (!s) return 0;
-  const clean = s.replace(/[^\d,.-]/g, "").replace(/\./g, "").replace(",", ".");
+  const clean = s
+    .replace(/[^\d,.-]/g, "")
+    .replace(/\./g, "")
+    .replace(",", ".");
   const n = parseFloat(clean);
   return isNaN(n) ? 0 : n;
 }
 
-// ---------- Datas: Timestamp / ISO / number / dd/mm/aaaa ----------
 function parseDateAny(v) {
   if (!v) return null;
   if (v instanceof Date) return v;
@@ -49,8 +55,9 @@ function parseDateAny(v) {
   const s = String(v).trim();
   if (!s) return null;
 
-  // dd/mm/yyyy (opcional hora)
-  const m = s.match(/^(\d{1,2})\/(\d{1,2})\/(\d{2,4})(?:\s+(\d{1,2}):(\d{2}))?$/);
+  const m = s.match(
+    /^(\d{1,2})\/(\d{1,2})\/(\d{2,4})(?:\s+(\d{1,2}):(\d{2}))?$/,
+  );
   if (m) {
     const dd = parseInt(m[1], 10);
     const mm = parseInt(m[2], 10) - 1;
@@ -76,7 +83,6 @@ function getOfertaDate(o) {
   );
 }
 
-// ---------- Campos do seu CRM ----------
 function getValorProposta(o) {
   const v = o.valor_total ?? o.valorTotal ?? o.vl_total ?? 0;
   return parseMoneyBR(v);
@@ -84,9 +90,14 @@ function getValorProposta(o) {
 
 function getValorPedido(o) {
   const pedido = o.pedido || {};
-  const vp = pedido.valor_pedido ?? pedido.valorPedido ?? o.vlTotalPedido ?? o.vl_total_pedido ?? 0;
+  const vp =
+    pedido.valor_pedido ??
+    pedido.valorPedido ??
+    o.vlTotalPedido ??
+    o.vl_total_pedido ??
+    0;
   const n = parseMoneyBR(vp);
-  return (n && n > 0) ? n : getValorProposta(o);
+  return n && n > 0 ? n : getValorProposta(o);
 }
 
 function isPedidoSim(o) {
@@ -106,7 +117,9 @@ function isRevisaoSim(o) {
 }
 
 function getUserNameFromOferta(o) {
-  return String(o.atualizadoPor || o.criadoPor || o.usuario || o.user || "").trim();
+  return String(
+    o.atualizadoPor || o.criadoPor || o.usuario || o.user || "",
+  ).trim();
 }
 function getRepNameFromOferta(o) {
   return String(o.representadaNome || o.representada || o.rep || "").trim();
@@ -115,7 +128,6 @@ function getStatusText(o) {
   return String(o.status || "").trim() || "Sem status";
 }
 
-// ---------- Firebase guard ----------
 function esperarFirebase(timeoutMs = 8000) {
   return new Promise((resolve, reject) => {
     const start = Date.now();
@@ -125,7 +137,11 @@ function esperarFirebase(timeoutMs = 8000) {
         resolve(true);
       } else if (Date.now() - start > timeoutMs) {
         clearInterval(t);
-        reject(new Error("Firebase não carregou (auth/db indefinidos). Verifique firebase.js + ordem dos scripts."));
+        reject(
+          new Error(
+            "Firebase não carregou (auth/db indefinidos). Verifique firebase.js + ordem dos scripts.",
+          ),
+        );
       }
     }, 50);
   });
@@ -133,16 +149,16 @@ function esperarFirebase(timeoutMs = 8000) {
 
 async function carregarColecao(nome) {
   const snap = await db.collection(nome).get();
-  return snap.docs.map(d => ({ id: d.id, ...d.data() }));
+  return snap.docs.map((d) => ({ id: d.id, ...d.data() }));
 }
 
-// ---------- Tema ----------
 function applyTheme(theme) {
   document.body.classList.toggle("dark", theme === "dark");
   document.body.classList.toggle("light", theme === "light");
 
   const label = $("temaLabel");
-  if (label) label.textContent = theme === "dark" ? "Modo claro" : "Modo escuro";
+  if (label)
+    label.textContent = theme === "dark" ? "Modo claro" : "Modo escuro";
 
   localStorage.setItem("dash_theme", theme);
 }
@@ -157,27 +173,23 @@ function initTheme() {
   });
 }
 
-// ---------- Estado ----------
 let ofertasDB = [];
 let clientesDB = [];
 let repsDB = [];
 let charts = { status: null, evolucao: null, conv: null };
 
-// ---------- Sidebar ----------
 function bindSidebar() {
   $("btnDashboard")?.addEventListener("click", (e) => {
     e.preventDefault();
     window.location.href = "dashboard.html";
   });
 
-  // ✅ Voltar = só navegar (sem signOut)
   $("btnVoltar")?.addEventListener("click", (e) => {
     e.preventDefault();
     e.stopPropagation();
-    window.location.href = "html.html"; // tela de ofertas/cadastro
+    window.location.href = "html.html";
   });
 
-  // ✅ Sair = logout real
   $("btnSair")?.addEventListener("click", async (e) => {
     e.preventDefault();
     try {
@@ -190,7 +202,6 @@ function bindSidebar() {
   });
 }
 
-// ---------- Filtros ----------
 function toISODate(d) {
   const yyyy = d.getFullYear();
   const mm = String(d.getMonth() + 1).padStart(2, "0");
@@ -220,36 +231,43 @@ function setPresetDates(preset) {
 }
 
 function buildFilterOptions() {
-  // Representadas: ofertas + coleção representadas
   const selRep = $("dashRep");
   if (selRep) {
     const repFromOfertas = ofertasDB.map(getRepNameFromOferta);
-    const repFromColecao = repsDB.map(r => String(r.nome || r.representada || r.nomeRepresentada || "").trim());
+    const repFromColecao = repsDB.map((r) =>
+      String(r.nome || r.representada || r.nomeRepresentada || "").trim(),
+    );
     const repNames = [...new Set([...repFromOfertas, ...repFromColecao])]
       .filter(Boolean)
       .sort((a, b) => a.localeCompare(b));
-    selRep.innerHTML = `<option value="all">Todas</option>` + repNames.map(r => `<option value="${r}">${r}</option>`).join("");
+    selRep.innerHTML =
+      `<option value="all">Todas</option>` +
+      repNames.map((r) => `<option value="${r}">${r}</option>`).join("");
   }
 
-  // Usuários
   const selUser = $("dashUser");
   if (selUser) {
     const users = [...new Set(ofertasDB.map(getUserNameFromOferta))]
       .filter(Boolean)
       .sort((a, b) => a.localeCompare(b));
-    selUser.innerHTML = `<option value="all">Todos</option>` + users.map(u => `<option value="${u}">${u}</option>`).join("");
+    selUser.innerHTML =
+      `<option value="all">Todos</option>` +
+      users.map((u) => `<option value="${u}">${u}</option>`).join("");
   }
 
-  // Status reais
   const selStatus = $("dashStatus");
   if (selStatus) {
     const freq = {};
-    ofertasDB.forEach(o => {
+    ofertasDB.forEach((o) => {
       const s = getStatusText(o);
       freq[s] = (freq[s] || 0) + 1;
     });
-    const statusList = Object.entries(freq).sort((a, b) => b[1] - a[1]).map(([s]) => s);
-    selStatus.innerHTML = `<option value="all">Todos</option>` + statusList.map(s => `<option value="${s}">${s}</option>`).join("");
+    const statusList = Object.entries(freq)
+      .sort((a, b) => b[1] - a[1])
+      .map(([s]) => s);
+    selStatus.innerHTML =
+      `<option value="all">Todos</option>` +
+      statusList.map((s) => `<option value="${s}">${s}</option>`).join("");
   }
 }
 
@@ -270,7 +288,7 @@ function getFilterState() {
 function applyDashboardFilters() {
   const { ini, fim, rep, user, st } = getFilterState();
 
-  return ofertasDB.filter(o => {
+  return ofertasDB.filter((o) => {
     const repNome = getRepNameFromOferta(o);
     const usuario = getUserNameFromOferta(o);
     const status = getStatusText(o);
@@ -280,7 +298,6 @@ function applyDashboardFilters() {
     if (user !== "all" && usuario !== user) return false;
     if (st !== "all" && status !== st) return false;
 
-    // datas (se sem data, passa)
     if (ini && dt && dt < ini) return false;
     if (fim && dt) {
       const end = new Date(fim.getTime() + 24 * 60 * 60 * 1000 - 1);
@@ -290,14 +307,18 @@ function applyDashboardFilters() {
   });
 }
 
-// ---------- KPIs + Alerts ----------
 function renderKPIs(ofertasFiltradas) {
   const totalPropostas = ofertasFiltradas.length;
   const pedidos = ofertasFiltradas.filter(isPedidoSim);
   const revisoes = ofertasFiltradas.filter(isRevisaoSim);
-  const aguardando = ofertasFiltradas.filter(o => !isPedidoSim(o) && norm(getStatusText(o)).includes("aguard"));
+  const aguardando = ofertasFiltradas.filter(
+    (o) => !isPedidoSim(o) && norm(getStatusText(o)).includes("aguard"),
+  );
 
-  const vProp = ofertasFiltradas.reduce((acc, o) => acc + getValorProposta(o), 0);
+  const vProp = ofertasFiltradas.reduce(
+    (acc, o) => acc + getValorProposta(o),
+    0,
+  );
   const vPed = pedidos.reduce((acc, o) => acc + getValorPedido(o), 0);
 
   $("kpiPropostas").textContent = String(totalPropostas);
@@ -312,17 +333,31 @@ function renderKPIs(ofertasFiltradas) {
   $("kpiRepresentadas").textContent = String(repsDB.length);
 
   const alerts = [];
-  if (aguardando.length > 0) alerts.push({ type: "warn", text: `Tem <strong>${aguardando.length}</strong> ofertas aguardando pedido.` });
-  if (totalPropostas === 0) alerts.push({ type: "danger", text: `Nenhuma proposta encontrada com os filtros atuais.` });
-  if (pedidos.length > 0) alerts.push({ type: "ok", text: `Você tem <strong>${pedidos.length}</strong> pedidos no filtro.` });
+  if (aguardando.length > 0)
+    alerts.push({
+      type: "warn",
+      text: `Tem <strong>${aguardando.length}</strong> ofertas aguardando pedido.`,
+    });
+  if (totalPropostas === 0)
+    alerts.push({
+      type: "danger",
+      text: `Nenhuma proposta encontrada com os filtros atuais.`,
+    });
+  if (pedidos.length > 0)
+    alerts.push({
+      type: "ok",
+      text: `Você tem <strong>${pedidos.length}</strong> pedidos no filtro.`,
+    });
 
   const box = $("dashAlerts");
-  if (box) box.innerHTML = alerts.map(a => `<div class="alert ${a.type}">${a.text}</div>`).join("");
+  if (box)
+    box.innerHTML = alerts
+      .map((a) => `<div class="alert ${a.type}">${a.text}</div>`)
+      .join("");
 }
 
-// ---------- Charts + Top reps ----------
 function destroyCharts() {
-  Object.values(charts).forEach(c => c && c.destroy && c.destroy());
+  Object.values(charts).forEach((c) => c && c.destroy && c.destroy());
   charts = { status: null, evolucao: null, conv: null };
 }
 
@@ -335,7 +370,7 @@ function safeChart(canvasId, config) {
 
 function buildStatusChart(ofertasFiltradas) {
   const freq = {};
-  ofertasFiltradas.forEach(o => {
+  ofertasFiltradas.forEach((o) => {
     const s = getStatusText(o);
     freq[s] = (freq[s] || 0) + 1;
   });
@@ -344,8 +379,8 @@ function buildStatusChart(ofertasFiltradas) {
   const top = sorted.slice(0, 10);
   const rest = sorted.slice(10);
 
-  const labels = top.map(x => x[0]);
-  const data = top.map(x => x[1]);
+  const labels = top.map((x) => x[0]);
+  const data = top.map((x) => x[1]);
 
   if (rest.length) {
     labels.push("Outros");
@@ -355,13 +390,17 @@ function buildStatusChart(ofertasFiltradas) {
   charts.status = safeChart("chartStatus", {
     type: "bar",
     data: { labels, datasets: [{ label: "Qtde", data }] },
-    options: { responsive: true, maintainAspectRatio: false, plugins: { legend: { display: false } } }
+    options: {
+      responsive: true,
+      maintainAspectRatio: false,
+      plugins: { legend: { display: false } },
+    },
   });
 }
 
 function buildEvolucaoChart(ofertasFiltradas) {
   const byMonth = {};
-  ofertasFiltradas.forEach(o => {
+  ofertasFiltradas.forEach((o) => {
     const dt = getOfertaDate(o);
     if (!dt) return;
     const key = `${dt.getFullYear()}-${String(dt.getMonth() + 1).padStart(2, "0")}`;
@@ -371,7 +410,7 @@ function buildEvolucaoChart(ofertasFiltradas) {
   });
 
   const months = Object.keys(byMonth).sort();
-  const labels = months.map(m => {
+  const labels = months.map((m) => {
     const [y, mm] = m.split("-");
     return `${mm}/${y}`;
   });
@@ -381,17 +420,17 @@ function buildEvolucaoChart(ofertasFiltradas) {
     data: {
       labels,
       datasets: [
-        { label: "Propostas", data: months.map(m => byMonth[m].prop) },
-        { label: "Pedidos", data: months.map(m => byMonth[m].ped) },
-      ]
+        { label: "Propostas", data: months.map((m) => byMonth[m].prop) },
+        { label: "Pedidos", data: months.map((m) => byMonth[m].ped) },
+      ],
     },
-    options: { responsive: true, maintainAspectRatio: false }
+    options: { responsive: true, maintainAspectRatio: false },
   });
 }
 
 function buildConversaoChart(ofertasFiltradas) {
   const map = {};
-  ofertasFiltradas.forEach(o => {
+  ofertasFiltradas.forEach((o) => {
     const rep = getRepNameFromOferta(o) || "Sem representada";
     if (!map[rep]) map[rep] = { total: 0, ped: 0 };
     map[rep].total++;
@@ -406,10 +445,15 @@ function buildConversaoChart(ofertasFiltradas) {
   charts.conv = safeChart("chartConversao", {
     type: "bar",
     data: {
-      labels: arr.map(x => x.rep),
-      datasets: [{ label: "% conversão", data: arr.map(x => Number(x.conv.toFixed(1))) }]
+      labels: arr.map((x) => x.rep),
+      datasets: [
+        {
+          label: "% conversão",
+          data: arr.map((x) => Number(x.conv.toFixed(1))),
+        },
+      ],
     },
-    options: { responsive: true, maintainAspectRatio: false }
+    options: { responsive: true, maintainAspectRatio: false },
   });
 }
 
@@ -418,13 +462,15 @@ function buildTopRepsTable(ofertasFiltradas) {
   if (!box) return;
 
   const map = {};
-  ofertasFiltradas.forEach(o => {
+  ofertasFiltradas.forEach((o) => {
     if (!isPedidoSim(o)) return;
     const rep = getRepNameFromOferta(o) || "Sem representada";
     map[rep] = (map[rep] || 0) + getValorPedido(o);
   });
 
-  const top = Object.entries(map).sort((a, b) => b[1] - a[1]).slice(0, 10);
+  const top = Object.entries(map)
+    .sort((a, b) => b[1] - a[1])
+    .slice(0, 10);
 
   if (!top.length) {
     box.innerHTML = `<div style="opacity:.8;">Sem pedidos no filtro.</div>`;
@@ -440,12 +486,16 @@ function buildTopRepsTable(ofertasFiltradas) {
         </tr>
       </thead>
       <tbody>
-        ${top.map(([rep, val]) => `
+        ${top
+          .map(
+            ([rep, val]) => `
           <tr>
             <td style="padding:8px; border-bottom:1px solid rgba(255,255,255,.06);">${rep}</td>
             <td style="padding:8px; border-bottom:1px solid rgba(255,255,255,.06); text-align:right;">${moneyBR(val)}</td>
           </tr>
-        `).join("")}
+        `,
+          )
+          .join("")}
       </tbody>
     </table>
   `;
@@ -459,7 +509,6 @@ function buildDashboardVisuals(ofertasFiltradas) {
   buildTopRepsTable(ofertasFiltradas);
 }
 
-// ---------- Init ----------
 async function initDashboard() {
   initTheme();
   bindSidebar();
@@ -469,14 +518,12 @@ async function initDashboard() {
 
   auth.onAuthStateChanged(async (user) => {
     if (!user) {
-      // ✅ seu login fica em html.html
       setStatus("Você precisa fazer login. Redirecionando...");
       $("userInfo").textContent = "—";
       window.location.href = "html.html";
       return;
     }
 
-    // ✅ mostra nome/email
     $("userInfo").textContent =
       (typeof getCurrentUserName === "function" && getCurrentUserName()) ||
       user.displayName ||
@@ -504,7 +551,6 @@ async function initDashboard() {
       setStatus(`OK — ${filtered.length} ofertas no filtro`);
     };
 
-    // eventos
     $("btnAplicarFiltros")?.addEventListener("click", run);
 
     $("dashPeriodo")?.addEventListener("change", (e) => {
@@ -536,16 +582,14 @@ async function initDashboard() {
       run();
     });
 
-    // inicial
     setPresetDates($("dashPeriodo")?.value || "30");
     run();
   });
 }
 
 window.addEventListener("DOMContentLoaded", () => {
-  initDashboard().catch(err => {
+  initDashboard().catch((err) => {
     console.error(err);
     setStatus("Erro ao inicializar. Veja o console.");
   });
 });
-

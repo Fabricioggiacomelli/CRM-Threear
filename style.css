@@ -6,7 +6,6 @@
   padding: 0;
 }
 
-
 :root {
   --bg-body: #f3f4f6;
   --bg-container: #ffffff;
@@ -118,7 +117,9 @@ body {
   padding: 24px;
   display: flex;
   align-items: flex-start;
-  transition: background-color 0.25s ease, color 0.25s ease;
+  transition:
+    background-color 0.25s ease,
+    color 0.25s ease;
 }
 
 .mobile-toggle {
@@ -150,8 +151,11 @@ body {
   display: flex;
   flex-direction: column;
   z-index: 20;
-  transition: width 0.25s ease, background-color 0.25s ease,
-    box-shadow 0.25s ease, transform 0.25s ease;
+  transition:
+    width 0.25s ease,
+    background-color 0.25s ease,
+    box-shadow 0.25s ease,
+    transform 0.25s ease;
 }
 
 .sidebar.collapsed {
@@ -248,7 +252,9 @@ body {
   display: flex;
   align-items: center;
   gap: 10px;
-  transition: background-color 0.2s ease, transform 0.15s ease;
+  transition:
+    background-color 0.2s ease,
+    transform 0.15s ease;
 }
 
 .menu-item .icon {
@@ -284,7 +290,9 @@ body {
   cursor: pointer;
   color: var(--text-muted);
   font-size: 14px;
-  transition: background-color 0.2s ease, transform 0.2s ease;
+  transition:
+    background-color 0.2s ease,
+    transform 0.2s ease;
 }
 
 .collapse-btn:hover {
@@ -294,7 +302,9 @@ body {
 .main-content {
   flex: 1;
   margin-left: 260px;
-  transition: margin-left 0.25s ease, transform 0.25s ease;
+  transition:
+    margin-left 0.25s ease,
+    transform 0.25s ease;
 }
 
 .sidebar.collapsed + .main-content {
@@ -309,7 +319,9 @@ body {
   padding: 24px 26px;
   border-radius: 18px;
   box-shadow: var(--shadow-soft);
-  transition: background-color 0.25s ease, box-shadow 0.25s ease,
+  transition:
+    background-color 0.25s ease,
+    box-shadow 0.25s ease,
     transform 0.2s ease;
 }
 
@@ -380,7 +392,9 @@ select {
   font-size: 13px;
   color: var(--text-main);
   outline: none;
-  transition: border-color 0.18s ease, background 0.18s ease,
+  transition:
+    border-color 0.18s ease,
+    background 0.18s ease,
     box-shadow 0.18s ease;
 }
 
@@ -415,7 +429,6 @@ select:focus {
   margin-right: 6px;
 }
 
-
 button {
   border: none;
   border-radius: 999px;
@@ -427,7 +440,10 @@ button {
   margin-top: 20px;
   cursor: pointer;
   width: 100%;
-  transition: background 0.18s ease, transform 0.12s ease, box-shadow 0.12s ease;
+  transition:
+    background 0.18s ease,
+    transform 0.12s ease,
+    box-shadow 0.12s ease;
   box-shadow: 0 8px 16px rgba(37, 99, 235, 0.22);
 }
 
@@ -798,7 +814,10 @@ body.dark .chart-container {
   align-items: center;
   justify-content: center;
 
-  transition: background 0.15s ease, transform 0.1s ease, opacity 0.12s ease;
+  transition:
+    background 0.15s ease,
+    transform 0.1s ease,
+    opacity 0.12s ease;
 }
 
 .modal-close:hover {
@@ -942,54 +961,52 @@ body.dark .modal {
 .hidden {
   display: none !important;
 }
-#mfa_recaptcha { display:block; margin:12px 0; }
-
-/* =========================
-   MODAL - TAMANHO FIXO + SCROLL
-========================= */
+#mfa_recaptcha {
+  display: block;
+  margin: 12px 0;
+}
 
 .modal {
-  padding: 16px; /* garante espaço nas bordas no mobile */
+  padding: 16px;
 }
 
 .modal-content {
   width: min(980px, calc(100vw - 32px));
-  max-height: min(86vh, 720px);  /* limite de altura */
+  max-height: min(86vh, 720px);
   display: flex;
-  flex-direction: column;        /* header em cima, body embaixo */
+  flex-direction: column;
   border-radius: 18px;
-  overflow: hidden;              /* evita vazar conteúdo */
+  overflow: hidden;
   box-shadow: var(--shadow-soft);
   background: var(--bg-container);
 }
 
-/* body com scroll vertical e horizontal */
 .modal-body {
-  flex: 1;                        /* ocupa o resto da altura */
+  flex: 1;
   overflow-y: auto;
   overflow-x: hidden;
-  max-height: none;               /* deixa o flex controlar */
+  max-height: none;
   background: var(--bg-body);
-  overscroll-behavior: contain;   /* evita puxar o scroll da página */
+  overscroll-behavior: contain;
   -webkit-overflow-scrolling: touch;
 }
-/* se o conteúdo do modal tiver tabelas ou textos enormes */
+
 .modal-body * {
   max-width: 100%;
 }
-/* opcional: quando tiver textos MUITO longos (emails/observações) quebrar linha */
+
 .modal-body .modal-section {
   overflow-wrap: anywhere;
   word-break: break-word;
 }
-/* Responsivo: em telas menores não força largura mínima */
+
 @media (max-width: 720px) {
   .modal-content {
     width: calc(100vw - 24px);
     max-height: 88vh;
   }
   .modal-card {
-    min-width: unset; /* remove a força e evita scroll horizontal desnecessário no mobile */
+    min-width: unset;
   }
   .modal-header h3 {
     max-width: 70%;
@@ -998,8 +1015,8 @@ body.dark .modal {
 body .modal-open {
   overflow: hidden;
 }
-/* ===== MENU AÇÕES (⋯) ===== */
-#actionsMenu{
+
+#actionsMenu {
   position: fixed;
   z-index: 99999;
 
@@ -1007,71 +1024,76 @@ body .modal-open {
   padding: 10px;
   border-radius: 14px;
 
-  background: rgba(18, 34, 74, .98);
-  border: 1px solid rgba(255,255,255,.14);
-  box-shadow: 0 18px 50px rgba(0,0,0,.55);
+  background: rgba(18, 34, 74, 0.98);
+  border: 1px solid rgba(255, 255, 255, 0.14);
+  box-shadow: 0 18px 50px rgba(0, 0, 0, 0.55);
 
   opacity: 0;
-  transform: translateY(-6px) scale(.98);
+  transform: translateY(-6px) scale(0.98);
   pointer-events: none;
-  transition: opacity .12s ease, transform .12s ease;
+  transition:
+    opacity 0.12s ease,
+    transform 0.12s ease;
 }
 
-#actionsMenu.open{
+#actionsMenu.open {
   opacity: 1;
   transform: translateY(0) scale(1);
   pointer-events: auto;
 }
 
-#actionsMenu::before{
+#actionsMenu::before {
   content: "";
   position: absolute;
   left: 50%;
   width: 10px;
   height: 10px;
-  background: rgba(18, 34, 74, .98);
-  border-left: 1px solid rgba(255,255,255,.14);
-  border-top: 1px solid rgba(255,255,255,.14);
+  background: rgba(18, 34, 74, 0.98);
+  border-left: 1px solid rgba(255, 255, 255, 0.14);
+  border-top: 1px solid rgba(255, 255, 255, 0.14);
   transform: translateX(-50%) rotate(45deg);
 }
 
-#actionsMenu[data-placement="bottom"]::before{ top: -6px; }
-#actionsMenu[data-placement="top"]::before{
+#actionsMenu[data-placement="bottom"]::before {
+  top: -6px;
+}
+#actionsMenu[data-placement="top"]::before {
   bottom: -6px;
   transform: translateX(-50%) rotate(225deg);
 }
 
-#actionsMenu button{
+#actionsMenu button {
   width: 100%;
   text-align: left;
   padding: 11px 12px;
   border: 0;
   border-radius: 12px;
   background: rgba(45, 37, 145, 0.06);
-  color: rgba(255,255,255,.92);
+  color: rgba(255, 255, 255, 0.92);
   cursor: pointer;
   font-size: 14px;
   font-weight: 700;
 }
 
-#actionsMenu button + button{ margin-top: 8px; }
+#actionsMenu button + button {
+  margin-top: 8px;
+}
 
-#actionsMenu button:hover{
+#actionsMenu button:hover {
   background: rgba(255, 255, 255, 0.12);
   color: #fff;
 }
 
-#actionsMenu button.danger{
-  background: rgba(255, 91, 91, .10);
+#actionsMenu button.danger {
+  background: rgba(255, 91, 91, 0.1);
   color: #ff6b6b;
 }
-#actionsMenu button.danger:hover{
-  background: rgba(255, 91, 91, .18);
+#actionsMenu button.danger:hover {
+  background: rgba(255, 91, 91, 0.18);
   color: #fff;
 }
 
-/* ===== BOTÃO ⋯ ===== */
-.btn-kebab{
+.btn-kebab {
   width: 38px;
   height: 34px;
   display: inline-flex;
@@ -1084,31 +1106,32 @@ body .modal-open {
   border-radius: 13px;
   border: 1px solid rgba(56, 55, 55, 0.315);
   background: rgba(99, 97, 97, 0.322);
-  color: rgba(255,255,255,.92);
+  color: rgba(255, 255, 255, 0.92);
   cursor: pointer;
 }
-.btn-kebab:hover{ background: rgba(255,255,255,.14); }
+.btn-kebab:hover {
+  background: rgba(255, 255, 255, 0.14);
+}
 
-/* ===== LINHA "itens por página" (sem quebrar linha) ===== */
-.page-size-row{
+.page-size-row {
   display: flex;
   align-items: center;
   gap: 10px;
   flex-wrap: nowrap;
 }
-.page-size-row label{
+.page-size-row label {
   margin: 0;
   white-space: nowrap;
 }
-.page-size-row input{
+.page-size-row input {
   width: 70px;
 }
 
-/* centralizar colunas numéricas */
-.col-center{ text-align: center !important; }
+.col-center {
+  text-align: center !important;
+}
 
-/* ===== CANCELAR EDIÇÃO (igual ao de ofertas) ===== */
-.btn-cancelar-edicao{
+.btn-cancelar-edicao {
   width: 100%;
   margin-top: 10px;
   border-radius: 999px;
@@ -1119,11 +1142,10 @@ body .modal-open {
   color: #fff;
   cursor: pointer;
 }
-.btn-cancelar-edicao:hover{
+.btn-cancelar-edicao:hover {
   background: rgb(204, 60, 60);
 }
 
-/* filtros (clientes / representadas) */
 .filters-row {
   display: flex;
   align-items: center;
@@ -1142,32 +1164,29 @@ body .modal-open {
   height: 38px;
   padding: 0 12px;
   border-radius: 12px;
-  border: 1px solid rgba(255,255,255,.12);
-  background: rgba(255,255,255,.06);
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  background: rgba(255, 255, 255, 0.06);
   color: #fff;
   outline: none;
 }
 
-/* ✅ input de buscar com espaço pra digitar */
 .filters-row input[type="text"],
-.filters-row input[type="search"]{
+.filters-row input[type="search"] {
   min-width: 240px;
   width: 320px;
   max-width: 100%;
 }
 
-/* ✅ select do campo ocupa bem também */
-.filters-row select{
+.filters-row select {
   min-width: 220px;
   width: 360px;
   max-width: 100%;
 }
 
-/* mobile */
-@media (max-width: 600px){
+@media (max-width: 600px) {
   .filters-row input[type="text"],
   .filters-row input[type="search"],
-  .filters-row select{
+  .filters-row select {
     width: 100%;
     min-width: 0;
   }
@@ -1184,17 +1203,12 @@ body .modal-open {
 }
 body.dark .filters-row input,
 body.dark .filters-row select {
-  border: 1px solid rgba(255,255,255,.12);
-  background: rgba(255,255,255,.06);
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  background: rgba(255, 255, 255, 0.06);
   color: #fff;
 }
 
-/* =========================
-   MENU AÇÕES (⋯) - MODO CLARO (padrão)
-   (cole no FINAL do CSS)
-========================= */
-
-#actionsMenu{
+#actionsMenu {
   position: fixed;
   z-index: 99999;
 
@@ -1202,108 +1216,106 @@ body.dark .filters-row select {
   padding: 10px;
   border-radius: 14px;
 
-  /* claro */
-  background: rgba(255, 255, 255, .98);
-  border: 1px solid rgba(17, 24, 39, .12);
-  box-shadow: 0 18px 50px rgba(15, 23, 42, .18);
+  background: rgba(255, 255, 255, 0.98);
+  border: 1px solid rgba(17, 24, 39, 0.12);
+  box-shadow: 0 18px 50px rgba(15, 23, 42, 0.18);
 
   opacity: 0;
-  transform: translateY(-6px) scale(.98);
+  transform: translateY(-6px) scale(0.98);
   pointer-events: none;
-  transition: opacity .12s ease, transform .12s ease;
+  transition:
+    opacity 0.12s ease,
+    transform 0.12s ease;
 }
 
-#actionsMenu.open{
+#actionsMenu.open {
   opacity: 1;
   transform: translateY(0) scale(1);
   pointer-events: auto;
 }
 
-/* setinha */
-#actionsMenu::before{
+#actionsMenu::before {
   content: "";
   position: absolute;
   left: 50%;
   width: 10px;
   height: 10px;
 
-  background: rgba(255, 255, 255, .98);
-  border-left: 1px solid rgba(17, 24, 39, .12);
-  border-top: 1px solid rgba(17, 24, 39, .12);
+  background: rgba(255, 255, 255, 0.98);
+  border-left: 1px solid rgba(17, 24, 39, 0.12);
+  border-top: 1px solid rgba(17, 24, 39, 0.12);
 
   transform: translateX(-50%) rotate(45deg);
 }
 
-#actionsMenu[data-placement="bottom"]::before{ top: -6px; }
-#actionsMenu[data-placement="top"]::before{
+#actionsMenu[data-placement="bottom"]::before {
+  top: -6px;
+}
+#actionsMenu[data-placement="top"]::before {
   bottom: -6px;
   transform: translateX(-50%) rotate(225deg);
 }
 
-/* botões do menu */
-#actionsMenu button{
+#actionsMenu button {
   width: 100%;
   text-align: left;
   padding: 11px 12px;
   border: 0;
   border-radius: 12px;
 
-  background: rgba(37, 99, 235, .06);
-  color: rgba(17, 24, 39, .92);
+  background: rgba(37, 99, 235, 0.06);
+  color: rgba(17, 24, 39, 0.92);
 
   cursor: pointer;
   font-size: 14px;
   font-weight: 700;
 }
 
-#actionsMenu button + button{ margin-top: 8px; }
+#actionsMenu button + button {
+  margin-top: 8px;
+}
 
-#actionsMenu button:hover{
-  background: rgba(37, 99, 235, .12);
+#actionsMenu button:hover {
+  background: rgba(37, 99, 235, 0.12);
   color: #111827;
 }
 
-/* excluir */
-#actionsMenu button.danger{
-  background: rgba(220, 38, 38, .08);
+#actionsMenu button.danger {
+  background: rgba(220, 38, 38, 0.08);
   color: #dc2626;
 }
-#actionsMenu button.danger:hover{
-  background: rgba(220, 38, 38, .14);
+#actionsMenu button.danger:hover {
+  background: rgba(220, 38, 38, 0.14);
   color: #991b1b;
 }
 
-/* =========================
-   MENU AÇÕES (⋯) - MODO ESCURO (override)
-========================= */
-
-body.dark #actionsMenu{
-  background: rgba(18, 34, 74, .98);
-  border: 1px solid rgba(255,255,255,.14);
-  box-shadow: 0 18px 50px rgba(0,0,0,.55);
+body.dark #actionsMenu {
+  background: rgba(18, 34, 74, 0.98);
+  border: 1px solid rgba(255, 255, 255, 0.14);
+  box-shadow: 0 18px 50px rgba(0, 0, 0, 0.55);
 }
 
-body.dark #actionsMenu::before{
-  background: rgba(18, 34, 74, .98);
-  border-left: 1px solid rgba(255,255,255,.14);
-  border-top: 1px solid rgba(255,255,255,.14);
+body.dark #actionsMenu::before {
+  background: rgba(18, 34, 74, 0.98);
+  border-left: 1px solid rgba(255, 255, 255, 0.14);
+  border-top: 1px solid rgba(255, 255, 255, 0.14);
 }
 
-body.dark #actionsMenu button{
-  background: rgba(255, 255, 255, .06);
-  color: rgba(255,255,255,.92);
+body.dark #actionsMenu button {
+  background: rgba(255, 255, 255, 0.06);
+  color: rgba(255, 255, 255, 0.92);
 }
 
-body.dark #actionsMenu button:hover{
-  background: rgba(255,255,255,.12);
+body.dark #actionsMenu button:hover {
+  background: rgba(255, 255, 255, 0.12);
   color: #fff;
 }
 
-body.dark #actionsMenu button.danger{
-  background: rgba(255, 91, 91, .10);
+body.dark #actionsMenu button.danger {
+  background: rgba(255, 91, 91, 0.1);
   color: #ff6b6b;
 }
-body.dark #actionsMenu button.danger:hover{
-  background: rgba(255, 91, 91, .18);
+body.dark #actionsMenu button.danger:hover {
+  background: rgba(255, 91, 91, 0.18);
   color: #fff;
 }

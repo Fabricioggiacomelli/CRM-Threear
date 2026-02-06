@@ -14,8 +14,6 @@
 
 <body>
 
-
-  <!-- MODAL DETALHES -->
   <div id="modalDetalhes" class="modal hidden">
     <div class="modal-content">
       <div class="modal-header">
@@ -26,8 +24,6 @@
     </div>
   </div>
 
-
-  <!-- MODAL TOTP (Google Authenticator) -->
   <div id="modalTOTP" class="modal hidden">
     <div class="modal-content" style="max-width:520px;">
       <div class="modal-header">
@@ -93,7 +89,7 @@
 
       <button type="button" class="menu-item" id="btnDashboard">
         <span class="icon">📊</span>
-        <span class="label">Dashboard</span>  
+        <span class="label">Dashboard</span>
       </button>
 
       <button type="button" class="menu-item" onclick="toggleTheme()">
@@ -120,7 +116,7 @@
         <button id="tabLogin" type="button" class="secondary" style="flex:1;">Log in</button>
         <button id="tabSignup" type="button" class="secondary" style="flex:1;">Sign up</button>
       </div>
-      <!-- LOGIN -->
+
       <div id="panelLogin">
         <p>Entre com seu e-mail e senha.</p>
 
@@ -142,7 +138,6 @@
         <div id="loginMsg" style="margin-top:10px; font-size:13px; opacity:.9;"></div>
       </div>
 
-      <!-- SIGN UP -->
       <div id="panelSignup" class="hidden">
         <p>Crie sua conta (precisa de aprovação para acessar).</p>
 
@@ -433,203 +428,203 @@
         </div>
       </section>
 
-        <section id="secClientes">
-          <h3>Cadastro de Clientes</h3>
+      <section id="secClientes">
+        <h3>Cadastro de Clientes</h3>
 
-          <div class="form-grid">
-            <div class="form-col">
-              <label for="cli_razao">Razão Social</label>
-              <input type="text" id="cli_razao">
+        <div class="form-grid">
+          <div class="form-col">
+            <label for="cli_razao">Razão Social</label>
+            <input type="text" id="cli_razao">
 
-              <label for="cli_cnpj">CNPJ</label>
-              <input type="text" id="cli_cnpj" placeholder="00.000.000/0000-00">
+            <label for="cli_cnpj">CNPJ</label>
+            <input type="text" id="cli_cnpj" placeholder="00.000.000/0000-00">
 
-              <label for="cli_ie">Inscrição Estadual</label>
-              <input type="text" id="cli_ie">
+            <label for="cli_ie">Inscrição Estadual</label>
+            <input type="text" id="cli_ie">
 
-              <label for="cli_endereco">Endereço</label>
-              <input type="text" id="cli_endereco">
+            <label for="cli_endereco">Endereço</label>
+            <input type="text" id="cli_endereco">
 
-              <label for="cli_segmento">Segmento</label>
-              <input type="text" id="cli_segmento">
-            </div>
-
-            <div class="form-col">
-              <h4>Contatos</h4>
-
-              <label for="ct_nome">Nome</label>
-              <input type="text" id="ct_nome">
-
-              <label for="ct_tel">Telefone</label>
-              <input type="text" id="ct_tel" placeholder="(11) 98888-7777">
-
-              <label for="ct_email">E-mail</label>
-              <input type="email" id="ct_email">
-
-              <label for="ct_funcao">Função / Cargo</label>
-              <input type="text" id="ct_funcao">
-
-              <label for="ct_responsavel">Responsável pelo contato</label>
-              <select id="ct_responsavel">
-                <option value="">Selecione</option>
-              </select>
-
-              <div class="checkbox-inline">
-                <input type="checkbox" id="ct_principal">
-                <span>Definir como contato principal</span>
-              </div>
-
-              <button type="button" class="secondary" id="btnAddContato">Adicionar Contato</button>
-              <button id="btnCancelarEdicaoContato" type="button" class="btn-cancelar-edicao hidden">
-  Cancelar edição
-</button>
-              <div id="listaContatos" class="contatos-lista"></div>
-            </div>
+            <label for="cli_segmento">Segmento</label>
+            <input type="text" id="cli_segmento">
           </div>
 
-          <button type="button" id="btnSalvarCliente">Salvar Cliente</button>
-          <button id="btnCancelarEdicaoCliente" type="button" class="btn-cancelar-edicao hidden">
-            Cancelar edição
-          </button>
+          <div class="form-col">
+            <h4>Contatos</h4>
 
-          <h4 style="margin-top:20px;">Consultar Clientes</h4>
+            <label for="ct_nome">Nome</label>
+            <input type="text" id="ct_nome">
 
-<div class="filters-row">
-  <div class="field">
-    <label for="searchClientes">Buscar:</label>
-    <input id="searchClientes" type="text" placeholder="Digite..." />
-  </div>
+            <label for="ct_tel">Telefone</label>
+            <input type="text" id="ct_tel" placeholder="(11) 98888-7777">
 
-  <div class="field">
-    <label for="filterClientesField">Campo:</label>
-    <select id="filterClientesField">
-              
+            <label for="ct_email">E-mail</label>
+            <input type="email" id="ct_email">
+
+            <label for="ct_funcao">Função / Cargo</label>
+            <input type="text" id="ct_funcao">
+
+            <label for="ct_responsavel">Responsável pelo contato</label>
+            <select id="ct_responsavel">
+              <option value="">Selecione</option>
+            </select>
+
+            <div class="checkbox-inline">
+              <input type="checkbox" id="ct_principal">
+              <span>Definir como contato principal</span>
+            </div>
+
+            <button type="button" class="secondary" id="btnAddContato">Adicionar Contato</button>
+            <button id="btnCancelarEdicaoContato" type="button" class="btn-cancelar-edicao hidden">
+              Cancelar edição
+            </button>
+            <div id="listaContatos" class="contatos-lista"></div>
+          </div>
+        </div>
+
+        <button type="button" id="btnSalvarCliente">Salvar Cliente</button>
+        <button id="btnCancelarEdicaoCliente" type="button" class="btn-cancelar-edicao hidden">
+          Cancelar edição
+        </button>
+
+        <h4 style="margin-top:20px;">Consultar Clientes</h4>
+
+        <div class="filters-row">
+          <div class="field">
+            <label for="searchClientes">Buscar:</label>
+            <input id="searchClientes" type="text" placeholder="Digite..." />
+          </div>
+
+          <div class="field">
+            <label for="filterClientesField">Campo:</label>
+            <select id="filterClientesField">
+
               <option value="todos">Todos</option>
               <option value="razao">Razão Social</option>
               <option value="cnpj">CNPJ</option>
               <option value="segmento">Segmento</option>
               <option value="usuario">Usuário</option>
             </select>
-           </div>
           </div>
+        </div>
 
 
-          <table id="tabelaClientes">
-            <thead>
-              <tr>
-                <th>Razão Social</th>
-                <th>CNPJ</th>
-                <th>Segmento</th>
-                <th>Qtd. Contatos</th>
-                <th>Usuário</th>
-                <th>Ações</th>
-              </tr>
-            </thead>
-            <tbody></tbody>
-          </table>
+        <table id="tabelaClientes">
+          <thead>
+            <tr>
+              <th>Razão Social</th>
+              <th>CNPJ</th>
+              <th>Segmento</th>
+              <th>Qtd. Contatos</th>
+              <th>Usuário</th>
+              <th>Ações</th>
+            </tr>
+          </thead>
+          <tbody></tbody>
+        </table>
 
-          <div class="paginacao" id="paginacaoClientes">
-            <button id="btnPrevClientes" class="secondary" type="button">Anterior</button>
-            <span id="pageInfoClientes">Página 1 de 1</span>
-            <button id="btnNextClientes" class="secondary" type="button">Próxima</button>
-          </div>
-
-
-          <div class="page-size-row">
-            <label for="pageSizeClientes">Itens por página:</label>
-            <input id="pageSizeClientes" type="text" min="1" max="200" value="5" />
-          </div>
+        <div class="paginacao" id="paginacaoClientes">
+          <button id="btnPrevClientes" class="secondary" type="button">Anterior</button>
+          <span id="pageInfoClientes">Página 1 de 1</span>
+          <button id="btnNextClientes" class="secondary" type="button">Próxima</button>
+        </div>
 
 
-        </section>
+        <div class="page-size-row">
+          <label for="pageSizeClientes">Itens por página:</label>
+          <input id="pageSizeClientes" type="text" min="1" max="200" value="5" />
+        </div>
 
-        <section id="secRepresentadas">
-          <h3>Cadastro de Representadas</h3>
 
-          <label for="rep_nome">Nome da Representada</label>
-          <input type="text" id="rep_nome">
+      </section>
 
-          <button type="button" id="btnSalvarRepresentada">Salvar Representada</button>
-          <button id="btnCancelarEdicaoRepresentada" type="button" class="btn-cancelar-edicao hidden">
-            Cancelar edição
-          </button>
-          <h4 style="margin-top:20px;">Representadas Cadastradas</h4>
+      <section id="secRepresentadas">
+        <h3>Cadastro de Representadas</h3>
 
-          <div class="filters-row">
+        <label for="rep_nome">Nome da Representada</label>
+        <input type="text" id="rep_nome">
+
+        <button type="button" id="btnSalvarRepresentada">Salvar Representada</button>
+        <button id="btnCancelarEdicaoRepresentada" type="button" class="btn-cancelar-edicao hidden">
+          Cancelar edição
+        </button>
+        <h4 style="margin-top:20px;">Representadas Cadastradas</h4>
+
+        <div class="filters-row">
           <div class="field">
-          <label for="searchRepresentadas">Buscar:</label>
+            <label for="searchRepresentadas">Buscar:</label>
             <input id="searchRepresentadas" type="text" placeholder="Nome da representada..." />
-            </div>
           </div>
+        </div>
 
 
 
-          <table id="tabelaRepresentadas">
-            <thead>
-              <tr>
-                <th>Nome</th>
-                <th class="col-center">Quantidade de fertas</th>
-                <th>Usuário</th>
-                <th>Ações</th>
-              </tr>
-            </thead>
-            <tbody></tbody>
-          </table>
+        <table id="tabelaRepresentadas">
+          <thead>
+            <tr>
+              <th>Nome</th>
+              <th class="col-center">Quantidade de fertas</th>
+              <th>Usuário</th>
+              <th>Ações</th>
+            </tr>
+          </thead>
+          <tbody></tbody>
+        </table>
 
-          <div class="page-size-row">
-            <label for="pageSizeRepresentadas">Itens por página:</label>
-            <input id="pageSizeRepresentadas" type="text" min="1" max="200" value="5" />
-          </div>
+        <div class="page-size-row">
+          <label for="pageSizeRepresentadas">Itens por página:</label>
+          <input id="pageSizeRepresentadas" type="text" min="1" max="200" value="5" />
+        </div>
 
 
-        </section>
-        
+      </section>
 
-        <section id="secAprovacaoUsuarios" class="hidden">
-          <h3>Aprovar Usuários</h3>
-          <p style="opacity:.85">Somente o administrador pode aprovar novos acessos.</p>
 
-          <div class="actions-row">
-            <button id="btnReloadUsuariosPendentes" class="secondary" type="button">Atualizar</button>
-          </div>
-          <table id="tabelaUsuariosPendentes">
-            <thead>
-              <tr>
-                <th>Nome</th>
-                <th>Email</th>
-                <th>Status</th>
-                <th>Criado em</th>
-                <th>Ações</th>
-              </tr>
-            </thead>
-            <tbody></tbody>
-          </table>
+      <section id="secAprovacaoUsuarios" class="hidden">
+        <h3>Aprovar Usuários</h3>
+        <p style="opacity:.85">Somente o administrador pode aprovar novos acessos.</p>
 
-          <hr style="margin:18px 0; opacity:.25">
+        <div class="actions-row">
+          <button id="btnReloadUsuariosPendentes" class="secondary" type="button">Atualizar</button>
+        </div>
+        <table id="tabelaUsuariosPendentes">
+          <thead>
+            <tr>
+              <th>Nome</th>
+              <th>Email</th>
+              <th>Status</th>
+              <th>Criado em</th>
+              <th>Ações</th>
+            </tr>
+          </thead>
+          <tbody></tbody>
+        </table>
 
-          <h3>Usuários existentes</h3>
-          <p style="opacity:.85">Usuários já aprovados (ativos/inativos). Você pode bloquear/desativar ou excluir </p>
+        <hr style="margin:18px 0; opacity:.25">
 
-          <div class="actions-row">
-            <input id="searchUsuariosExistentes" class="input" style="max-width:320px"
-              placeholder="Buscar por nome ou email..." />
-            <button id="btnReloadUsuariosExistentes" class="secondary" type="button">Atualizar</button>
-          </div>
+        <h3>Usuários existentes</h3>
+        <p style="opacity:.85">Usuários já aprovados (ativos/inativos). Você pode bloquear/desativar ou excluir </p>
 
-          <table id="tabelaUsuariosExistentes">
-            <thead>
-              <tr>
-                <th>Nome</th>
-                <th>Email</th>
-                <th>Status</th>
-                <th>Criado em</th>
-                <th>Ações</th>
-              </tr>
-            </thead>
-            <tbody></tbody>
-          </table>
+        <div class="actions-row">
+          <input id="searchUsuariosExistentes" class="input" style="max-width:320px"
+            placeholder="Buscar por nome ou email..." />
+          <button id="btnReloadUsuariosExistentes" class="secondary" type="button">Atualizar</button>
+        </div>
 
-        </section>
+        <table id="tabelaUsuariosExistentes">
+          <thead>
+            <tr>
+              <th>Nome</th>
+              <th>Email</th>
+              <th>Status</th>
+              <th>Criado em</th>
+              <th>Ações</th>
+            </tr>
+          </thead>
+          <tbody></tbody>
+        </table>
+
+      </section>
 
     </div>
   </div>
@@ -648,17 +643,14 @@
     </div>
   </div>
 
-  <!-- Dependências -->
   <script src="https://cdn.jsdelivr.net/npm/xlsx-js-style@1.2.0/dist/xlsx.bundle.js"></script>
 
   <script src="https://www.gstatic.com/firebasejs/9.23.0/firebase-app-compat.js"></script>
   <script src="https://www.gstatic.com/firebasejs/9.23.0/firebase-auth-compat.js"></script>
   <script src="https://www.gstatic.com/firebasejs/9.23.0/firebase-firestore-compat.js"></script>
 
-  <!-- seu firebase -->
   <script src="./firebase.js"></script>
 
-  <!-- seu app -->
   <script src="schema.js" defer></script>
   <script src="script.js" defer></script>
 </body>

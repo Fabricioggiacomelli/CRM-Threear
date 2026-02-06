@@ -1,7 +1,3 @@
-// index.js
-// Backend TOTP (Google Authenticator) com Firestore
-// Porta: http://localhost:3001
-
 const express = require("express");
 const cors = require("cors");
 const speakeasy = require("speakeasy");
@@ -11,23 +7,18 @@ const admin = require("firebase-admin");
 const app = express();
 const PORT = process.env.PORT || 3001;
 
-// ===== MIDDLEWARE =====
-// CORS liberado para dev (Live Server e etc.)
-
 app.use(
   cors({
     origin: true,
     methods: ["GET", "POST", "OPTIONS"],
     allowedHeaders: ["Content-Type", "Authorization"],
-  })
+  }),
 );
 app.options("*", cors());
 app.use(express.json());
 
-// ===== FIREBASE ADMIN =====
 const serviceAccount = require("./serviceAccount.json");
 
-// evita erro caso reinicie com nodemon etc.
 if (!admin.apps.length) {
   admin.initializeApp({
     credential: admin.credential.cert(serviceAccount),
@@ -37,8 +28,10 @@ if (!admin.apps.length) {
 const db = admin.firestore();
 const mfaRef = db.collection("usuarios_mfa");
 
-// ===== HELPERS =====
-const normUser = (u) => String(u || "").trim().toLowerCase();
+const normUser = (u) =>
+  String(u || "")
+    .trim()
+    .toLowerCase();
 const cleanToken = (t) => String(t || "").replace(/\D/g, "");
 
 function verifyTotp(secret, token) {
@@ -46,24 +39,23 @@ function verifyTotp(secret, token) {
     secret,
     encoding: "base32",
     token,
-    window: 1, // tolerância ~30s antes/depois
+    window: 1,
   });
 }
 
-// ===== HEALTH =====
 app.get("/", (_, res) => {
   res.send("OK - Backend TOTP com Firestore rodando");
 });
 
-// ===== STATUS =====
-// GET /mfa/status?user=email@dominio.com
 app.get("/mfa/status", async (req, res) => {
   try {
     const user = normUser(req.query.user);
-    if (!user) return res.status(400).json({ ok: false, error: "Informe ?user=..." });
+    if (!user)
+      return res.status(400).json({ ok: false, error: "Informe ?user=..." });
 
     const snap = await mfaRef.doc(user).get();
-    if (!snap.exists) return res.json({ ok: true, enabled: false, hasSecret: false });
+    if (!snap.exists)
+      return res.json({ ok: true, enabled: false, hasSecret: false });
 
     const data = snap.data() || {};
     return res.json({
@@ -77,24 +69,21 @@ app.get("/mfa/status", async (req, res) => {
   }
 });
 
-// ===== GERAR QR CODE =====
-// GET /mfa/qr?user=email@dominio.com
 app.get("/mfa/qr", async (req, res) => {
   try {
     const user = normUser(req.query.user);
-    if (!user) return res.status(400).json({ ok: false, error: "Informe ?user=..." });
+    if (!user)
+      return res.status(400).json({ ok: false, error: "Informe ?user=..." });
 
     const docRef = mfaRef.doc(user);
     const snap = await docRef.get();
 
-    // Já ativo → não gera outro QR
     if (snap.exists && (snap.data() || {}).mfaEnabled) {
       return res.json({ ok: true, alreadyActive: true });
     }
 
     let secretBase32 = snap.exists ? (snap.data() || {}).mfaSecret : null;
 
-    // se não tem segredo, cria e salva
     if (!secretBase32) {
       const secret = speakeasy.generateSecret({
         length: 20,
@@ -111,7 +100,7 @@ app.get("/mfa/qr", async (req, res) => {
           mfaEnabled: false,
           updatedAt: admin.firestore.FieldValue.serverTimestamp(),
         },
-        { merge: true }
+        { merge: true },
       );
     }
 
@@ -122,7 +111,10 @@ app.get("/mfa/qr", async (req, res) => {
       encoding: "base32",
     });
 
-    const qrDataUrl = await QRCode.toDataURL(otpauth_url, { width: 240, margin: 1 });
+    const qrDataUrl = await QRCode.toDataURL(otpauth_url, {
+      width: 240,
+      margin: 1,
+    });
 
     res.json({ ok: true, user, qrDataUrl });
   } catch (e) {
@@ -131,8 +123,6 @@ app.get("/mfa/qr", async (req, res) => {
   }
 });
 
-// ===== ATIVAR TOTP =====
-// POST /mfa/activate  body: { user, token }
 app.post("/mfa/activate", async (req, res) => {
   try {
     const user = normUser(req.body.user);
@@ -152,14 +142,15 @@ app.post("/mfa/activate", async (req, res) => {
     const { mfaSecret } = snap.data();
     const valid = verifyTotp(mfaSecret, token);
 
-    if (!valid) return res.status(401).json({ ok: false, error: "Código inválido" });
+    if (!valid)
+      return res.status(401).json({ ok: false, error: "Código inválido" });
 
     await docRef.set(
       {
         mfaEnabled: true,
         updatedAt: admin.firestore.FieldValue.serverTimestamp(),
       },
-      { merge: true }
+      { merge: true },
     );
 
     res.json({ ok: true, activated: true });
@@ -169,8 +160,6 @@ app.post("/mfa/activate", async (req, res) => {
   }
 });
 
-// ===== VALIDAR LOGIN =====
-// POST /mfa/verify body: { user, token }
 app.post("/mfa/verify", async (req, res) => {
   try {
     const user = normUser(req.body.user);
@@ -186,7 +175,8 @@ app.post("/mfa/verify", async (req, res) => {
     }
 
     const valid = verifyTotp((snap.data() || {}).mfaSecret, token);
-    if (!valid) return res.status(401).json({ ok: false, error: "Código inválido" });
+    if (!valid)
+      return res.status(401).json({ ok: false, error: "Código inválido" });
 
     res.json({ ok: true, verified: true });
   } catch (e) {
@@ -195,10 +185,6 @@ app.post("/mfa/verify", async (req, res) => {
   }
 });
 
-// ===== START =====
 app.listen(PORT, () => {
   console.log(`✅ Backend TOTP com Firestore em http://127.0.0.1:${PORT}`);
 });
-
-
-

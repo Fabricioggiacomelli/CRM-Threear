@@ -1,5 +1,3 @@
-// functions/index.js
-// Firebase Functions - Backend TOTP (Google Authenticator) com Firestore
 
 const { onRequest } = require("firebase-functions/v2/https");
 const logger = require("firebase-functions/logger");
@@ -11,7 +9,6 @@ const QRCode = require("qrcode");
 
 const admin = require("firebase-admin");
 
-// Em Functions não usa serviceAccount.json
 if (!admin.apps.length) {
   admin.initializeApp();
 }
@@ -22,7 +19,6 @@ const mfaRef = db.collection("usuarios_mfa");
 
 const app = express();
 
-// ===== MIDDLEWARE =====
 app.use(
   cors({
     origin: true,
@@ -33,7 +29,6 @@ app.use(
 app.options("*", cors());
 app.use(express.json());
 
-// ===== HELPERS =====
 const normUser = (u) => String(u || "").trim().toLowerCase();
 const cleanToken = (t) => String(t || "").replace(/\D/g, "");
 
@@ -42,17 +37,14 @@ function verifyTotp(secret, token) {
     secret,
     encoding: "base32",
     token,
-    window: 1, // tolerância ~30s antes/depois
+    window: 1, 
   });
 }
 
-// ===== HEALTH =====
 app.get("/", (_, res) => {
   res.send("OK - Backend TOTP com Firestore (Firebase Functions)");
 });
 
-// ===== STATUS =====
-// GET /mfa/status?user=email@dominio.com
 app.get("/mfa/status", async (req, res) => {
   try {
     const user = normUser(req.query.user);
@@ -73,8 +65,6 @@ app.get("/mfa/status", async (req, res) => {
   }
 });
 
-// ===== GERAR QR CODE =====
-// GET /mfa/qr?user=email@dominio.com
 app.get("/mfa/qr", async (req, res) => {
   try {
     const user = normUser(req.query.user);
@@ -83,14 +73,12 @@ app.get("/mfa/qr", async (req, res) => {
     const docRef = mfaRef.doc(user);
     const snap = await docRef.get();
 
-    // Já ativo → não gera outro QR
     if (snap.exists && (snap.data() || {}).mfaEnabled) {
       return res.json({ ok: true, alreadyActive: true });
     }
 
     let secretBase32 = snap.exists ? (snap.data() || {}).mfaSecret : null;
 
-    // se não tem segredo, cria e salva
     if (!secretBase32) {
       const secret = speakeasy.generateSecret({
         length: 20,
@@ -127,8 +115,6 @@ app.get("/mfa/qr", async (req, res) => {
   }
 });
 
-// ===== ATIVAR TOTP =====
-// POST /mfa/activate  body: { user, token }
 app.post("/mfa/activate", async (req, res) => {
   try {
     const user = normUser(req.body.user);
@@ -165,8 +151,6 @@ app.post("/mfa/activate", async (req, res) => {
   }
 });
 
-// ===== VALIDAR LOGIN =====
-// POST /mfa/verify body: { user, token }
 app.post("/mfa/verify", async (req, res) => {
   try {
     const user = normUser(req.body.user);
@@ -191,7 +175,6 @@ app.post("/mfa/verify", async (req, res) => {
   }
 });
 
-// Exporta a API como Function HTTP
 exports.api = onRequest(
   { region: "southamerica-east1", cors: true },
   app

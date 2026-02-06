@@ -1,15 +1,3 @@
-/***********************
- * CRM-Three Ar - script.js (FULL)
- * - Firebase Auth + Firestore
- * - Gate de acesso com TOTP (Google Authenticator) via Backend
- * - CRUD Ofertas / Clientes / Representadas
- * - Export Excel / PDF
- * - Backup JSON / Excel
- ************************/
-
-/* =======================
-   CONFIG / ESTADO GLOBAL
-======================= */
 let currentUserName = null;
 function getCurrentUserName() {
   return currentUserName || "Desconhecido";
@@ -52,7 +40,7 @@ let editContatoIndex = null;
 
 let currentPage = 1;
 let pageSize = 5;
-let clientesSearchPageSize = 5; // se quiser separar do clientesPageSize atual
+let clientesSearchPageSize = 5;
 let representadasCurrentPage = 1;
 let representadasPageSize = 5;
 
@@ -63,31 +51,25 @@ let backupImportMode = null;
 
 function getApiBase() {
   const p = new URLSearchParams(location.search);
-  const forced = p.get("api"); // local | prod
+  const forced = p.get("api");
 
   if (forced === "local") return "http://127.0.0.1:3001";
   if (forced === "prod")
     return "https://southamerica-east1-crm-three-ar.cloudfunctions.net/api";
 
-  // padrão: local quando estiver rodando em localhost
   if (location.hostname === "localhost" || location.hostname === "127.0.0.1") {
     return "http://127.0.0.1:3001";
   }
 
-  // padrão: produção fora do localhost
   return "https://southamerica-east1-crm-three-ar.cloudfunctions.net/api";
 }
 
 const API_BASE = getApiBase();
-// Gate TOTP
 let totpUserEmail = null;
-let totpIsActive = false; // backend diz se já ativou
-let totpOk = false; // validou nessa sessão
-let totpFlowLock = false; // evita abrir modal 2x
+let totpIsActive = false;
+let totpOk = false;
+let totpFlowLock = false;
 
-/* =======================
-   BOOT
-======================= */
 window.addEventListener("load", async () => {
   const savedTheme = localStorage.getItem("theme") || "light";
   applyTheme(savedTheme);
@@ -147,7 +129,6 @@ window.addEventListener("load", async () => {
 
       currentUserName = user.displayName || user.email || "Desconhecido";
 
-      // ✅ 1) GARANTE DOC NO FIRESTORE PRIMEIRO (mesmo sem verificação)
       const userRef = db.collection("usuarios").doc(user.uid);
       const snap = await userRef.get();
 
@@ -181,7 +162,6 @@ window.addEventListener("load", async () => {
         );
       }
 
-      // ✅ 2) AGORA SIM checa verificação de email
       await user.reload();
       if (!user.emailVerified) {
         await auth.signOut();
@@ -190,7 +170,6 @@ window.addEventListener("load", async () => {
         return;
       }
 
-      // ✅ 3) Checa aprovado/ativo
       const snap2 = await userRef.get();
       const udata = snap2.data() || {};
       const aprovado = !!udata.aprovado;
@@ -203,20 +182,17 @@ window.addEventListener("load", async () => {
         return;
       }
 
-      // ✅ 4) TOTP gate
-function mostrarTelaBloqueada() {
-  document.getElementById("appContainer")?.classList.add("hidden");
-  // pode manter loginContainer hidden também, se quiser
-  document.getElementById("loginContainer")?.classList.add("hidden");
-}
+      function mostrarTelaBloqueada() {
+        document.getElementById("appContainer")?.classList.add("hidden");
+        document.getElementById("loginContainer")?.classList.add("hidden");
+      }
 
-if (!totpOk) {
-  await iniciarFluxoTOTP(user);
-  mostrarTelaBloqueada();
-  return;
-}
+      if (!totpOk) {
+        await iniciarFluxoTOTP(user);
+        mostrarTelaBloqueada();
+        return;
+      }
 
-      // ✅ 5) Liberou
       await carregarDadosDoFirebase();
       atualizarSugestoesCnpj();
       mostrarApp();
@@ -228,9 +204,6 @@ if (!totpOk) {
   });
 });
 
-/* =======================
-   FIREBASE READY
-======================= */
 function esperarFirebase(timeoutMs = 8000) {
   return new Promise((resolve, reject) => {
     const start = Date.now();
@@ -298,9 +271,6 @@ async function carregarRegistrosFirebase() {
   registros = snap.docs.map((doc) => ({ id: doc.id, ...doc.data() }));
 }
 
-/* =======================
-   UI LOGIN / APP
-======================= */
 function mostrarLogin() {
   const loginContainer = document.getElementById("loginContainer");
   const appContainer = document.getElementById("appContainer");
@@ -332,9 +302,6 @@ function logout() {
   });
 }
 
-/* =======================
-   LOGIN (EMAIL/SENHA)
-======================= */
 function initLogin() {
   const btnLogin = document.getElementById("btnLogin");
   if (!btnLogin) return;
@@ -352,7 +319,6 @@ function initLogin() {
       return;
     }
 
-    // ✅ se senha for fraca: avisa e já manda e-mail de troca
     if (!senhaForteLogin(pass)) {
       alert(msgSenhaForteLogin());
 
@@ -378,7 +344,6 @@ function initLogin() {
 
       const cred = await auth.signInWithEmailAndPassword(email, pass);
 
-      // aqui não chama mostrarApp ainda: quem decide é o onAuthStateChanged
       console.log("Login OK:", cred.user?.uid);
     } catch (err) {
       console.error(err);
@@ -400,16 +365,6 @@ function initLogin() {
   });
 }
 
-/* =======================
-   TOTP (Google Authenticator) - MODAL
-   HTML IDs usados:
-   - modalTOTP
-   - imgQrTotp
-   - totp_code
-   - totp_status
-   - totp_qr_msg
-   - btnTotpConfirm
-======================= */
 function initTotpUI() {
   const btn = document.getElementById("btnTotpConfirm");
   if (btn && !btn.dataset.bound) {
@@ -424,7 +379,6 @@ function abrirModalTOTP() {
 
   m.classList.remove("hidden");
 
-  // reset
   const st = document.getElementById("totp_status");
   const code = document.getElementById("totp_code");
   const img = document.getElementById("imgQrTotp");
@@ -442,7 +396,6 @@ function abrirModalTOTP() {
   code?.focus();
 }
 
-// se forceClose = true, fecha mesmo (usado no logout/reset)
 function fecharModalTOTP(forceClose = false) {
   const m = document.getElementById("modalTOTP");
   if (!m) return;
@@ -462,13 +415,10 @@ function setTotpStatus(msg) {
 function formatarNomeUsuario(raw) {
   if (!raw) return "";
 
-  // remove email se existir
   let nome = raw.split("@")[0];
 
-  // pega só o primeiro nome (antes do ponto)
   nome = nome.split(".")[0];
 
-  // primeira letra maiúscula
   return nome.charAt(0).toUpperCase() + nome.slice(1).toLowerCase();
 }
 
@@ -506,7 +456,6 @@ async function apiVerify(userEmail, token) {
   return j;
 }
 
-// 1) Depois do login, chama isso:
 async function iniciarFluxoTOTP(user) {
   if (!user) return false;
   if (totpOk) return true;
@@ -549,8 +498,6 @@ async function iniciarFluxoTOTP(user) {
   } catch (e) {
     console.error("iniciarFluxoTOTP erro:", e);
 
-    // ⛔ NÃO desloga aqui (senão some rápido)
-    // só mostra erro e deixa tentar novamente
     setTotpStatus(
       "❌ Erro no 2FA: " +
         (e?.message || e) +
@@ -562,7 +509,6 @@ async function iniciarFluxoTOTP(user) {
       msg.textContent =
         "Backend do 2FA não respondeu. Ligue o servidor e clique em 'Tentar novamente'.";
 
-    // opcional: adiciona um botão de retry
     let btnRetry = document.getElementById("btnTotpRetry");
     if (!btnRetry) {
       btnRetry = document.createElement("button");
@@ -600,13 +546,11 @@ async function confirmarTotpNoModal() {
     if (btn) btn.disabled = true;
     setTotpStatus("Validando...");
 
-    // 3) se já estava ativo -> verify
     if (totpIsActive) {
       await apiVerify(totpUserEmail, clean);
       totpOk = true;
       setTotpStatus("Código OK ✅ Entrando...");
     } else {
-      // se não estava ativo -> activate
       await apiActivate(totpUserEmail, clean);
       totpIsActive = true;
       totpOk = true;
@@ -630,9 +574,6 @@ async function confirmarTotpNoModal() {
   }
 }
 
-/* =======================
-   MODAL DETALHES (OFERTA/CLIENTE/REP)
-======================= */
 function abrirModal(titulo, html) {
   const modal = document.getElementById("modalDetalhes");
   const tituloEl = document.getElementById("modalTitulo");
@@ -648,9 +589,6 @@ function fecharModalDetalhes() {
   if (modal) modal.classList.add("hidden");
 }
 
-/* =======================
-   THEME / SIDEBAR
-======================= */
 function applyTheme(theme) {
   const body = document.body;
   const label = document.getElementById("themeLabel");
@@ -679,9 +617,6 @@ function toggleSidebar() {
   else sidebar.classList.toggle("collapsed");
 }
 
-/* =======================
-   MASKS
-======================= */
 function initMoneyMask() {
   document.querySelectorAll(".money").forEach((input) => {
     input.addEventListener("input", formatMoney);
@@ -785,7 +720,6 @@ let cnpjBlurLock = false;
 function onCnpjBlur(e) {
   const input = e.target;
 
-  // se veio do autocomplete, não valida
   if (input.dataset.skipBlurValidation === "1") {
     input.dataset.skipBlurValidation = "0";
     return;
@@ -793,30 +727,23 @@ function onCnpjBlur(e) {
 
   const digits = (input.value || "").replace(/\D/g, "");
 
-  // se já mostrei alerta pra esse valor inválido, não mostra de novo
   if (input.dataset.invalidAlertShown === "1") return;
 
   if (digits && digits.length !== 14) {
     input.dataset.invalidAlertShown = "1";
 
-    // dá um tempo pro iOS terminar o blur antes do alert
     setTimeout(() => {
       alert("CNPJ inválido. Deve conter 14 dígitos.");
-      // opcional: volta o foco depois do alert (sem gerar loop)
       setTimeout(() => input.focus(), 50);
     }, 50);
   }
 }
 
-// quando o usuário digitar, libera o alert novamente
 function onCnpjInput(e) {
   e.target.dataset.invalidAlertShown = "0";
   e.target.value = formatCnpjValue(e.target.value);
 }
 
-/* =======================
-   FORM OFERTA (CRUD)
-======================= */
 function initForm() {
   const radiosPedido = document.querySelectorAll("input[name='pedido']");
   radiosPedido.forEach((radio) => {
@@ -849,7 +776,7 @@ function initForm() {
     const oferta = document.getElementById("oferta");
     const nome_projeto = document.getElementById("nome_projeto");
     const representadaSelect = document.getElementById("representada");
-    const unidadeEl = document.getElementById("unidade"); // ou unidade_mantex se esse for seu id
+    const unidadeEl = document.getElementById("unidade");
     const unidade = unidadeEl?.value || "";
     const valor_total = document.getElementById("valor_total");
     const ref_cliente = document.getElementById("ref_cliente");
@@ -909,7 +836,6 @@ function initForm() {
       obs_geral: obsGeral ? obsGeral.value.trim() : "",
     };
 
-    // Pedido
     if (possuiPedido === "sim") {
       const numero_pedido = document.getElementById("numero_pedido");
       const data_po = document.getElementById("data_po");
@@ -951,7 +877,6 @@ function initForm() {
       registroBase.pedido = null;
     }
 
-    // Revisão
     if (possuiRevisao === "sim") {
       const rev_num_oferta = document.getElementById("rev_num_oferta");
       const rev_mudou = document.getElementById("rev_mudou");
@@ -975,7 +900,6 @@ function initForm() {
       registroBase.revisao = null;
     }
 
-    // Create / Update
     if (!editId) {
       const id = gerarId();
       const registro = {
@@ -1053,7 +977,6 @@ function openActionsMenu(ev, type, id) {
   const menu = ensureActionsMenu();
   actionsMenuState = { open: true, type, id };
 
-  // liga ações (igual você já tem)
   const btnVer = document.getElementById("actVer");
   const btnVerContatos = document.getElementById("actVerContatos");
   const btnEditar = document.getElementById("actEditar");
@@ -1089,11 +1012,9 @@ function openActionsMenu(ev, type, id) {
     if (type === "rep") excluirRepresentada(id);
   };
 
-  // mede o botão
   const r = ev.currentTarget.getBoundingClientRect();
   const margin = 10;
 
-  // mostra (mas invisível) pra medir tamanho do menu
   menu.classList.add("open");
   menu.style.left = "0px";
   menu.style.top = "0px";
@@ -1102,17 +1023,14 @@ function openActionsMenu(ev, type, id) {
   const mw = menu.offsetWidth;
   const mh = menu.offsetHeight;
 
-  // posição preferida: abaixo
   let left = r.left + r.width / 2 - mw / 2;
   let top = r.bottom + margin;
 
-  // limita na tela
   if (left < margin) left = margin;
   if (left + mw > window.innerWidth - margin) {
     left = window.innerWidth - mw - margin;
   }
 
-  // se não couber embaixo, abre em cima
   let abrirEmCima = false;
   if (top + mh > window.innerHeight - margin) {
     top = r.top - mh - margin;
@@ -1120,10 +1038,8 @@ function openActionsMenu(ev, type, id) {
   }
   if (top < margin) top = margin;
 
-  // seta direção do caret
   menu.dataset.placement = abrirEmCima ? "top" : "bottom";
 
-  // define posição final
   menu.style.left = `${left}px`;
   menu.style.top = `${top}px`;
 }
@@ -1135,9 +1051,6 @@ function closeActionsMenu() {
   actionsMenuState.open = false;
 }
 
-/* =======================
-   FILTROS / PAGINAÇÃO OFERTAS
-======================= */
 function initFiltrosEPaginacao() {
   const searchTerm = document.getElementById("searchTerm");
   const filterField = document.getElementById("filterField");
@@ -1431,7 +1344,6 @@ function editarRegistro(id) {
 
   document.getElementById("bu").value = reg.bu || "";
 
-  // BU -> Segmento
   setTimeout(() => {
     document.getElementById("bu")?.dispatchEvent(new Event("change"));
     const segEl = document.getElementById("segmento");
@@ -1482,7 +1394,6 @@ function editarRegistro(id) {
     )
     ?.click();
 
-  // pedido
   if (reg.possuiPedido === "sim" && reg.pedido) {
     document.getElementById("secaoPedido").classList.remove("hidden");
     document.getElementById("numero_pedido").value =
@@ -1515,7 +1426,6 @@ function editarRegistro(id) {
     document.getElementById("secaoPedido").classList.add("hidden");
   }
 
-  // revisao
   if (reg.possuiRevisao === "sim" && reg.revisao) {
     document.getElementById("secaoRevisao").classList.remove("hidden");
     document.getElementById("rev_num_oferta").value =
@@ -1545,9 +1455,6 @@ async function excluirRegistro(id) {
   renderTabela();
 }
 
-/* =======================
-   EXPORT
-======================= */
 function exportExcel() {
   const filtrados = getRegistrosFiltrados();
   if (filtrados.length === 0) {
@@ -1568,7 +1475,6 @@ function exportExcel() {
     sampleRegistro: (getRegistrosFiltrados() || [])[0],
   });
 
-  // monta uma linha por registro seguindo o schema
   const linhas = filtrados.map((reg, i) => {
     const row = {};
     row["#"] = i + 1;
@@ -1586,33 +1492,32 @@ function exportExcel() {
   });
 
   const ws = XLSX.utils.json_to_sheet(linhas);
-  // largura das colunas
-ws["!cols"] = Object.keys(linhas[0]).map(k => ({ wch: Math.max(12, k.length + 2) }));
+  ws["!cols"] = Object.keys(linhas[0]).map((k) => ({
+    wch: Math.max(12, k.length + 2),
+  }));
 
-// estilo simples: borda + header negrito
-const range = XLSX.utils.decode_range(ws["!ref"]);
-const border = {
-  top: { style: "thin" },
-  bottom: { style: "thin" },
-  left: { style: "thin" },
-  right: { style: "thin" }
-};
+  const range = XLSX.utils.decode_range(ws["!ref"]);
+  const border = {
+    top: { style: "thin" },
+    bottom: { style: "thin" },
+    left: { style: "thin" },
+    right: { style: "thin" },
+  };
 
-for (let R = range.s.r; R <= range.e.r; R++) {
-  for (let C = range.s.c; C <= range.e.c; C++) {
-    const addr = XLSX.utils.encode_cell({ r: R, c: C });
-    const cell = ws[addr];
-    if (!cell) continue;
+  for (let R = range.s.r; R <= range.e.r; R++) {
+    for (let C = range.s.c; C <= range.e.c; C++) {
+      const addr = XLSX.utils.encode_cell({ r: R, c: C });
+      const cell = ws[addr];
+      if (!cell) continue;
 
-    cell.s = cell.s || {};
-    cell.s.border = border;
+      cell.s = cell.s || {};
+      cell.s.border = border;
 
-    // header
-    if (R === 0) {
-      cell.s.font = { bold: true };
+      if (R === 0) {
+        cell.s.font = { bold: true };
+      }
     }
   }
-}
   const wb = XLSX.utils.book_new();
   XLSX.utils.book_append_sheet(wb, ws, "Registros");
   XLSX.writeFile(wb, "registros_ofertas.xlsx");
@@ -1695,16 +1600,14 @@ function asYesNo(v) {
 function formatDateBR(v) {
   if (!v) return "-";
 
-  // Firestore Timestamp (v2 ou compat)
   if (typeof v === "object") {
     if (typeof v.toDate === "function") {
-      v = v.toDate(); // vira Date
+      v = v.toDate();
     } else if (typeof v.seconds === "number") {
-      v = new Date(v.seconds * 1000); // Timestamp "cru"
+      v = new Date(v.seconds * 1000);
     }
   }
 
-  // Date JS
   if (v instanceof Date) {
     const dd = String(v.getDate()).padStart(2, "0");
     const mm = String(v.getMonth() + 1).padStart(2, "0");
@@ -1712,7 +1615,6 @@ function formatDateBR(v) {
     return `${dd}/${mm}/${yy}`;
   }
 
-  // string (ex: "2026-02-02")
   const s = String(v).trim();
   if (!s) return "-";
 
@@ -1721,19 +1623,15 @@ function formatDateBR(v) {
     return `${d}/${m}/${y}`;
   }
 
-  // se vier "2026-02-02T..." também converte
   if (/^\d{4}-\d{2}-\d{2}T/.test(s)) {
     const [ymd] = s.split("T");
     const [y, m, d] = ymd.split("-");
     return `${d}/${m}/${y}`;
   }
 
-  return s; // fallback
+  return s;
 }
 
-/* =======================
-   BACKUP UI
-======================= */
 function initBackupUI() {
   const btnBackupExport = document.getElementById("btnBackupExport");
   const btnBackupImport = document.getElementById("btnBackupImport");
@@ -2105,7 +2003,6 @@ function importBackupExcel(file) {
 }
 
 function initClientesUI() {
-  // ✅ binds SEM depender do return (pra não “morrer” caso falte algum elemento)
   document
     .getElementById("btnCancelarEdicaoCliente")
     ?.addEventListener("click", cancelarEdicaoCliente);
@@ -2114,7 +2011,6 @@ function initClientesUI() {
     .getElementById("btnCancelarEdicaoContato")
     ?.addEventListener("click", cancelarEdicaoContato);
 
-  // filtros clientes
   document.getElementById("searchClientes")?.addEventListener("input", () => {
     clientesCurrentPage = 1;
     renderTabelaClientes();
@@ -2126,7 +2022,6 @@ function initClientesUI() {
       renderTabelaClientes();
     });
 
-  // itens por página clientes (igual ofertas)
   const pageSizeClientesInput = document.getElementById("pageSizeClientes");
   if (pageSizeClientesInput) {
     const saved = parseInt(localStorage.getItem("pageSizeClientes") || "", 10);
@@ -2151,7 +2046,6 @@ function initClientesUI() {
     });
   }
 
-  // paginação
   document.getElementById("btnPrevClientes")?.addEventListener("click", () => {
     if (clientesCurrentPage > 1) {
       clientesCurrentPage--;
@@ -2170,7 +2064,6 @@ function initClientesUI() {
     }
   });
 
-  // ✅ agora sim pega os botões principais (se não existir, só não inicializa o CRUD)
   const btnAddContato = document.getElementById("btnAddContato");
   const btnSalvarCliente = document.getElementById("btnSalvarCliente");
   if (!btnAddContato || !btnSalvarCliente) {
@@ -2178,16 +2071,12 @@ function initClientesUI() {
     return;
   }
 
-  // evita duplicar listeners se initClientesUI rodar 2x
   if (btnAddContato.dataset.bound === "1") {
     renderTabelaClientes();
     return;
   }
   btnAddContato.dataset.bound = "1";
 
-  /* =======================
-     CONTATOS (ADD / EDIT)
-  ======================= */
   btnAddContato.addEventListener("click", () => {
     const nome = document.getElementById("ct_nome")?.value.trim() || "";
     const telefone = document.getElementById("ct_tel")?.value.trim() || "";
@@ -2197,7 +2086,7 @@ function initClientesUI() {
 
     const selResp = document.getElementById("ct_responsavel");
     const responsavelNome = selResp ? selResp.value : "";
-    const responsavelId = responsavelNome; // mantém seu modelo
+    const responsavelId = responsavelNome;
 
     if (!nome) {
       alert("Informe pelo menos o nome do contato.");
@@ -2236,7 +2125,6 @@ function initClientesUI() {
         ?.classList.add("hidden");
     }
 
-    // limpa campos contato
     document.getElementById("ct_nome").value = "";
     document.getElementById("ct_tel").value = "";
     document.getElementById("ct_email").value = "";
@@ -2247,9 +2135,6 @@ function initClientesUI() {
     renderListaContatos();
   });
 
-  /* =======================
-     CLIENTE (SAVE / EDIT)
-  ======================= */
   btnSalvarCliente.addEventListener("click", async () => {
     const razao = document.getElementById("cli_razao")?.value.trim() || "";
     const cnpj = document.getElementById("cli_cnpj")?.value.trim() || "";
@@ -2272,7 +2157,6 @@ function initClientesUI() {
       return;
     }
 
-    // garante principal
     if (contatosTemp.length > 0 && !contatosTemp.some((c) => c.principal)) {
       contatosTemp[0].principal = true;
     }
@@ -2324,7 +2208,6 @@ function initClientesUI() {
 
       salvarClientes();
 
-      // reseta estado e UI
       contatosTemp = [];
       editContatoIndex = null;
 
@@ -2336,7 +2219,6 @@ function initClientesUI() {
       renderListaContatos();
       renderTabelaClientes();
 
-      // limpa campos cliente
       document.getElementById("cli_razao").value = "";
       document.getElementById("cli_cnpj").value = "";
       document.getElementById("cli_ie").value = "";
@@ -2348,7 +2230,6 @@ function initClientesUI() {
     }
   });
 
-  // render inicial
   renderTabelaClientes();
 }
 
@@ -2507,9 +2388,6 @@ async function excluirCliente(id) {
   renderTabelaClientes();
 }
 
-/* =======================
-   PAINEL CLIENTE
-======================= */
 function abrirPainelCliente(id) {
   const cli = clientes.find((c) => c.id === id);
   if (!cli) return;
@@ -2555,9 +2433,6 @@ function fecharPainelCliente() {
   if (painel) painel.classList.add("hidden");
 }
 
-/* =======================
-   LIGAÇÃO CLIENTE -> OFERTA
-======================= */
 function buscarClientePorCnpj(cnpj) {
   const clean = (cnpj || "").replace(/\D/g, "");
   return clientes.find((c) => (c.cnpj || "").replace(/\D/g, "") === clean);
@@ -2581,9 +2456,6 @@ function initLigacaoClienteOferta() {
   });
 }
 
-/* =======================
-   REPRESENTADAS (CRUD)
-======================= */
 function initRepresentadasUI() {
   const btn = document.getElementById("btnSalvarRepresentada");
   if (!btn) return;
@@ -2641,7 +2513,6 @@ function initRepresentadasUI() {
     renderTabelaRepresentadas();
     preencherSelectRepresentadas();
   });
-  // filtro representadas
   document
     .getElementById("searchRepresentadas")
     ?.addEventListener("input", () => {
@@ -2649,7 +2520,6 @@ function initRepresentadasUI() {
       renderTabelaRepresentadas();
     });
 
-  // itens por página representadas
   const pageSizeRepInput = document.getElementById("pageSizeRepresentadas");
   if (pageSizeRepInput) {
     const saved = parseInt(
@@ -2727,7 +2597,6 @@ function renderTabelaRepresentadas() {
     tbody.appendChild(tr);
   });
 
-  // se você tiver pageInfoRepresentadas no HTML, atualize aqui (opcional)
   const pageInfo = document.getElementById("pageInfoRepresentadas");
   if (pageInfo)
     pageInfo.textContent = `Página ${representadasCurrentPage} de ${totalPages}`;
@@ -2790,9 +2659,6 @@ async function excluirRepresentada(id) {
   preencherSelectRepresentadas();
 }
 
-/* =======================
-   VIEWS: verOferta / verCliente / verRepresentada
-======================= */
 function verOferta(id) {
   const reg = registros.find((r) => r.id === id);
   console.log("DEBUG tipo_oferta:", {
@@ -2812,7 +2678,6 @@ function verOferta(id) {
     .trim()
     .toLowerCase();
 
-  // normaliza acento (orçamento -> orcamento)
   const tipoNorm = tipoRaw.normalize("NFD").replace(/[\u0300-\u036f]/g, "");
 
   const tipoTexto =
@@ -2882,8 +2747,8 @@ function verOferta(id) {
     `;
   }
 
-if (reg.possuiPedido === "sim") {
-  html += `
+  if (reg.possuiPedido === "sim") {
+    html += `
     <hr>
     <div class="modal-card">
       <div class="modal-card-title">Pedido</div>
@@ -2906,9 +2771,9 @@ if (reg.possuiPedido === "sim") {
       </div>
     </div>
   `;
-} else {
-  html += `<div class="modal-section"><strong>Pedido?</strong> Não</div>`;
-}
+  } else {
+    html += `<div class="modal-section"><strong>Pedido?</strong> Não</div>`;
+  }
 
   if (reg.possuiRevisao === "sim") {
     html += `
@@ -2994,9 +2859,6 @@ function verRepresentada(id) {
   abrirModal(`Representada - ${rep.nome || ""}`, html);
 }
 
-/* =======================
-   AUTOCOMPLETE CNPJ (simples)
-======================= */
 function formatCnpjMask(digits) {
   const v = String(digits || "")
     .replace(/\D/g, "")
@@ -3077,9 +2939,6 @@ function initAutoCompleteCnpjSimples() {
   });
 }
 
-/* =======================
-   BU -> SEGMENTO
-======================= */
 function initBuSegmento() {
   const buEl = document.getElementById("bu");
   const segWrap = document.getElementById("segmentoWrap");
@@ -3136,9 +2995,6 @@ function initBuSegmento() {
   renderSegmentos(buEl.value);
 }
 
-/* =======================
-   SENHA FORTE (LOGIN)
-======================= */
 function senhaForteLogin(s) {
   const senha = String(s || "");
   const min8 = senha.length >= 8;
@@ -3152,9 +3008,6 @@ function msgSenhaForteLogin() {
   return "Senha fraca. Para acessar, você precisa trocar a senha.\n\nRegras: mínimo 8 caracteres, 1 letra MAIÚSCULA, 1 número e 1 símbolo.";
 }
 
-/* =======================
-   UTIL / STORAGE / USERS
-======================= */
 function gerarId() {
   return Date.now().toString() + "_" + Math.random().toString(16).slice(2);
 }
@@ -3213,8 +3066,8 @@ function preencherSelectResponsaveisContato() {
 
   RESPONSAVEIS_FIXOS.forEach((nome) => {
     const opt = document.createElement("option");
-    opt.value = nome; // valor real
-    opt.textContent = nome; // texto visível
+    opt.value = nome;
+    opt.textContent = nome;
     select.appendChild(opt);
   });
 }
@@ -3325,7 +3178,6 @@ function initResendEmailVerification() {
       btn.disabled = true;
       setLoginMsg("Enviando e-mail de verificação...");
 
-      // Faz login “silencioso” só para conseguir enviar a verificação
       const pass = String(
         document.getElementById("loginPass")?.value || "",
       ).trim();
@@ -3345,7 +3197,7 @@ function initResendEmailVerification() {
       }
 
       const actionCodeSettings = {
-        url: window.location.origin, // se estiver no GitHub Pages/domínio, ok
+        url: window.location.origin,
         handleCodeInApp: false,
       };
 
@@ -3358,7 +3210,6 @@ function initResendEmailVerification() {
         "E-mail de verificação reenviado! Verifique Caixa de entrada/Spam.",
       );
 
-      // Opcional: desloga pra voltar ao fluxo normal
       await auth.signOut();
       mostrarLogin();
     } catch (e) {
@@ -3407,7 +3258,6 @@ function initSignup() {
       return;
     }
 
-    // regra: 8 chars + número + símbolo + maiúscula
     if (!senhaForteLogin(pass)) {
       alert(msgSenhaForteLogin());
       setSignupMsg("❌ " + msgSenhaForteLogin());
@@ -3420,7 +3270,6 @@ function initSignup() {
 
       const cred = await auth.createUserWithEmailAndPassword(email, pass);
 
-      // cria doc no Firestore como pendente
       await db
         .collection("usuarios")
         .doc(cred.user.uid)
@@ -3437,10 +3286,9 @@ function initSignup() {
           { merge: true },
         );
 
-      // envia e-mail de verificação (com URL certa)
       try {
         const actionCodeSettings = {
-          url: window.location.origin, // ou coloque sua URL do GitHub Pages
+          url: window.location.origin,
           handleCodeInApp: false,
         };
 
@@ -3462,7 +3310,6 @@ function initSignup() {
         );
       }
 
-      // sempre desloga para impedir entrar sem verificação/aprovação
       await auth.signOut();
       mostrarLogin();
     } catch (e) {
@@ -3490,7 +3337,6 @@ function initAprovacaoUsuariosUI() {
   const btnReload = document.getElementById("btnReloadUsuariosPendentes");
   if (btnReload) btnReload.addEventListener("click", carregarUsuariosPendentes);
 
-  // Quando logar e for admin, mostramos menu e seção
   auth.onAuthStateChanged((user) => {
     const menu = document.getElementById("menuAprovacao");
     const sec = document.getElementById("secAprovacaoUsuarios");
@@ -3530,7 +3376,7 @@ async function carregarUsuariosPendentes() {
     const pendentes = all
 
       .filter((u) => {
-        const temUid = !!u.uid; // doc de usuário real
+        const temUid = !!u.uid;
         const aprovado = u.aprovado;
 
         const naoAprovado =
@@ -3589,7 +3435,6 @@ function initUsuariosExistentesUI() {
     carregarUsuariosExistentes(search.value),
   );
 
-  // quando for admin e entrar na tela, já carrega
   auth.onAuthStateChanged((user) => {
     if (user && isAdminEmail(user.email)) {
       carregarUsuariosExistentes();
@@ -3607,7 +3452,6 @@ async function carregarUsuariosExistentes(filtroTexto = "") {
     const snap = await db.collection("usuarios").get();
     const all = snap.docs.map((d) => ({ id: d.id, ...d.data() }));
 
-    // existentes = aprovados true (e opcionalmente também os que não têm aprovado definido mas já existem)
     let existentes = all
       .filter(
         (u) =>
@@ -3621,7 +3465,6 @@ async function carregarUsuariosExistentes(filtroTexto = "") {
         ativo: u.ativo === undefined ? true : !!u.ativo,
       }));
 
-    // filtro por texto
     const ft = String(filtroTexto || "")
       .trim()
       .toLowerCase();
@@ -3633,7 +3476,6 @@ async function carregarUsuariosExistentes(filtroTexto = "") {
       );
     }
 
-    // ordenar alfabeticamente por nome
     existentes.sort((a, b) =>
       (a.nome || "").localeCompare(b.nome || "", "pt-BR", {
         sensitivity: "base",
@@ -3713,7 +3555,6 @@ async function excluirUsuarioFirestore(docId) {
 
   await db.collection("usuarios").doc(docId).delete();
 
-  // atualiza as duas listas
   await carregarUsuariosPendentes();
   await carregarUsuariosExistentes(
     document.getElementById("searchUsuariosExistentes")?.value || "",
@@ -3767,7 +3608,6 @@ async function bloquearUsuario(uid) {
   await carregarUsuariosPendentes();
 }
 
-// evita quebrar tabela por caracteres especiais
 function escapeHtml(s) {
   return String(s || "")
     .replaceAll("&", "&amp;")
@@ -3780,7 +3620,7 @@ function escapeHtml(s) {
 function initUnidadesMantex() {
   const repEl = document.getElementById("representada");
   const wrap = document.getElementById("wrapUnidade");
-  const unidadeEl = document.getElementById("unidade"); // se for outro id, troca aqui
+  const unidadeEl = document.getElementById("unidade");
 
   if (!repEl || !unidadeEl) return;
 
@@ -3806,13 +3646,11 @@ function initUnidadesMantex() {
       unidades.map((u) => `<option value="${u}">${u}</option>`).join("");
   }
 
-  // não duplica listener
   if (!repEl.dataset.mantexBound) {
     repEl.dataset.mantexBound = "1";
     repEl.addEventListener("change", atualizar);
   }
 
-  // render inicial
   atualizar();
 }
 function cancelarEdicao() {
@@ -3821,25 +3659,20 @@ function cancelarEdicao() {
   const form = document.getElementById("formOferta");
   if (form) form.reset();
 
-  // esconde seções condicionais
   document.getElementById("secaoPedido")?.classList.add("hidden");
   document.getElementById("secaoRevisao")?.classList.add("hidden");
 
-  // reseta radios
   document.querySelector("input[name='pedido'][value='nao']")?.click();
   document.querySelector("input[name='revisao'][value='nao']")?.click();
   document.querySelector("input[name='sol_oc'][value='nao']")?.click();
 
-  // esconde unidade Mantex
   document.getElementById("wrapUnidade")?.classList.add("hidden");
   const unidadeEl = document.getElementById("unidade");
   if (unidadeEl) unidadeEl.value = "";
 
-  // volta texto do botão principal
   const btnAdicionar = document.getElementById("btnAdicionar");
   if (btnAdicionar) btnAdicionar.textContent = "Adicionar";
 
-  // esconde botão cancelar
   document.getElementById("btnCancelarEdicao")?.classList.add("hidden");
 
   window.scrollTo({ top: 0, behavior: "smooth" });
@@ -3850,21 +3683,17 @@ function cancelarEdicaoCliente() {
   contatosTemp = [];
   editContatoIndex = null;
 
-  // limpa inputs do cliente
   document.getElementById("cli_razao").value = "";
   document.getElementById("cli_cnpj").value = "";
   document.getElementById("cli_ie").value = "";
   document.getElementById("cli_endereco").value = "";
   document.getElementById("cli_segmento").value = "";
 
-  // reseta botões/textos
   document.getElementById("btnSalvarCliente").textContent = "Salvar Cliente";
   document.getElementById("btnAddContato").textContent = "Adicionar Contato";
 
-  // esconde botão cancelar
   document.getElementById("btnCancelarEdicaoCliente")?.classList.add("hidden");
 
-  // limpa lista visual dos contatos do cliente
   renderListaContatos();
 
   window.scrollTo({ top: 0, behavior: "smooth" });
