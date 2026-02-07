@@ -187,14 +187,14 @@ function bindSidebar() {
   $("btnVoltar")?.addEventListener("click", (e) => {
     e.preventDefault();
     e.stopPropagation();
-    window.location.href = "html.html";
+    window.location.href = "index.html";
   });
 
   $("btnSair")?.addEventListener("click", async (e) => {
     e.preventDefault();
     try {
       await auth.signOut();
-      window.location.href = "html.html";
+      window.location.href = "index.html";
     } catch (err) {
       console.error(err);
       setStatus("Erro ao sair. Veja o console.");
@@ -520,7 +520,7 @@ async function initDashboard() {
     if (!user) {
       setStatus("Você precisa fazer login. Redirecionando...");
       $("userInfo").textContent = "—";
-      window.location.href = "html.html";
+      window.location.href = "index.html";
       return;
     }
 
