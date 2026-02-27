@@ -797,6 +797,8 @@ function initForm() {
 
     const currentUser = getCurrentUserName();
 
+    const nowIso = new Date().toISOString();
+
     const cnpjDigits = (cnpj_cliente.value || "").replace(/\D/g, "");
     if (cnpjDigits && cnpjDigits.length !== 14) {
       alert("CNPJ inválido. Verifique antes de salvar.");
@@ -909,6 +911,8 @@ function initForm() {
         ...registroBase,
         criadoPor: currentUser,
         atualizadoPor: currentUser,
+        criadoEm: nowIso,
+        atualizadoEm: nowIso,
       };
       await db.collection("ofertas").doc(id).set(registro);
       registros.push(registro);
@@ -922,6 +926,8 @@ function initForm() {
           ...registroBase,
           criadoPor: antigo.criadoPor || currentUser,
           atualizadoPor: currentUser,
+          criadoEm: antigo.criadoEm || nowIso,
+          atualizadoEm: nowIso,
         };
         await db.collection("ofertas").doc(editId).set(registro);
         registros[idx] = registro;
@@ -1486,6 +1492,7 @@ function exportExcel() {
 
       if (c.type === "yesno") val = asYesNo(val);
       if (c.type === "date") val = formatDateBR(val);
+      if (c.type === "datetime") val = formatDateTimeBR(val);
 
       row[c.label] = val ?? "";
     });
@@ -2146,6 +2153,7 @@ function initClientesUI() {
     const segmento =
       document.getElementById("cli_segmento")?.value.trim() || "";
     const currentUser = getCurrentUserName();
+    const nowIso = new Date().toISOString();
 
     if (!razao || !cnpj) {
       alert("Razão Social e CNPJ são obrigatórios.");
@@ -2180,6 +2188,8 @@ function initClientesUI() {
           ...clienteBase,
           criadoPor: currentUser,
           atualizadoPor: currentUser,
+          criadoEm: nowIso,
+          atualizadoEm: nowIso,
         };
         await db.collection("clientes").doc(id).set(cliente);
         clientes.push(cliente);
@@ -2194,6 +2204,8 @@ function initClientesUI() {
             ...clienteBase,
             criadoPor: antigo.criadoPor || currentUser,
             atualizadoPor: currentUser,
+            criadoEm: antigo.criadoEm || nowIso,
+            atualizadoEm: nowIso,
           };
           await db.collection("clientes").doc(editClienteId).set(cliente);
           clientes[idx] = cliente;
@@ -2465,6 +2477,7 @@ function initRepresentadasUI() {
   btn.addEventListener("click", async () => {
     const nome = document.getElementById("rep_nome").value.trim();
     const currentUser = getCurrentUserName();
+    const nowIso = new Date().toISOString();
 
     if (!nome) {
       alert("Informe o nome da representada.");
@@ -2478,6 +2491,8 @@ function initRepresentadasUI() {
         nome,
         criadoPor: currentUser,
         atualizadoPor: currentUser,
+        criadoEm: nowIso,
+        atualizadoEm: nowIso,
       };
       await db.collection("representadas").doc(id).set(rep);
       representadas.push(rep);
@@ -2491,6 +2506,8 @@ function initRepresentadasUI() {
           nome,
           criadoPor: antigo.criadoPor || currentUser,
           atualizadoPor: currentUser,
+          criadoEm: antigo.criadoEm || nowIso,
+          atualizadoEm: nowIso,
         };
         await db.collection("representadas").doc(editRepresentadaId).set(rep);
         representadas[idx] = rep;
@@ -2737,6 +2754,8 @@ function verOferta(id) {
     <div class="modal-card">
       <div class="modal-card-title">Usuário</div>
       <div class="modal-section"><strong>Responsável:</strong> ${usuario}</div>
+      <div class="modal-section"><strong>Criado em:</strong> ${formatDateTimeBR(reg.criadoEm)}</div>
+<div class="modal-section"><strong>Atualizado em:</strong> ${formatDateTimeBR(reg.atualizadoEm)}</div>
     </div>
   `;
 
@@ -2837,6 +2856,8 @@ function verCliente(id) {
   }
 
   html += `<hr><div class="modal-section"><strong>Usuário:</strong> ${usuario}</div>`;
+  html += `<strong>Criado em:</strong> ${formatDateTimeBR(cli.criadoEm)}`;
+  html += `<br><strong>Atualizado em:</strong> ${formatDateTimeBR(cli.atualizadoEm)}`;
   abrirModal(`Cliente - ${cli.razao || ""}`, html);
 }
 
@@ -2856,6 +2877,8 @@ function verRepresentada(id) {
     <div class="modal-section"><strong>Ofertas vinculadas:</strong> ${qtdOfertas}</div>
     <hr>
     <div class="modal-section"><strong>Usuário:</strong> ${usuario}</div>
+    <div class="modal-section"><strong>Criado em:</strong> ${formatDateTimeBR(rep.criadoEm)}</div>
+    <div class="modal-section"><strong>Atualizado em:</strong> ${formatDateTimeBR(rep.atualizadoEm)}</div>
   `;
 
   abrirModal(`Representada - ${rep.nome || ""}`, html);
@@ -3777,4 +3800,33 @@ function cancelarEdicaoContato() {
 
   document.getElementById("btnAddContato").textContent = "Adicionar Contato";
   document.getElementById("btnCancelarEdicaoContato")?.classList.add("hidden");
+}
+
+function formatDateTimeBR(v) {
+  if (!v) return "-";
+
+  // Firestore Timestamp (compat) ou objeto com toDate()
+  if (typeof v === "object") {
+    if (typeof v.toDate === "function") v = v.toDate();
+    else if (typeof v.seconds === "number") v = new Date(v.seconds * 1000);
+  }
+
+  // Date
+  if (v instanceof Date) {
+    const dd = String(v.getDate()).padStart(2, "0");
+    const mm = String(v.getMonth() + 1).padStart(2, "0");
+    const yy = v.getFullYear();
+    const hh = String(v.getHours()).padStart(2, "0");
+    const mi = String(v.getMinutes()).padStart(2, "0");
+    return `${dd}/${mm}/${yy} ${hh}:${mi}`;
+  }
+
+  const s = String(v).trim();
+  if (!s) return "-";
+
+  // "2026-02-27T15:24:00.000Z" ou parecido
+  const d = new Date(s);
+  if (!isNaN(d.getTime())) return formatDateTimeBR(d);
+
+  return s;
 }

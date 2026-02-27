@@ -48,6 +48,8 @@ window.OFERTA_SCHEMA = [
   { key: "revisao.mudou", label: "O que mudou" },
 
   { key: "obs_geral", label: "Observações Gerais" },
+  { key: "criadoEm", label: "Criado em", type: "datetime" },
+  { key: "atualizadoEm", label: "Atualizado em", type: "datetime" },
   { key: "criadoPor", label: "Criado por" },
   { key: "atualizadoPor", label: "Atualizado por" },
 ];
