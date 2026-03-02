@@ -362,20 +362,16 @@
       <section id="secRegistros">
         <h3>Consultar Registros</h3>
 
-        <div class="filters">
-          <input type="text" id="searchTerm" placeholder="Buscar por texto...">
+        <div id="registrosCount" class="subtitle"></div>
+        <div id="activeFiltersTags" style="margin-top:8px;"></div>
 
-          <select id="filterField">
-            <option value="todos">Buscar em todos os campos</option>
-            <option value="bu">B.U</option>
-            <option value="razao">Razão Social</option>
-            <option value="cnpj">CNPJ</option>
-            <option value="projeto">Projeto</option>
-            <option value="representada">Representada</option>
-            <option value="tipo_oferta">Tipo (Compra/Orçamento)</option>
-            <option value="status">Status</option>
-            <option value="usuario">Usuário</option>
-          </select>
+        <div class="filters">
+          <div id="filtersRegistros"></div>
+
+          <div class="actions-row" style="margin-top:10px;">
+            <button type="button" class="secondary" id="btnAddFiltro">+ Adicionar filtro</button>
+            <button type="button" class="secondary" id="btnLimparFiltros">Limpar filtros</button>
+          </div>
 
           <input type="text" id="statusFilter" placeholder="Filtrar por Status">
 

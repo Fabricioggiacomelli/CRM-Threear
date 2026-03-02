@@ -295,6 +295,7 @@ function mostrarApp() {
   renderTabela();
   renderTabelaClientes();
   renderTabelaRepresentadas();
+  initFiltrosEPaginacao();
 }
 
 function logout() {
@@ -956,6 +957,8 @@ function initForm() {
     renderTabela();
   });
 
+  initFiltrosRegistrosUI();
+
   bindGotoPage(
     "gotoPageRegistros",
     () => Math.max(1, Math.ceil(getRegistrosFiltrados().length / pageSize)),
@@ -1108,26 +1111,11 @@ function initFiltrosEPaginacao() {
     });
   }
 
-  searchTerm?.addEventListener(
-    "input",
-    () => ((currentPage = 1), renderTabela()),
-  );
-  filterField?.addEventListener(
-    "change",
-    () => ((currentPage = 1), renderTabela()),
-  );
-  statusFilter?.addEventListener(
-    "input",
-    () => ((currentPage = 1), renderTabela()),
-  );
-  pedidoFilter?.addEventListener(
-    "change",
-    () => ((currentPage = 1), renderTabela()),
-  );
-  revisaoFilter?.addEventListener(
-    "change",
-    () => ((currentPage = 1), renderTabela()),
-  );
+  searchTerm?.addEventListener("input", () => renderTabelaDebounced());
+  filterField?.addEventListener("change", () => renderTabelaDebounced());
+  statusFilter?.addEventListener("input", () => renderTabelaDebounced());
+  pedidoFilter?.addEventListener("change", () => renderTabelaDebounced());
+  revisaoFilter?.addEventListener("change", () => renderTabelaDebounced());
 
   if (btnVerTudo) {
     btnVerTudo.addEventListener("click", () => {
@@ -1161,95 +1149,120 @@ function initFiltrosEPaginacao() {
   btnExportPdf?.addEventListener("click", exportPdf);
 }
 
+function getTextoRegistroTodosCampos(reg) {
+  const textos = [
+    reg.bu,
+    reg.segmento,
+    reg.razao,
+    reg.cnpj_cliente,
+    reg.nome_projeto,
+    reg.representadaNome,
+    reg.solicitante,
+    reg.telefone,
+    reg.email,
+    reg.oferta,
+    reg.valor_total,
+    reg.oportunidade,
+    reg.data_entrada,
+    reg.status,
+    reg.data_envio,
+    reg.obs_geral,
+    reg.tipo_oferta,
+    reg.atendimentoSpot,
+  ];
+
+  if (reg.pedido) {
+    textos.push(
+      reg.pedido.numero_pedido,
+      reg.pedido.data_po,
+      reg.pedido.valor_pedido,
+      reg.pedido.cond_pagamento,
+      reg.pedido.ref_projeto,
+      reg.pedido.tipo_produto,
+      reg.pedido.obs,
+      reg.pedido.data_nf,
+      reg.pedido.numero_nf,
+      reg.pedido.valor_nf,
+      reg.pedido.prazo_entrega_contratual,
+      reg.pedido.solicitacao_oc,
+      reg.pedido.ref_oc,
+      reg.pedido.data_implantacao,
+    );
+  }
+
+  if (reg.revisao) {
+    textos.push(reg.revisao.numero_oferta_anterior, reg.revisao.mudou);
+  }
+
+  const usuario = formatarNomeUsuario(reg.atualizadoPor || reg.criadoPor || "");
+  textos.push(usuario);
+
+  return textos.filter(Boolean).join(" ").toLowerCase();
+}
+
+function getValorCampoRegistro(reg, field) {
+  switch (field) {
+    case "bu":
+      return reg.bu || "";
+    case "razao":
+      return reg.razao || "";
+    case "cnpj_cliente":
+      return normalizeCNPJ(reg.cnpj_cliente);
+    case "nome_projeto":
+      return reg.nome_projeto || "";
+    case "representadaNome":
+      return reg.representadaNome || "";
+    case "tipo_oferta":
+      return reg.tipo_oferta || "";
+    case "status":
+      return reg.status || "";
+    case "usuario":
+      return formatarNomeUsuario(reg.atualizadoPor || reg.criadoPor || "");
+    case "todos":
+    default:
+      return "";
+  }
+}
+
 function getRegistrosFiltrados() {
-  const term = (document.getElementById("searchTerm")?.value || "")
-    .trim()
-    .toLowerCase();
-  const field = document.getElementById("filterField")?.value || "todos";
   const statusFilter = (document.getElementById("statusFilter")?.value || "")
     .trim()
     .toLowerCase();
+
   const pedidoFilter =
     document.getElementById("pedidoFilter")?.value || "todos";
   const revisaoFilter =
     document.getElementById("revisaoFilter")?.value || "todos";
 
+  const filtros = Array.from(
+    document.querySelectorAll("#filtersRegistros .filter-item"),
+  )
+    .map((row) => {
+      const field = row.querySelector(".multiField")?.value || "todos";
+      const term = (row.querySelector(".multiTerm")?.value || "")
+        .trim()
+        .toLowerCase();
+      return { field, term };
+    })
+    .filter((f) => f.term);
+
   return registros.filter((reg) => {
-    if (term) {
-      if (field === "todos") {
-        const textos = [
-          reg.bu,
-          reg.segmento,
-          reg.razao,
-          reg.cnpj_cliente,
-          reg.nome_projeto,
-          reg.representadaNome,
-          reg.solicitante,
-          reg.telefone,
-          reg.email,
-          reg.oferta,
-          reg.valor_total,
-          reg.oportunidade,
-          reg.data_entrada,
-          reg.status,
-          reg.data_envio,
-          reg.obs_geral,
-          reg.tipo_oferta,
-        ];
+    if (filtros.length > 0) {
+      const textoTodos = getTextoRegistroTodosCampos(reg);
 
-        if (reg.pedido) {
-          textos.push(
-            reg.pedido.numero_pedido,
-            reg.pedido.valor_pedido,
-            reg.pedido.ref_projeto,
-            reg.pedido.tipo_produto,
-            reg.pedido.obs,
-            reg.pedido.data_nf,
-            reg.pedido.valor_nf,
-            reg.pedido.prazo_entrega_contratual,
-            reg.pedido.solicitacao_oc,
-            reg.pedido.ref_oc,
-          );
+      for (const f of filtros) {
+        if (f.field === "todos") {
+          if (!textoTodos.includes(f.term)) return false;
+        } else {
+          const v = (getValorCampoRegistro(reg, f.field) || "")
+            .toString()
+            .toLowerCase();
+          if (f.field === "cnpj_cliente") {
+            if (!normalizeCNPJ(v).includes(normalizeCNPJ(f.term))) return false;
+          } else {
+            if (!v.includes(f.term)) return false;
+          }
         }
-        if (reg.revisao)
-          textos.push(reg.revisao.numero_oferta_anterior, reg.revisao.mudou);
-
-        const textoUnico = textos.filter(Boolean).join(" ").toLowerCase();
-        if (!textoUnico.includes(term)) return false;
-      } else {
-        let valorCampo = "";
-        switch (field) {
-          case "bu":
-            valorCampo = reg.bu || "";
-            break;
-          case "razao":
-            valorCampo = reg.razao || "";
-            break;
-          case "cnpj":
-            valorCampo = reg.cnpj_cliente || "";
-            break;
-          case "projeto":
-            valorCampo = reg.nome_projeto || "";
-            break;
-          case "representada":
-            valorCampo = reg.representadaNome || "";
-            break;
-          case "tipo_oferta":
-            valorCampo = reg.tipo_oferta || "";
-            break;
-          case "status":
-            valorCampo = reg.status || "";
-            break;
-          case "usuario":
-            valorCampo = formatarNomeUsuario(
-              reg.atualizadoPor || reg.criadoPor || "",
-            );
-            break;
-          default:
-            valorCampo = "";
-            break;
-        }
-        if (!valorCampo.toLowerCase().includes(term)) return false;
       }
     }
 
@@ -1355,6 +1368,19 @@ function renderTabela() {
   }
 
   if (pageInfo) pageInfo.textContent = `Página ${currentPage} de ${totalPages}`;
+
+  document.querySelectorAll("#tabelaRegistros tbody tr").forEach((tr) => {
+    tr.classList.add("fade-enter");
+    requestAnimationFrame(() => {
+      tr.classList.add("fade-enter-active");
+    });
+  });
+  const countEl = document.getElementById("registrosCount");
+  if (countEl) {
+    countEl.textContent = `${filtrados.length} registro(s) encontrado(s)`;
+  }
+
+  renderActiveFilterTags();
 }
 
 function editarRegistro(id) {
@@ -3943,3 +3969,129 @@ function enableHorizontalWheel(selector = ".table-scroll") {
 }
 
 enableHorizontalWheel(".table-scroll");
+
+const REGISTROS_FILTER_FIELDS = [
+  { value: "todos", label: "Buscar em todos os campos" },
+  { value: "bu", label: "B.U" },
+  { value: "razao", label: "Razão Social" },
+  { value: "cnpj_cliente", label: "CNPJ" },
+  { value: "nome_projeto", label: "Projeto" },
+  { value: "representadaNome", label: "Representada" },
+  { value: "tipo_oferta", label: "Tipo (Compra/Orçamento)" },
+  { value: "status", label: "Status" },
+  { value: "usuario", label: "Usuário" },
+];
+
+function buildRegistrosFieldOptions(selected = "todos") {
+  return REGISTROS_FILTER_FIELDS.map(
+    (f) =>
+      `<option value="${f.value}" ${f.value === selected ? "selected" : ""}>${f.label}</option>`,
+  ).join("");
+}
+
+function addFiltroRegistroRow({ field = "todos", term = "" } = {}) {
+  const wrap = document.getElementById("filtersRegistros");
+  if (!wrap) return;
+
+  const div = document.createElement("div");
+  div.className = "filter-item";
+  div.innerHTML = `
+    <select class="multiField">
+      ${buildRegistrosFieldOptions(field)}
+    </select>
+
+    <input class="multiTerm" type="text" placeholder="Digite para filtrar..." value="${term || ""}" />
+
+    <button type="button" class="secondary btn-remove">Remover</button>
+  `;
+
+  div.querySelector(".btn-remove")?.addEventListener("click", () => {
+    div.remove();
+    const rest = document.querySelectorAll("#filtersRegistros .filter-item");
+
+    currentPage = 1;
+    renderTabela();
+  });
+
+  div.querySelector(".multiField")?.addEventListener("change", () => {
+    currentPage = 1;
+    renderTabela();
+  });
+
+  div.querySelector(".multiTerm")?.addEventListener("input", () => {
+    renderTabelaDebounced();
+  });
+  wrap.appendChild(div);
+}
+
+function initFiltrosRegistrosUI() {
+  const wrap = document.getElementById("filtersRegistros");
+  if (wrap && wrap.children.length === 0) addFiltroRegistroRow();
+  document.getElementById("btnAddFiltro")?.addEventListener("click", () => {
+    addFiltroRegistroRow({ field: "todos", term: "" });
+  });
+  document.getElementById("btnLimparFiltros")?.addEventListener("click", () => {
+    const wrap = document.getElementById("filtersRegistros");
+    if (!wrap) return;
+    wrap.innerHTML = "";
+    addFiltroRegistroRow({ field: "todos", term: "" });
+    const status = document.getElementById("statusFilter");
+    if (status) status.value = "";
+
+    const ped = document.getElementById("pedidoFilter");
+    if (ped) ped.value = "todos";
+
+    const rev = document.getElementById("revisaoFilter");
+    if (rev) rev.value = "todos";
+
+    registrosCurrentPage = 1;
+    renderTabelaRegistros();
+  });
+}
+
+function debounce(fn, delay = 250) {
+  let timer;
+  return (...args) => {
+    clearTimeout(timer);
+    timer = setTimeout(() => fn(...args), delay);
+  };
+}
+
+const renderTabelaDebounced = debounce(() => {
+  currentPage = 1;
+  renderTabela();
+}, 250);
+
+function renderActiveFilterTags() {
+  const container = document.getElementById("activeFiltersTags");
+  if (!container) return;
+
+  container.innerHTML = "";
+
+  const filtros = Array.from(
+    document.querySelectorAll("#filtersRegistros .filter-item"),
+  )
+    .map((row) => ({
+      field: row.querySelector(".multiField")?.value,
+      term: row.querySelector(".multiTerm")?.value?.trim(),
+    }))
+    .filter((f) => f.term);
+
+  filtros.forEach((f, index) => {
+    const tag = document.createElement("span");
+    tag.className = "filter-tag";
+    tag.innerHTML = `${f.term} ✕`;
+    tag.onclick = () => {
+      document
+        .querySelectorAll("#filtersRegistros .filter-item")
+        [index]?.remove();
+      renderTabelaDebounced();
+      renderActiveFilterTags();
+    };
+    container.appendChild(tag);
+  });
+}
+
+function normalizeCNPJ(value) {
+  return String(value || "").replace(/\D/g, "");
+}

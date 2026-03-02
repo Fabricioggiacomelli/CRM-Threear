@@ -1420,3 +1420,123 @@ body.dark .table-scroll::-webkit-scrollbar-thumb {
   padding: 0 10px;
   border-radius: 10px;
 }
+
+#filtersRegistros {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  width: 100%;
+}
+
+.filter-item {
+  display: flex;
+  gap: 10px;
+  flex-wrap: wrap;
+  align-items: center;
+}
+
+.filter-item select {
+  min-width: 240px;
+  width: 240px;
+}
+
+.filter-item input {
+  flex: 1;
+  min-width: 220px;
+}
+
+.filter-item .btn-remove {
+  width: auto;
+  padding: 8px 12px;
+  margin-top: 0;
+  border-radius: 12px;
+}
+
+tbody tr {
+  transition:
+    opacity 0.2s ease,
+    transform 0.2s ease;
+}
+
+tbody tr.fade-enter {
+  opacity: 0;
+  transform: translateY(4px);
+}
+
+tbody tr.fade-enter-active {
+  opacity: 1;
+  transform: translateY(0);
+}
+
+.filter-tag {
+  display: inline-block;
+  padding: 6px 10px;
+  margin: 4px;
+  background: rgba(37, 99, 235, 0.1);
+  color: var(--primary);
+  border-radius: 999px;
+  font-size: 12px;
+  cursor: pointer;
+}
+.filter-tag:hover {
+  background: rgba(37, 99, 235, 0.2);
+}
+
+.filters {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+  align-items: center;
+}
+
+.filters input,
+.filters select,
+.filters button {
+  height: 38px;
+  margin-top: 0 !important;
+  padding: 0 12px;
+  border-radius: 18px;
+}
+
+.filters input,
+.filters select,
+.filters button {
+  flex: 0 0 200px;
+  width: 200px;
+}
+
+.filters button {
+  width: 200px !important;
+  box-shadow: none;
+}
+
+#filtersRegistros {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+}
+
+#filtersRegistros select,
+#filtersRegistros input {
+  height: 40px !important;
+  min-width: 190px;
+  width: 300px;
+  flex: 0 0 320px;
+
+  padding: 0 14px !important;
+  margin-top: 0 !important;
+  border-radius: 18px;
+}
+
+#filtersRegistros button {
+  box-shadow: none;
+  border-radius: 18px;
+}
+
+#filtersRegistros .btn-remove {
+  width: 190px !important;
+}
+
+#filtersRegistros input::placeholder {
+  opacity: 0.8;
+}
