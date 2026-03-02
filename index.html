@@ -258,6 +258,12 @@
               <label for="data_envio">Data Envio</label>
               <input type="date" id="data_envio">
 
+              <label>Atendimento spot?</label>
+              <div class="radio-group">
+                <label><input type="radio" name="spot" value="sim"> Sim</label>
+                <label><input type="radio" name="spot" value="nao" checked> Não</label>
+              </div>
+
               <label>Possui Pedido?</label>
               <div class="radio-group">
                 <label><input type="radio" name="pedido" value="sim"> Sim</label>
@@ -330,13 +336,13 @@
                 <label for="prazo_entrega_contratual">Prazo de entrega contratual</label>
                 <input type="date" id="prazo_entrega_contratual">
 
-                <label>Solicitação de ordem de compra?</label>
+                <label>Solicitação de ordem de venda?</label>
                 <div class="radio-group">
                   <label><input type="radio" name="sol_oc" value="sim"> Sim</label>
                   <label><input type="radio" name="sol_oc" value="nao" checked> Não</label>
                 </div>
 
-                <label for="ref_oc">Ref da ordem de compra</label>
+                <label for="ref_oc">Ref da ordem de venda</label>
                 <input type="text" id="ref_oc">
 
                 <label for="data_implantacao">Data de Implantação</label>
@@ -396,26 +402,27 @@
           <input type="file" id="inputBackupFile" style="display:none;">
         </div>
 
-        <table id="tabelaRegistros">
-          <thead>
-            <tr>
-              <th>#</th>
-              <th>B.U</th>
-              <th>RAZÃO SOCIAL</th>
-              <th>CNPJ</th>
-              <th>PROJETO</th>
-              <th>REPRESENTADA</th>
-              <th>TIPO</th>
-              <th>STATUS</th>
-              <th>PEDIDO?</th>
-              <th>REVISÃO?</th>
-              <th>USUÁRIO</th>
-              <th>AÇÕES</th>
-            </tr>
-          </thead>
-          <tbody></tbody>
-        </table>
-
+        <div class="table-scroll">
+          <table id="tabelaRegistros">
+            <thead>
+              <tr>
+                <th>#</th>
+                <th>B.U</th>
+                <th>RAZÃO SOCIAL</th>
+                <th>CNPJ</th>
+                <th>PROJETO</th>
+                <th>REPRESENTADA</th>
+                <th>TIPO</th>
+                <th>STATUS</th>
+                <th>PEDIDO?</th>
+                <th>REVISÃO?</th>
+                <th>USUÁRIO</th>
+                <th>AÇÕES</th>
+              </tr>
+            </thead>
+            <tbody></tbody>
+          </table>
+        </div>
         <div class="paginacao">
           <button id="btnPrev" class="secondary" type="button">Anterior</button>
           <span id="pageInfo">Página 1 de 1</span>
@@ -426,6 +433,12 @@
           <label for="pageSizeInput">Itens por página:</label>
           <input id="pageSizeInput" type="text" min="1" max="200" />
         </div>
+
+        <div class="goto-page-row">
+          <label for="gotoPageRegistros">Ir para a página:</label>
+          <input type="text" id="gotoPageRegistros" min="1" inputmode="numeric" />
+        </div>
+
       </section>
 
       <section id="secClientes">
@@ -447,6 +460,9 @@
 
             <label for="cli_segmento">Segmento</label>
             <input type="text" id="cli_segmento">
+
+            <label for="cli_sap">Código SAP</label>
+            <input type="text" id="cli_sap">
           </div>
 
           <div class="form-col">
@@ -503,6 +519,7 @@
               <option value="razao">Razão Social</option>
               <option value="cnpj">CNPJ</option>
               <option value="segmento">Segmento</option>
+              <option value="sap">SAP</option>
               <option value="usuario">Usuário</option>
             </select>
           </div>
@@ -515,6 +532,8 @@
               <th>Razão Social</th>
               <th>CNPJ</th>
               <th>Segmento</th>
+              <th>SAP</th>
+              <th>Qtd. Ofertas</th>
               <th>Qtd. Contatos</th>
               <th>Usuário</th>
               <th>Ações</th>
@@ -535,6 +554,10 @@
           <input id="pageSizeClientes" type="text" min="1" max="200" value="5" />
         </div>
 
+        <div class="goto-page-row">
+          <label for="gotoPageClientes">Ir para a página:</label>
+          <input type="text" id="gotoPageClientes" min="1" inputmode="numeric" />
+        </div>
 
       </section>
 
@@ -563,7 +586,7 @@
           <thead>
             <tr>
               <th>Nome</th>
-              <th class="col-center">Quantidade de fertas</th>
+              <th class="col-center">Quantidade de Ofertas</th>
               <th>Usuário</th>
               <th>Ações</th>
             </tr>

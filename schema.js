@@ -6,9 +6,7 @@ window.OFERTA_SCHEMA = [
   { key: "solicitante", label: "Solicitante" },
   { key: "telefone", label: "Telefone" },
   { key: "email", label: "E-mail" },
-
   { key: "oferta", label: "Nº da Oferta" },
-
   { key: "nome_projeto", label: "Nome do Projeto" },
   { key: "representadaNome", label: "Representada" },
   { key: "unidade", label: "Unidade (Mantex / Filial / Sierra)" },
@@ -17,6 +15,7 @@ window.OFERTA_SCHEMA = [
   { key: "data_entrada", label: "Data Entrada", type: "date" },
   { key: "status", label: "Status" },
   { key: "tipo_oferta", label: "Tipo (Compra / Orçamento)" },
+  { key: "atendimentoSpot", label: "Atendimento spot?", type: "yesno" },
   { key: "data_envio", label: "Data Envio", type: "date" },
 
   { key: "possuiPedido", label: "Possui Pedido (Sim / Não)", type: "yesno" },
@@ -30,18 +29,10 @@ window.OFERTA_SCHEMA = [
   { key: "pedido.data_nf", label: "Data Nota Fiscal", type: "date" },
   { key: "pedido.numero_nf", label: "Número da NF" },
   { key: "pedido.valor_nf", label: "Valor da Nota Fiscal", type: "money" },
-  {
-    key: "pedido.prazo_entrega_contratual",
-    label: "Prazo de Entrega Contratual",
-    type: "date",
-  },
-  { key: "pedido.solicitacao_oc", label: "Solicitação OC", type: "yesno" },
-  { key: "pedido.ref_oc", label: "Ref OC" },
-  {
-    key: "pedido.data_implantacao",
-    label: "Data de Implantação",
-    type: "date",
-  },
+  { key: "pedido.prazo_entrega_contratual", label: "Prazo de Entrega Contratual", type: "date", },
+  { key: "pedido.sov", label: "SOV", type: "yesno" },
+  { key: "pedido.ref_ov", label: "Ref OV" },
+  { key: "pedido.data_implantacao", label: "Data de Implantação", type: "date", },
 
   { key: "possuiRevisao", label: "Revisão (Sim / Não)", type: "yesno" },
   { key: "revisao.numero_oferta_anterior", label: "Nº Oferta Anterior" },

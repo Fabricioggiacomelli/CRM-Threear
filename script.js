@@ -790,6 +790,8 @@ function initForm() {
     const tipoNegocio = document.getElementById("tipo_oferta");
     const segmentoEl = document.getElementById("segmento");
 
+    const atendimentoSpot =
+      document.querySelector("input[name='spot']:checked")?.value || "nao";
     const possuiPedido =
       document.querySelector("input[name='pedido']:checked")?.value || "nao";
     const possuiRevisao =
@@ -836,6 +838,7 @@ function initForm() {
       data_envio: data_envio.value,
       possuiPedido,
       possuiRevisao,
+      atendimentoSpot,
       tipo_oferta: tipoNegocio ? tipoNegocio.value : "",
       obs_geral: obsGeral ? obsGeral.value.trim() : "",
     };
@@ -952,6 +955,15 @@ function initForm() {
     currentPage = 1;
     renderTabela();
   });
+
+  bindGotoPage(
+    "gotoPageRegistros",
+    () => Math.max(1, Math.ceil(getRegistrosFiltrados().length / pageSize)),
+    (page) => {
+      currentPage = page;
+      renderTabela();
+    },
+  );
 }
 
 let actionsMenuState = { open: false, type: null, id: null };
@@ -1272,7 +1284,7 @@ function getClientesFiltrados() {
     );
 
     if (field === "todos") {
-      const texto = [cli.razao, cli.cnpj, cli.segmento, usuario]
+      const texto = [cli.razao, cli.cnpj, cli.sap, cli.segmento, usuario]
         .filter(Boolean)
         .join(" ")
         .toLowerCase();
@@ -1283,6 +1295,7 @@ function getClientesFiltrados() {
     if (field === "razao") v = cli.razao || "";
     if (field === "cnpj") v = cli.cnpj || "";
     if (field === "segmento") v = cli.segmento || "";
+    if (field === "sap") v = cli.sap || "";
     if (field === "usuario") v = usuario || "";
 
     return v.toLowerCase().includes(term);
@@ -1399,6 +1412,12 @@ function editarRegistro(id) {
   document
     .querySelector(
       `input[name="revisao"][value="${reg.possuiRevisao || "nao"}"]`,
+    )
+    ?.click();
+
+  document
+    .querySelector(
+      `input[name="spot"][value="${reg.atendimentoSpot || "nao"}"]`,
     )
     ?.click();
 
@@ -2152,6 +2171,7 @@ function initClientesUI() {
       document.getElementById("cli_endereco")?.value.trim() || "";
     const segmento =
       document.getElementById("cli_segmento")?.value.trim() || "";
+    const sap = document.getElementById("cli_sap")?.value.trim() || "";
     const currentUser = getCurrentUserName();
     const nowIso = new Date().toISOString();
 
@@ -2177,6 +2197,7 @@ function initClientesUI() {
       ie,
       endereco,
       segmento,
+      sap,
       contatos: contatosTemp.slice(),
     };
 
@@ -2238,6 +2259,7 @@ function initClientesUI() {
       document.getElementById("cli_ie").value = "";
       document.getElementById("cli_endereco").value = "";
       document.getElementById("cli_segmento").value = "";
+      document.getElementById("cli_sap").value = "";
     } catch (e) {
       console.error(e);
       alert("Erro ao salvar cliente: " + (e?.message || e));
@@ -2245,6 +2267,16 @@ function initClientesUI() {
   });
 
   renderTabelaClientes();
+
+  bindGotoPage(
+    "gotoPageClientes",
+    () =>
+      Math.max(1, Math.ceil(getClientesFiltrados().length / clientesPageSize)),
+    (page) => {
+      clientesCurrentPage = page;
+      renderTabelaClientes();
+    },
+  );
 }
 
 function renderListaContatos() {
@@ -2330,22 +2362,30 @@ function renderTabelaClientes() {
   if (pageData.length === 0) {
     const tr = document.createElement("tr");
     const td = document.createElement("td");
-    td.colSpan = 6;
+    td.colSpan = 8;
     td.textContent = "Nenhum cliente encontrado.";
     tr.appendChild(td);
     tbody.appendChild(tr);
   } else {
     pageData.forEach((cli) => {
+      console.log("SAP DEBUG:", cli.razao, cli.sap, cli);
       const tr = document.createElement("tr");
       const qtdContatos = cli.contatos ? cli.contatos.length : 0;
       const usuario = formatarNomeUsuario(
         cli.atualizadoPor || cli.criadoPor || "-",
       );
 
+      const cnpjClean = (cli.cnpj || "").replace(/\D/g, "");
+      const qtdOfertas = registros.filter(
+        (r) => (r.cnpj_cliente || "").replace(/\D/g, "") === cnpjClean,
+      ).length;
+
       tr.innerHTML = `
         <td>${cli.razao || ""}</td>
         <td>${cli.cnpj || ""}</td>
         <td>${cli.segmento || ""}</td>
+        <td>${cli.sap || ""}</td>
+        <td class="col-center">${qtdOfertas}</td>
         <td class="col-center">${qtdContatos}</td>
         <td>${usuario}</td>
         <td style="text-align:center;">
@@ -2360,6 +2400,30 @@ function renderTabelaClientes() {
     pageInfoClientes.textContent = `Página ${clientesCurrentPage} de ${totalPages}`;
 }
 
+function bindGotoPage(inputId, getTotalPages, setPageAndRender) {
+  const input = document.getElementById(inputId);
+  if (!input) return;
+
+  const go = () => {
+    const page = parseInt(input.value, 10);
+    if (!page || page < 1) return;
+
+    const total = getTotalPages();
+    const target = Math.min(page, total);
+
+    setPageAndRender(target);
+    input.value = "";
+  };
+
+  input.addEventListener("keydown", (e) => {
+    if (e.key === "Enter") go();
+  });
+
+  input.addEventListener("blur", () => {
+    if (input.value.trim() !== "") go();
+  });
+}
+
 function editarCliente(id) {
   const cli = clientes.find((c) => c.id === id);
   if (!cli) return;
@@ -2371,6 +2435,7 @@ function editarCliente(id) {
   document.getElementById("cli_ie").value = cli.ie || "";
   document.getElementById("cli_endereco").value = cli.endereco || "";
   document.getElementById("cli_segmento").value = cli.segmento || "";
+  document.getElementById("cli_sap").value = cli.sap || "";
 
   contatosTemp = (cli.contatos || []).map((ct) => ({ ...ct }));
   editContatoIndex = null;
@@ -2744,7 +2809,7 @@ function verOferta(id) {
       <div class="modal-section"><strong>Tipo:</strong> ${tipoTexto}</div>
       <div class="modal-section"><strong>Valor:</strong> ${reg.valor_total || "-"}</div>
       <div class="modal-section"><strong>Status:</strong> ${reg.status || "-"}</div>
-
+      <div class="modal-section"><strong>Atendimento spot?</strong> ${reg.atendimentoSpot === "sim" ? "Sim" : "Não"}</div>
       <div class="modal-section"><strong>Referência:</strong> ${reg.ref_cliente || "-"}</div>
 
       <div class="modal-section"><strong>Data Entrada:</strong> ${formatDateBR(reg.data_entrada) || "-"}</div>
@@ -2786,8 +2851,8 @@ function verOferta(id) {
         <strong>Número NF:</strong> ${pedido.numero_nf || "-"}<br>
         <strong>Valor NF:</strong> ${pedido.valor_nf || "-"}<br>
         <strong>Prazo entrega contratual:</strong> ${formatDateBR(pedido.prazo_entrega_contratual)}<br>
-        <strong>Solicitação OC?</strong> ${pedido.solicitacao_oc === "sim" ? "Sim" : "Não"}<br>
-        <strong>Ref. OC:</strong> ${pedido.ref_oc || "-"}<br>
+        <strong>SOV?</strong> ${pedido.solicitacao_oc === "sim" ? "Sim" : "Não"}<br>
+        <strong>Ref. OV:</strong> ${pedido.ref_oc || "-"}<br>
         <strong>Data de Implantação:</strong> ${formatDateBR(pedido.data_implantacao)}<br>
       </div>
     </div>
@@ -2815,6 +2880,13 @@ function verCliente(id) {
   const cli = clientes.find((c) => c.id === id);
   if (!cli) return;
 
+  // Contar ofertas desse cliente
+  const totalOfertas = registros.filter(
+    (r) =>
+      (r.clienteId && r.clienteId === cli.id) ||
+      (!r.clienteId && r.cnpj_cliente === cli.cnpj),
+  ).length;
+
   const usuario = formatarNomeUsuario(
     cli.atualizadoPor || cli.criadoPor || "-",
   );
@@ -2825,7 +2897,9 @@ function verCliente(id) {
       <strong>CNPJ:</strong> ${cli.cnpj || "-"}<br>
       <strong>Inscrição Estadual:</strong> ${cli.ie || "-"}<br>
       <strong>Segmento:</strong> ${cli.segmento || "-"}<br>
-      <strong>Endereço:</strong> ${cli.endereco || "-"}
+      <strong>Endereço:</strong> ${cli.endereco || "-"}<br>
+      <strong>Codigo SAP:</strong> ${cli.codigo_sap || "-"}<br>
+      <br><strong>Ofertas cadastradas:</strong> ${totalOfertas}
     </div>
   `;
 
@@ -3690,6 +3764,7 @@ function cancelarEdicao() {
   document.querySelector("input[name='pedido'][value='nao']")?.click();
   document.querySelector("input[name='revisao'][value='nao']")?.click();
   document.querySelector("input[name='sol_oc'][value='nao']")?.click();
+  document.querySelector("input[name='spot'][value='nao']")?.click();
 
   document.getElementById("wrapUnidade")?.classList.add("hidden");
   const unidadeEl = document.getElementById("unidade");
@@ -3713,6 +3788,7 @@ function cancelarEdicaoCliente() {
   document.getElementById("cli_ie").value = "";
   document.getElementById("cli_endereco").value = "";
   document.getElementById("cli_segmento").value = "";
+  document.getElementById("cli_sap").value = "";
 
   document.getElementById("btnSalvarCliente").textContent = "Salvar Cliente";
   document.getElementById("btnAddContato").textContent = "Adicionar Contato";
@@ -3830,3 +3906,40 @@ function formatDateTimeBR(v) {
 
   return s;
 }
+function enableHorizontalWheel(selector = ".table-scroll") {
+  document.querySelectorAll(selector).forEach((el) => {
+    let scrollAmount = 0;
+    let animationFrame;
+
+    el.addEventListener(
+      "wheel",
+      (e) => {
+        const canScrollX = el.scrollWidth > el.clientWidth;
+        if (!canScrollX) return;
+
+        if (Math.abs(e.deltaX) > Math.abs(e.deltaY)) return;
+
+        e.preventDefault();
+
+        scrollAmount += e.deltaY * 0.8;
+
+        if (!animationFrame) {
+          animationFrame = requestAnimationFrame(function smoothScroll() {
+            el.scrollLeft += scrollAmount * 0.2;
+            scrollAmount *= 0.8;
+
+            if (Math.abs(scrollAmount) > 0.5) {
+              animationFrame = requestAnimationFrame(smoothScroll);
+            } else {
+              animationFrame = null;
+              scrollAmount = 0;
+            }
+          });
+        }
+      },
+      { passive: false },
+    );
+  });
+}
+
+enableHorizontalWheel(".table-scroll");
