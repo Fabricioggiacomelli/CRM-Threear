@@ -1246,17 +1246,31 @@ function getRegistrosFiltrados() {
     })
     .filter((f) => f.term);
 
+  const isEmptyKeyword = (t) => ["vazio", "em branco", "sem"].includes(t);
+
   return registros.filter((reg) => {
     if (filtros.length > 0) {
       const textoTodos = getTextoRegistroTodosCampos(reg);
 
       for (const f of filtros) {
+        const wantEmpty = isEmptyKeyword(f.term);
+
+        if (wantEmpty) {
+          // só faz sentido com campo específico
+          if (f.field === "todos") return false;
+
+          if (!isEmptyByFieldRegistro(reg, f.field)) return false;
+          continue;
+        }
+
+        // normal (como já está)
         if (f.field === "todos") {
           if (!textoTodos.includes(f.term)) return false;
         } else {
           const v = (getValorCampoRegistro(reg, f.field) || "")
             .toString()
             .toLowerCase();
+
           if (f.field === "cnpj_cliente") {
             if (!normalizeCNPJ(v).includes(normalizeCNPJ(f.term))) return false;
           } else {
@@ -4094,4 +4108,21 @@ function renderActiveFilterTags() {
 
 function normalizeCNPJ(value) {
   return String(value || "").replace(/\D/g, "");
+}
+
+function isEmptyValue(v) {
+  if (v === null || v === undefined) return true;
+  if (typeof v === "string") return v.trim() === "";
+  return false;
+}
+
+function isEmptyByFieldRegistro(reg, field) {
+  const value = getValorCampoRegistro(reg, field);
+
+  // regra especial pro CNPJ
+  if (field === "cnpj_cliente") {
+    return normalizeCNPJ(value || "").length === 0;
+  }
+
+  return isEmptyValue(value);
 }
