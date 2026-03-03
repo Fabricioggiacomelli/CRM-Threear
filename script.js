@@ -1075,6 +1075,10 @@ function closeActionsMenu() {
 }
 
 function initFiltrosEPaginacao() {
+  // ✅ trava LOGO NO COMEÇO
+  if (window.__filtrosEPaginacaoRegistrosBound) return;
+  window.__filtrosEPaginacaoRegistrosBound = true;
+
   const searchTerm = document.getElementById("searchTerm");
   const filterField = document.getElementById("filterField");
   const statusFilter = document.getElementById("statusFilter");
@@ -1085,7 +1089,6 @@ function initFiltrosEPaginacao() {
   const btnNext = document.getElementById("btnNext");
   const btnExportExcel = document.getElementById("btnExportExcel");
   const btnExportPdf = document.getElementById("btnExportPdf");
-
   const pageSizeInput = document.getElementById("pageSizeInput");
 
   if (pageSizeInput) {
@@ -1117,20 +1120,15 @@ function initFiltrosEPaginacao() {
   pedidoFilter?.addEventListener("change", () => renderTabelaDebounced());
   revisaoFilter?.addEventListener("change", () => renderTabelaDebounced());
 
-  if (btnVerTudo) {
-    btnVerTudo.addEventListener("click", () => {
-      if (searchTerm) searchTerm.value = "";
-      if (statusFilter) statusFilter.value = "";
-      if (filterField) filterField.value = "todos";
-      if (pedidoFilter) pedidoFilter.value = "todos";
-      if (revisaoFilter) revisaoFilter.value = "todos";
-      currentPage = 1;
-      renderTabela();
-    });
-  }
-
-  if (window.__paginacaoRegistrosBound) return;
-  window.__paginacaoRegistrosBound = true;
+  btnVerTudo?.addEventListener("click", () => {
+    if (searchTerm) searchTerm.value = "";
+    if (statusFilter) statusFilter.value = "";
+    if (filterField) filterField.value = "todos";
+    if (pedidoFilter) pedidoFilter.value = "todos";
+    if (revisaoFilter) revisaoFilter.value = "todos";
+    currentPage = 1;
+    renderTabela();
+  });
 
   btnPrev?.addEventListener("click", () => {
     if (currentPage > 1) {
@@ -4066,7 +4064,7 @@ function initFiltrosRegistrosUI() {
   });
 }
 
-function debounce(fn, delay = 250) {
+function debounce(fn, delay = 300) {
   let timer;
   return (...args) => {
     clearTimeout(timer);
@@ -4077,7 +4075,7 @@ function debounce(fn, delay = 250) {
 const renderTabelaDebounced = debounce(() => {
   currentPage = 1;
   renderTabela();
-}, 250);
+}, 300);
 
 function renderActiveFilterTags() {
   const container = document.getElementById("activeFiltersTags");
@@ -4122,7 +4120,6 @@ function isEmptyValue(v) {
 function isEmptyByFieldRegistro(reg, field) {
   const value = getValorCampoRegistro(reg, field);
 
-  // regra especial pro CNPJ
   if (field === "cnpj_cliente") {
     return normalizeCNPJ(value || "").length === 0;
   }
