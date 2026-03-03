@@ -1129,6 +1129,9 @@ function initFiltrosEPaginacao() {
     });
   }
 
+  if (window.__paginacaoRegistrosBound) return;
+  window.__paginacaoRegistrosBound = true;
+
   btnPrev?.addEventListener("click", () => {
     if (currentPage > 1) {
       currentPage--;
