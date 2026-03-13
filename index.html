@@ -24,6 +24,16 @@
     </div>
   </div>
 
+<div id="modalHistorico" class="modal hidden">
+  <div class="modal-content modal-historico-content">
+    <div class="modal-header">
+      <h3 id="modalHistoricoTitulo">Histórico</h3>
+      <button type="button" class="modal-close" onclick="fecharModalHistorico()">✕</button>
+    </div>
+    <div class="modal-body" id="modalHistoricoCorpo"></div>
+  </div>
+</div>
+
   <div id="modalTOTP" class="modal hidden">
     <div class="modal-content" style="max-width:520px;">
       <div class="modal-header">
@@ -246,7 +256,7 @@
               <input type="date" id="data_entrada">
 
               <label for="status">Status</label>
-              <input type="text" id="status">
+              <select id="status"></select>
 
               <label for="tipo_oferta">Tipo</label>
               <select id="tipo_oferta">
@@ -455,7 +465,7 @@
             <input type="text" id="cli_endereco">
 
             <label for="cli_segmento">Segmento</label>
-            <input type="text" id="cli_segmento">
+            <select id="cli_segmento"></select>
 
             <label for="cli_sap">Código SAP</label>
             <input type="text" id="cli_sap">
@@ -501,30 +511,22 @@
 
         <h4 style="margin-top:20px;">Consultar Clientes</h4>
 
-        <div class="filters-row">
-          <div class="field">
-            <label for="searchClientes">Buscar:</label>
-            <input id="searchClientes" type="text" placeholder="Digite..." />
-          </div>
+        <div id="clientesCount" style="margin: 8px 0 6px 0;"></div>
 
-          <div class="field">
-            <label for="filterClientesField">Campo:</label>
-            <select id="filterClientesField">
+<div id="clientesCount" style="margin: 8px 0 4px 0;"></div>
 
-              <option value="todos">Todos</option>
-              <option value="razao">Razão Social</option>
-              <option value="cnpj">CNPJ</option>
-              <option value="segmento">Segmento</option>
-              <option value="sap">SAP</option>
-              <option value="usuario">Usuário</option>
-            </select>
-          </div>
-        </div>
+<div id="filtersClientes" class="filters-stack"></div>
+
+<div class="actions-row">
+  <button type="button" id="btnAddFiltroCliente" class="secondary">+ Adicionar filtro</button>
+  <button type="button" id="btnLimparFiltrosClientes" class="secondary">Limpar filtros</button>
+</div>
 
 
         <table id="tabelaClientes">
           <thead>
             <tr>
+              <th>#</th>
               <th>Razão Social</th>
               <th>CNPJ</th>
               <th>Segmento</th>
@@ -581,6 +583,7 @@
         <table id="tabelaRepresentadas">
           <thead>
             <tr>
+              <th>#</th>
               <th>Nome</th>
               <th class="col-center">Quantidade de Ofertas</th>
               <th>Usuário</th>
@@ -589,6 +592,12 @@
           </thead>
           <tbody></tbody>
         </table>
+
+<div class="paginacao" id="paginacaoRepresentadas">
+  <button id="btnPrevRepresentadas" class="secondary" type="button">Anterior</button>
+  <span id="pageInfoRepresentadas">Página 1 de 1</span>
+  <button id="btnNextRepresentadas" class="secondary" type="button">Próxima</button>
+</div>
 
         <div class="page-size-row">
           <label for="pageSizeRepresentadas">Itens por página:</label>

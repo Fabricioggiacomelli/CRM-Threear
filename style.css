@@ -1540,3 +1540,126 @@ tbody tr.fade-enter-active {
 #filtersRegistros input::placeholder {
   opacity: 0.8;
 }
+
+
+
+.historico-lista {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  margin-top: 8px;
+}
+
+.historico-item {
+  background: rgba(255, 255, 255, 0.04);
+  border: 1px solid var(--border-soft);
+  border-radius: 12px;
+  padding: 12px 14px;
+}
+
+.historico-topo {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  align-items: center;
+  margin-bottom: 6px;
+}
+
+.historico-data {
+  font-size: 12px;
+  font-weight: 700;
+  color: var(--primary);
+}
+
+.historico-usuario {
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--text-strong);
+}
+
+.historico-texto {
+  font-size: 13px;
+  color: var(--text-main);
+  margin-bottom: 6px;
+}
+
+.historico-valores {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  align-items: center;
+  font-size: 13px;
+}
+
+.historico-de,
+.historico-para {
+  padding: 4px 8px;
+  border-radius: 8px;
+  background: rgba(37, 99, 235, 0.08);
+  color: var(--text-main);
+}
+
+.historico-seta {
+  font-weight: 700;
+  color: var(--text-muted);
+}
+
+.historico-vazio {
+  font-size: 13px;
+  color: var(--text-muted);
+  padding: 10px 0;
+}
+
+body.dark .historico-item {
+  background: rgba(255, 255, 255, 0.03);
+  border: 1px solid rgba(255, 255, 255, 0.08);
+}
+
+body.dark .historico-de,
+body.dark .historico-para {
+  background: rgba(59, 130, 246, 0.12);
+  color: #e2e8f0;
+}
+
+.historico-acao {
+  font-weight: 600;
+  margin-right: 6px;
+}
+
+/* criou */
+.historico-acao-criou {
+  color: #22c55e;
+}
+
+/* alterou */
+.historico-acao-alterou {
+  color: #3b82f6;
+}
+
+/* removeu */
+.historico-acao-removeu {
+  color: #ef4444;
+}
+
+
+#modalHistorico {
+  opacity: 0;
+  transition: opacity 0.18s ease;
+}
+
+#modalHistorico.show {
+  opacity: 1;
+}
+
+.modal-historico-content {
+  transform: translateY(16px) scale(0.98);
+  opacity: 0;
+  transition:
+    transform 0.2s ease,
+    opacity 0.2s ease;
+}
+
+#modalHistorico.show .modal-historico-content {
+  transform: translateY(0) scale(1);
+  opacity: 1;
+}

@@ -28,6 +28,63 @@ const RESPONSAVEIS_FIXOS = [
   "Silvia",
 ].sort((a, b) => a.localeCompare(b, "pt-BR", { sensitivity: "base" }));
 
+window.STATUS_OPTIONS = [
+  "Aguardando cliente",
+  "Aguardando liberação de crédito",
+  "Aguardando pagamento",
+  "Aguardando proposta",
+  "Apresentado parcial",
+  "Atendido",
+  "Concorrência",
+  "Declinado",
+  "Em avaliação técnica",
+  "Em negociação",
+  "Em produção",
+  "Faturado parcial",
+  "Ganho",
+  "Liberação Prysmian",
+  "Perdido",
+  "Proposta enviada",
+  "Revisão Prysmian"
+];
+
+window.SEGMENTO_OPTIONS = [
+  "Aeroportos",
+  "BESS",
+  "Construção Civil",
+  "Data Center",
+  "Engenharia",
+  "EPCista",
+  "Eólico",
+  "Floating",
+  "Hidrogênio",
+  "Hospitais",
+  "Industrial",
+  "Infraestrutura",
+  "Instalador",
+  "Linha de Transmissão",
+  "Mineração e Siderurgia",
+  "OGP (Óleo, Gás e Petroquímica)",
+  "Papel & Celulose",
+  "Portos",
+  "Revendas e Distribuidores",
+  "RMT (Rede de Média Tensão)",
+  "Rodovias",
+  "Saneamento",
+  "Solar",
+  "Subestações",
+  "Transporte",
+  "UHE, UTE e PCH"
+];
+
+let historicoAtualModal = [];
+
+function abrirHistoricoAtual(titulo) {
+  abrirModalHistorico(titulo, historicoAtualModal || []);
+}
+
+let clienteContatoAtualId = null;
+
 let registros = [];
 let clientes = [];
 let usuarios = [];
@@ -292,6 +349,10 @@ function mostrarApp() {
 
   preencherSelectRepresentadas();
   initUnidadesMantex();
+  
+  preencherSelectPadrao("status", STATUS_OPTIONS, "");
+  preencherSelectPadrao("cli_segmento", SEGMENTO_OPTIONS, "");
+  
   renderTabela();
   renderTabelaClientes();
   renderTabelaRepresentadas();
@@ -769,6 +830,52 @@ function initForm() {
   const btnAdicionar = document.getElementById("btnAdicionar");
   if (!btnAdicionar) return;
 
+  const mapaCamposOferta = {
+  bu: "B.U",
+  segmento: "segmento",
+  razao: "razão social",
+  cnpj_cliente: "CNPJ",
+  solicitante: "solicitante",
+  telefone: "telefone",
+  email: "e-mail",
+  oferta: "nº da oferta",
+  nome_projeto: "projeto",
+  representadaNome: "representada",
+  unidade: "unidade",
+  valor_total: "valor total",
+  ref_cliente: "ref. cliente",
+  data_entrada: "data entrada",
+  status: "status",
+  data_envio: "data envio",
+  tipo_oferta: "tipo",
+  atendimentoSpot: "atendimento spot",
+  possuiPedido: "possui pedido",
+  possuiRevisao: "possui revisão",
+  obs_geral: "observações gerais",
+};
+
+const mapaCamposPedido = {
+  "pedido.numero_pedido": "nº pedido",
+  "pedido.data_po": "data P.O.",
+  "pedido.valor_pedido": "valor pedido",
+  "pedido.cond_pagamento": "condição de pagamento",
+  "pedido.ref_projeto": "ref./projeto do pedido",
+  "pedido.tipo_produto": "tipo de produto",
+  "pedido.obs": "obs do pedido",
+  "pedido.data_nf": "data NF",
+  "pedido.numero_nf": "número NF",
+  "pedido.valor_nf": "valor NF",
+  "pedido.prazo_entrega_contratual": "prazo entrega contratual",
+  "pedido.solicitacao_oc": "SOV",
+  "pedido.ref_oc": "ref. OV",
+  "pedido.data_implantacao": "data de implantação",
+};
+
+const mapaCamposRevisao = {
+  "revisao.numero_oferta_anterior": "nº oferta anterior",
+  "revisao.mudou": "o que mudou na revisão",
+};
+
   btnAdicionar.addEventListener("click", async () => {
     const bu = document.getElementById("bu");
     const razao = document.getElementById("razao");
@@ -917,6 +1024,15 @@ function initForm() {
         atualizadoPor: currentUser,
         criadoEm: nowIso,
         atualizadoEm: nowIso,
+        historico: [
+          criarEventoHistorico({
+            usuario: currentUser,
+            acao: "Criou",
+            campo: "registro",
+            de: "",
+            para: registroBase.oferta || "nova oferta",
+          }), 
+        ],
       };
       await db.collection("ofertas").doc(id).set(registro);
       registros.push(registro);
@@ -924,6 +1040,32 @@ function initForm() {
     } else {
       const idx = registros.findIndex((r) => r.id === editId);
       const antigo = registros[idx] || {};
+const eventosHistoricoBase = montarHistoricoAlteracoes(
+  antigo,
+  registroBase,
+  currentUser,
+  mapaCamposOferta,
+);
+
+const eventosHistoricoPedido = montarHistoricoAlteracoesPath(
+  antigo,
+  registroBase,
+  currentUser,
+  mapaCamposPedido,
+);
+
+const eventosHistoricoRevisao = montarHistoricoAlteracoesPath(
+  antigo,
+  registroBase,
+  currentUser,
+  mapaCamposRevisao,
+);
+
+const eventosHistorico = [
+  ...eventosHistoricoBase,
+  ...eventosHistoricoPedido,
+  ...eventosHistoricoRevisao,
+];
       if (idx !== -1) {
         const registro = {
           id: editId,
@@ -932,6 +1074,7 @@ function initForm() {
           atualizadoPor: currentUser,
           criadoEm: antigo.criadoEm || nowIso,
           atualizadoEm: nowIso,
+          historico: [...(antigo.historico || []), ...eventosHistorico],
         };
         await db.collection("ofertas").doc(editId).set(registro);
         registros[idx] = registro;
@@ -1208,10 +1351,10 @@ function getValorCampoRegistro(reg, field) {
     case "razao":
       return reg.razao || "";
     case "cnpj_cliente":
-      return normalizeCNPJ(reg.cnpj_cliente);
-    case "nome_projeto":
+      return reg.cnpj_cliente || "";
+    case "projeto":
       return reg.nome_projeto || "";
-    case "representadaNome":
+    case "representada":
       return reg.representadaNome || "";
     case "tipo_oferta":
       return reg.tipo_oferta || "";
@@ -1219,7 +1362,6 @@ function getValorCampoRegistro(reg, field) {
       return reg.status || "";
     case "usuario":
       return formatarNomeUsuario(reg.atualizadoPor || reg.criadoPor || "");
-    case "todos":
     default:
       return "";
   }
@@ -1297,36 +1439,73 @@ function getRegistrosFiltrados() {
 }
 
 function getClientesFiltrados() {
-  const term = (document.getElementById("searchClientes")?.value || "")
-    .trim()
-    .toLowerCase();
-
-  const field =
-    document.getElementById("filterClientesField")?.value || "todos";
+  const filtros = Array.from(
+    document.querySelectorAll("#filtersClientes .filter-item"),
+  )
+    .map((row) => {
+      const field = row.querySelector(".multiField")?.value || "todos";
+      const term = (row.querySelector(".multiTerm")?.value || "")
+        .trim()
+        .toLowerCase();
+      return { field, term };
+    })
+    .filter((f) => f.term);
 
   return clientes.filter((cli) => {
-    if (!term) return true;
+    if (!filtros.length) return true;
 
     const usuario = formatarNomeUsuario(
       cli.atualizadoPor || cli.criadoPor || "",
-    );
+    ).toLowerCase();
 
-    if (field === "todos") {
-      const texto = [cli.razao, cli.cnpj, cli.sap, cli.segmento, usuario]
-        .filter(Boolean)
-        .join(" ")
-        .toLowerCase();
-      return texto.includes(term);
+    const textoTodos = [
+      cli.razao,
+      cli.cnpj,
+      cli.sap,
+      cli.segmento,
+      usuario,
+    ]
+      .filter(Boolean)
+      .join(" ")
+      .toLowerCase();
+
+    for (const f of filtros) {
+      const wantEmpty =
+        f.term === "vazio" || f.term === "em branco" || f.term === "sem";
+
+      if (wantEmpty) {
+        let value = "";
+        if (f.field === "razao") value = cli.razao;
+        else if (f.field === "cnpj") value = cli.cnpj;
+        else if (f.field === "sap") value = cli.sap;
+        else if (f.field === "segmento") value = cli.segmento;
+        else if (f.field === "usuario") value = usuario;
+        else return false;
+
+        if (!isEmptyValue(value)) return false;
+        continue;
+      }
+
+      if (f.field === "todos") {
+        if (!textoTodos.includes(f.term)) return false;
+      } else {
+        let value = "";
+
+        if (f.field === "razao") value = cli.razao || "";
+        if (f.field === "cnpj") value = normalizeCNPJ(cli.cnpj || "");
+        if (f.field === "sap") value = (cli.sap || "").toLowerCase();
+        if (f.field === "segmento") value = (cli.segmento || "").toLowerCase();
+        if (f.field === "usuario") value = usuario;
+
+        if (f.field === "cnpj") {
+          if (!value.includes(normalizeCNPJ(f.term))) return false;
+        } else {
+          if (!String(value).toLowerCase().includes(f.term)) return false;
+        }
+      }
     }
 
-    let v = "";
-    if (field === "razao") v = cli.razao || "";
-    if (field === "cnpj") v = cli.cnpj || "";
-    if (field === "segmento") v = cli.segmento || "";
-    if (field === "sap") v = cli.sap || "";
-    if (field === "usuario") v = usuario || "";
-
-    return v.toLowerCase().includes(term);
+    return true;
   });
 }
 
@@ -2080,16 +2259,6 @@ function initClientesUI() {
     .getElementById("btnCancelarEdicaoContato")
     ?.addEventListener("click", cancelarEdicaoContato);
 
-  document.getElementById("searchClientes")?.addEventListener("input", () => {
-    clientesCurrentPage = 1;
-    renderTabelaClientes();
-  });
-  document
-    .getElementById("filterClientesField")
-    ?.addEventListener("change", () => {
-      clientesCurrentPage = 1;
-      renderTabelaClientes();
-    });
 
   const pageSizeClientesInput = document.getElementById("pageSizeClientes");
   if (pageSizeClientesInput) {
@@ -2122,16 +2291,16 @@ function initClientesUI() {
     }
   });
 
-  document.getElementById("btnNextClientes")?.addEventListener("click", () => {
-    const totalPages = Math.max(
-      1,
-      Math.ceil(clientes.length / clientesPageSize),
-    );
-    if (clientesCurrentPage < totalPages) {
-      clientesCurrentPage++;
-      renderTabelaClientes();
-    }
-  });
+document.getElementById("btnNextClientes")?.addEventListener("click", () => {
+  const totalPages = Math.max(
+    1,
+    Math.ceil(getClientesFiltrados().length / clientesPageSize),
+  );
+  if (clientesCurrentPage < totalPages) {
+    clientesCurrentPage++;
+    renderTabelaClientes();
+  }
+});
 
   const btnAddContato = document.getElementById("btnAddContato");
   const btnSalvarCliente = document.getElementById("btnSalvarCliente");
@@ -2169,30 +2338,58 @@ function initClientesUI() {
       return;
     }
 
-    const contatoBase = {
-      nome,
-      telefone,
-      email,
-      funcao,
-      principal: principalChecked,
-      responsavelId,
-      responsavelNome,
-    };
+const nowIso = new Date().toISOString();
+
+const contatoBase = {
+  nome,
+  telefone,
+  email,
+  funcao,
+  principal: principalChecked,
+  responsavelId,
+  responsavelNome,
+  criadoEm: nowIso,
+  atualizadoEm: nowIso,
+};
 
     if (contatoBase.principal) {
       contatosTemp = contatosTemp.map((c) => ({ ...c, principal: false }));
     }
 
-    if (editContatoIndex === null) {
-      contatosTemp.push(contatoBase);
-    } else {
-      contatosTemp[editContatoIndex] = contatoBase;
-      editContatoIndex = null;
-      btnAddContato.textContent = "Adicionar Contato";
-      document
-        .getElementById("btnCancelarEdicaoContato")
-        ?.classList.add("hidden");
-    }
+const currentUser = getCurrentUserName();
+
+if (editContatoIndex === null) {
+contatoBase.historico = [
+  criarEventoHistorico({
+    usuario: currentUser,
+    acao: "criou",
+    campo: "contato",
+    de: "",
+    para: contatoBase.nome || "novo contato",
+  }),
+];
+
+contatosTemp.push(contatoBase);
+
+} else {
+const antigoContato = contatosTemp[editContatoIndex] || {};
+
+contatoBase.criadoEm = antigoContato.criadoEm || nowIso;
+contatoBase.atualizadoEm = nowIso;
+
+contatoBase.historico = [
+  ...(antigoContato.historico || []),
+  ...montarHistoricoAlteracoesContato(antigoContato, contatoBase, currentUser),
+];
+
+contatosTemp[editContatoIndex] = contatoBase;
+
+editContatoIndex = null;
+btnAddContato.textContent = "Adicionar Contato";
+document
+  .getElementById("btnCancelarEdicaoContato")
+  ?.classList.add("hidden");
+}
 
     document.getElementById("ct_nome").value = "";
     document.getElementById("ct_tel").value = "";
@@ -2203,6 +2400,15 @@ function initClientesUI() {
 
     renderListaContatos();
   });
+
+  const mapaCamposCliente = {
+  razao: "razão social",
+  cnpj: "CNPJ",
+  ie: "inscrição estadual",
+  endereco: "endereço",
+  segmento: "segmento",
+  sap: "código SAP",
+};
 
   btnSalvarCliente.addEventListener("click", async () => {
     const razao = document.getElementById("cli_razao")?.value.trim() || "";
@@ -2252,6 +2458,15 @@ function initClientesUI() {
           atualizadoPor: currentUser,
           criadoEm: nowIso,
           atualizadoEm: nowIso,
+          historico: [
+            criarEventoHistorico({
+              usuario: currentUser,
+              acao: "Criou", 
+              campo: "cliente",
+              de: "",
+              para: clienteBase.razao || "novo cliente",
+            }),
+          ],
         };
         await db.collection("clientes").doc(id).set(cliente);
         clientes.push(cliente);
@@ -2259,6 +2474,18 @@ function initClientesUI() {
       } else {
         const idx = clientes.findIndex((c) => c.id === editClienteId);
         const antigo = clientes[idx] || {};
+
+const eventosHistoricoBase = montarHistoricoAlteracoes(
+  antigo,
+  clienteBase,
+  currentUser,
+  mapaCamposCliente
+);
+
+const eventosHistorico = [
+  ...eventosHistoricoBase,
+];
+
 
         if (idx !== -1) {
           const cliente = {
@@ -2268,6 +2495,7 @@ function initClientesUI() {
             atualizadoPor: currentUser,
             criadoEm: antigo.criadoEm || nowIso,
             atualizadoEm: nowIso,
+            historico: [...(antigo.historico || []), ...eventosHistorico],
           };
           await db.collection("clientes").doc(editClienteId).set(cliente);
           clientes[idx] = cliente;
@@ -2306,6 +2534,21 @@ function initClientesUI() {
       alert("Erro ao salvar cliente: " + (e?.message || e));
     }
   });
+
+  document.getElementById("btnAddFiltroCliente")?.addEventListener("click", () => {
+    addFiltroClienteRow();
+  });
+
+  document.getElementById("btnLimparFiltrosClientes")?.addEventListener("click", () => {
+    const wrap = document.getElementById("filtersClientes");
+    if (wrap) wrap.innerHTML = "";
+    clientesCurrentPage = 1;
+    renderTabelaClientes();
+  });
+
+  if (!document.querySelector("#filtersClientes .filter-item")) {
+    addFiltroClienteRow();
+  }
 
   renderTabelaClientes();
 
@@ -2375,8 +2618,26 @@ function editarContato(index) {
 }
 
 function excluirContato(index) {
+  const ct = contatosTemp[index];
+  if (!ct) return;
+
   if (!confirm("Tem certeza que deseja excluir este contato?")) return;
+
+  const currentUser = getCurrentUserName();
+
   contatosTemp.splice(index, 1);
+
+  contatosTemp.historicoRemocoes = contatosTemp.historicoRemocoes || [];
+  contatosTemp.historicoRemocoes.push(
+    criarEventoHistorico({
+      usuario: currentUser,
+      acao: "removeu",
+      campo: "contato",
+      de: resumoContatoHistorico(ct),
+      para: "",
+    }),
+  );
+
   editContatoIndex = null;
   document.getElementById("btnAddContato").textContent = "Adicionar Contato";
   renderListaContatos();
@@ -2390,6 +2651,10 @@ function renderTabelaClientes() {
   tbody.innerHTML = "";
 
   const filtrados = getClientesFiltrados();
+  const countEl = document.getElementById("clientesCount");
+if (countEl) {
+  countEl.textContent = `${filtrados.length} cliente(s) encontrado(s)`;
+}
   const totalPages = Math.max(
     1,
     Math.ceil(filtrados.length / clientesPageSize),
@@ -2403,12 +2668,12 @@ function renderTabelaClientes() {
   if (pageData.length === 0) {
     const tr = document.createElement("tr");
     const td = document.createElement("td");
-    td.colSpan = 8;
+    td.colSpan = 9;
     td.textContent = "Nenhum cliente encontrado.";
     tr.appendChild(td);
     tbody.appendChild(tr);
   } else {
-    pageData.forEach((cli) => {
+    pageData.forEach((cli, index) => {
       console.log("SAP DEBUG:", cli.razao, cli.sap, cli);
       const tr = document.createElement("tr");
       const qtdContatos = cli.contatos ? cli.contatos.length : 0;
@@ -2422,6 +2687,7 @@ function renderTabelaClientes() {
       ).length;
 
       tr.innerHTML = `
+        <td>${start + index + 1}</td>
         <td>${cli.razao || ""}</td>
         <td>${cli.cnpj || ""}</td>
         <td>${cli.segmento || ""}</td>
@@ -2599,6 +2865,15 @@ function initRepresentadasUI() {
         atualizadoPor: currentUser,
         criadoEm: nowIso,
         atualizadoEm: nowIso,
+        historico: [
+          criarEventoHistorico({
+            usuario: currentUser,
+            acao: "Criou",
+            campo: "representada",
+            de: "",
+            para: nome,
+          }),
+        ],
       };
       await db.collection("representadas").doc(id).set(rep);
       representadas.push(rep);
@@ -2606,6 +2881,20 @@ function initRepresentadasUI() {
     } else {
       const idx = representadas.findIndex((r) => r.id === editRepresentadaId);
       const antigo = representadas[idx] || {};
+const eventosHistorico = [];
+
+if (compararValoresHistorico(antigo.nome, nome)) {
+  eventosHistorico.push(
+    criarEventoHistorico({
+      usuario: currentUser,
+      acao: "alterou",
+      campo: "nome",
+      de: antigo.nome,
+      para: nome,
+    }),
+  );
+}
+
       if (idx !== -1) {
         const rep = {
           id: editRepresentadaId,
@@ -2614,6 +2903,7 @@ function initRepresentadasUI() {
           atualizadoPor: currentUser,
           criadoEm: antigo.criadoEm || nowIso,
           atualizadoEm: nowIso,
+          historico: [...(antigo.historico || []), ...eventosHistorico],
         };
         await db.collection("representadas").doc(editRepresentadaId).set(rep);
         representadas[idx] = rep;
@@ -2672,6 +2962,25 @@ function initRepresentadasUI() {
       if (e.key === "Enter") apply();
     });
   }
+
+  document.getElementById("btnPrevRepresentadas")?.addEventListener("click", () => {
+  if (representadasCurrentPage > 1) {
+    representadasCurrentPage--;
+    renderTabelaRepresentadas();
+  }
+});
+
+document.getElementById("btnNextRepresentadas")?.addEventListener("click", () => {
+  const totalPages = Math.max(
+    1,
+    Math.ceil(getRepresentadasFiltradas().length / representadasPageSize),
+  );
+
+  if (representadasCurrentPage < totalPages) {
+    representadasCurrentPage++;
+    renderTabelaRepresentadas();
+  }
+});
 }
 
 function renderTabelaRepresentadas() {
@@ -2695,14 +3004,14 @@ function renderTabelaRepresentadas() {
   if (!pageData.length) {
     const tr = document.createElement("tr");
     const td = document.createElement("td");
-    td.colSpan = 4;
+    td.colSpan = 5;
     td.textContent = "Nenhuma representada encontrada.";
     tr.appendChild(td);
     tbody.appendChild(tr);
     return;
   }
 
-  pageData.forEach((rep) => {
+  pageData.forEach((rep, index) => {
     const usuario = formatarNomeUsuario(
       rep.atualizadoPor || rep.criadoPor || "",
     );
@@ -2712,6 +3021,7 @@ function renderTabelaRepresentadas() {
 
     const tr = document.createElement("tr");
     tr.innerHTML = `
+    <td>${start + index + 1}</td>
       <td>${rep.nome}</td>
       <td class="col-center">${qtdOfertas}</td>
       <td>${usuario}</td>
@@ -2783,15 +3093,17 @@ async function excluirRepresentada(id) {
   renderTabelaRepresentadas();
   preencherSelectRepresentadas();
 }
-
 function verOferta(id) {
   const reg = registros.find((r) => r.id === id);
+  if (!reg) return;
+
   console.log("DEBUG tipo_oferta:", {
     tipo_oferta: reg.tipo_oferta,
     raw: JSON.stringify(reg.tipo_oferta),
     typeof: typeof reg.tipo_oferta,
   });
-  if (!reg) return;
+
+  historicoAtualModal = reg.historico || [];
 
   const pedido = reg.pedido || {};
   const revisao = reg.revisao || {};
@@ -2828,21 +3140,20 @@ function verOferta(id) {
         <div class="modal-card-title">Projeto & Representada</div>
         <div class="modal-section"><strong>Projeto:</strong> ${reg.nome_projeto || "-"}</div>
         <div class="modal-section"><strong>Representada:</strong> ${reg.representadaNome || "-"}</div>
-         ${
-           String(reg.representadaNome || "")
-             .toLowerCase()
-             .includes("mantex") && reg.unidade
-             ? `<div class="modal-section"><strong>Unidade:</strong> ${reg.unidade}</div>`
-             : ""
-         }
+        ${
+          String(reg.representadaNome || "")
+            .toLowerCase()
+            .includes("mantex") && reg.unidade
+            ? `<div class="modal-section"><strong>Unidade:</strong> ${reg.unidade}</div>`
+            : ""
+        }
       </div>
     </div>
 
-<div class="modal-card">
+    <div class="modal-card">
       <div class="modal-card-title">Oferta</div>
 
       <div class="modal-section"><strong>N° Oferta:</strong> ${reg.oferta || "-"}</div>
-
       <div class="modal-section"><strong>Solicitante:</strong> ${reg.solicitante || "-"}</div>
       <div class="modal-section"><strong>Telefone:</strong> ${reg.telefone || "-"}</div>
       <div class="modal-section"><strong>E-mail:</strong> ${reg.email || "-"}</div>
@@ -2861,7 +3172,7 @@ function verOferta(id) {
       <div class="modal-card-title">Usuário</div>
       <div class="modal-section"><strong>Responsável:</strong> ${usuario}</div>
       <div class="modal-section"><strong>Criado em:</strong> ${formatDateTimeBR(reg.criadoEm)}</div>
-<div class="modal-section"><strong>Atualizado em:</strong> ${formatDateTimeBR(reg.atualizadoEm)}</div>
+      <div class="modal-section"><strong>Atualizado em:</strong> ${formatDateTimeBR(reg.atualizadoEm)}</div>
     </div>
   `;
 
@@ -2876,28 +3187,28 @@ function verOferta(id) {
 
   if (reg.possuiPedido === "sim") {
     html += `
-    <hr>
-    <div class="modal-card">
-      <div class="modal-card-title">Pedido</div>
-      <div class="modal-section">
-        <strong>N° Pedido:</strong> ${pedido.numero_pedido || "-"}<br>
-        <strong>Data P.O:</strong> ${formatDateBR(pedido.data_po)}<br>
-        <strong>Valor Pedido:</strong> ${pedido.valor_pedido || "-"}<br>
-        <strong>Condição de Pagamento:</strong> ${pedido.cond_pagamento || "-"}<br>
-        <strong>Ref./Projeto:</strong> ${pedido.ref_projeto || "-"}<br>
-        <strong>Tipo de Produto:</strong> ${pedido.tipo_produto || "-"}<br>
-        <strong>Obs:</strong> ${pedido.obs || "-"}<br><br>
+      <hr>
+      <div class="modal-card">
+        <div class="modal-card-title">Pedido</div>
+        <div class="modal-section">
+          <strong>N° Pedido:</strong> ${pedido.numero_pedido || "-"}<br>
+          <strong>Data P.O:</strong> ${formatDateBR(pedido.data_po)}<br>
+          <strong>Valor Pedido:</strong> ${pedido.valor_pedido || "-"}<br>
+          <strong>Condição de Pagamento:</strong> ${pedido.cond_pagamento || "-"}<br>
+          <strong>Ref./Projeto:</strong> ${pedido.ref_projeto || "-"}<br>
+          <strong>Tipo de Produto:</strong> ${pedido.tipo_produto || "-"}<br>
+          <strong>Obs:</strong> ${pedido.obs || "-"}<br><br>
 
-        <strong>Data NF:</strong> ${formatDateBR(pedido.data_nf)}<br>
-        <strong>Número NF:</strong> ${pedido.numero_nf || "-"}<br>
-        <strong>Valor NF:</strong> ${pedido.valor_nf || "-"}<br>
-        <strong>Prazo entrega contratual:</strong> ${formatDateBR(pedido.prazo_entrega_contratual)}<br>
-        <strong>SOV?</strong> ${pedido.solicitacao_oc === "sim" ? "Sim" : "Não"}<br>
-        <strong>Ref. OV:</strong> ${pedido.ref_oc || "-"}<br>
-        <strong>Data de Implantação:</strong> ${formatDateBR(pedido.data_implantacao)}<br>
+          <strong>Data NF:</strong> ${formatDateBR(pedido.data_nf)}<br>
+          <strong>Número NF:</strong> ${pedido.numero_nf || "-"}<br>
+          <strong>Valor NF:</strong> ${pedido.valor_nf || "-"}<br>
+          <strong>Prazo entrega contratual:</strong> ${formatDateBR(pedido.prazo_entrega_contratual)}<br>
+          <strong>SOV?</strong> ${pedido.solicitacao_oc === "sim" ? "Sim" : "Não"}<br>
+          <strong>Ref. OV:</strong> ${pedido.ref_oc || "-"}<br>
+          <strong>Data de Implantação:</strong> ${formatDateBR(pedido.data_implantacao)}<br>
+        </div>
       </div>
-    </div>
-  `;
+    `;
   } else {
     html += `<div class="modal-section"><strong>Pedido?</strong> Não</div>`;
   }
@@ -2913,7 +3224,21 @@ function verOferta(id) {
     `;
   }
 
-  html += `<hr><div class="modal-section"><strong>Usuário:</strong> ${usuario}</div>`;
+  html += `
+    <hr>
+    <div class="modal-section"><strong>Usuário:</strong> ${usuario}</div>
+  `;
+
+  html += `
+    <hr>
+    <div class="modal-card">
+      <div class="modal-card-title">Histórico de Atividades</div>
+      <button type="button" class="secondary" onclick='abrirHistoricoAtual("Histórico da Oferta ${escapeHtml(reg.oferta || "")}")'>
+        Visualizar histórico
+      </button>
+    </div>
+  `;
+
   abrirModal(`Oferta ${reg.oferta || ""}`, html);
 }
 
@@ -2921,7 +3246,8 @@ function verCliente(id) {
   const cli = clientes.find((c) => c.id === id);
   if (!cli) return;
 
-  // Contar ofertas desse cliente
+  historicoAtualModal = cli.historico || [];
+
   const totalOfertas = registros.filter(
     (r) =>
       (r.clienteId && r.clienteId === cli.id) ||
@@ -2939,13 +3265,23 @@ function verCliente(id) {
       <strong>Inscrição Estadual:</strong> ${cli.ie || "-"}<br>
       <strong>Segmento:</strong> ${cli.segmento || "-"}<br>
       <strong>Endereço:</strong> ${cli.endereco || "-"}<br>
-      <strong>Codigo SAP:</strong> ${cli.codigo_sap || "-"}<br>
+      <strong>Código SAP:</strong> ${cli.codigo_sap || cli.sap || "-"}<br>
       <br><strong>Ofertas cadastradas:</strong> ${totalOfertas}
     </div>
+     <br>
+  `;
+
+
+
+  html += `
+    <hr>
+    <div class="modal-section"><strong>Usuário:</strong> ${usuario}</div>
+    <div class="modal-section"><strong>Criado em:</strong> ${formatDateTimeBR(cli.criadoEm)}</div>
+    <div class="modal-section"><strong>Atualizado em:</strong> ${formatDateTimeBR(cli.atualizadoEm)}</div>
   `;
 
   if (cli.contatos && cli.contatos.length) {
-    html += `<hr><div class="modal-section"><strong>Contatos:</strong><br><br>`;
+    html += `<br><hr><div class="modal-section"><strong>Contatos:</strong><br><br>`;
     cli.contatos.forEach((ct) => {
       html += `
         <div style="margin-bottom:6px;">
@@ -2957,11 +3293,16 @@ function verCliente(id) {
           E-mail: ${ct.email || "-"}
           ${
             ct.responsavelNome
-              ? `<br><strong>Responsável:</strong> ${primeiroNome(
+              ? `<br><br>
+              <hr>
+              <strong>Responsável:</strong> ${primeiroNome(
                   ct.responsavelNome,
                 )}`
               : ""
           }
+          <br>
+Criado em: ${formatDateTimeBR(ct.criadoEm)}<br>
+Atualizado em: ${formatDateTimeBR(ct.atualizadoEm)}
         </div>
       `;
     });
@@ -2970,9 +3311,16 @@ function verCliente(id) {
     html += `<div class="modal-section"><strong>Contatos:</strong> nenhum cadastrado.</div>`;
   }
 
-  html += `<hr><div class="modal-section"><strong>Usuário:</strong> ${usuario}</div>`;
-  html += `<strong>Criado em:</strong> ${formatDateTimeBR(cli.criadoEm)}`;
-  html += `<br><strong>Atualizado em:</strong> ${formatDateTimeBR(cli.atualizadoEm)}`;
+  html += `
+    <hr>
+    <div class="modal-card">
+      <div class="modal-card-title">Histórico de Atividades</div>
+      <button type="button" class="secondary" onclick='abrirHistoricoAtual("Histórico do Cliente ${escapeHtml(cli.razao || "")}")'>
+        Visualizar histórico
+      </button>
+    </div>
+  `;
+
   abrirModal(`Cliente - ${cli.razao || ""}`, html);
 }
 
@@ -2980,25 +3328,32 @@ function verRepresentada(id) {
   const rep = representadas.find((r) => r.id === id);
   if (!rep) return;
 
+  historicoAtualModal = rep.historico || [];
+
   const usuario = formatarNomeUsuario(
     rep.atualizadoPor || rep.criadoPor || "-",
   );
   const qtdOfertas = registros.filter((r) => r.representadaId === id).length;
 
   const html = `
-    <div class="modal-section"><strong>Nome da Representada:</strong> ${
-      rep.nome || "-"
-    }</div>
+    <div class="modal-section"><strong>Nome da Representada:</strong> ${rep.nome || "-"}</div>
     <div class="modal-section"><strong>Ofertas vinculadas:</strong> ${qtdOfertas}</div>
     <hr>
     <div class="modal-section"><strong>Usuário:</strong> ${usuario}</div>
     <div class="modal-section"><strong>Criado em:</strong> ${formatDateTimeBR(rep.criadoEm)}</div>
     <div class="modal-section"><strong>Atualizado em:</strong> ${formatDateTimeBR(rep.atualizadoEm)}</div>
+
+    <hr>
+    <div class="modal-card">
+      <div class="modal-card-title">Histórico de Atividades</div>
+      <button type="button" class="secondary" onclick='abrirHistoricoAtual("Histórico da Representada ${escapeHtml(rep.nome || "")}")'>
+        Visualizar histórico
+      </button>
+    </div>
   `;
 
   abrirModal(`Representada - ${rep.nome || ""}`, html);
 }
-
 function formatCnpjMask(digits) {
   const v = String(digits || "")
     .replace(/\D/g, "")
@@ -3872,6 +4227,7 @@ function getRepresentadasFiltradas() {
 }
 
 function verContatosCliente(id) {
+  clienteContatoAtualId = id;
   const cli = clientes.find((c) => c.id === id);
   if (!cli) return;
 
@@ -3886,21 +4242,45 @@ function verContatosCliente(id) {
     return abrirModal("Contatos do Cliente", html);
   }
 
-  html += contatos
-    .map(
-      (ct) => `
+html += contatos
+  .map(
+    (ct, index) => `
     <div class="modal-section">
+<br>
       <strong>${ct.nome || "-"}</strong>
       ${ct.principal ? ` <span class="modal-badge">Principal</span>` : ``}
+
       <br>Função: ${ct.funcao || "-"}
       <br>Tel: ${ct.telefone || "-"}
       <br>E-mail: ${ct.email || "-"}
-      ${ct.responsavelNome ? `<br><strong>Responsável:</strong> ${primeiroNome(ct.responsavelNome)}` : ""}
+
+      ${
+        ct.responsavelNome
+          ? `<br><strong>Responsável:</strong> ${primeiroNome(
+              ct.responsavelNome,
+            )}`
+          : ""
+      }
+
+      <br><br>
+      <hr>
+      <br>
+        Criado em: ${formatDateTimeBR(ct.criadoEm)}<br>
+        Atualizado em: ${formatDateTimeBR(ct.atualizadoEm)}
+        <br><br>
+        <hr>
+
+      <button
+        class="secondary"
+        onclick='abrirHistoricoContato(${index}, "${escapeHtml(ct.nome || "Contato")}")'
+      >
+        Visualizar histórico
+      </button>
+
     </div>
-    <hr>
   `,
-    )
-    .join("");
+  )
+  .join("");
 
   abrirModal("Contatos do Cliente", html);
 }
@@ -3998,10 +4378,24 @@ const REGISTROS_FILTER_FIELDS = [
 ];
 
 function buildRegistrosFieldOptions(selected = "todos") {
-  return REGISTROS_FILTER_FIELDS.map(
-    (f) =>
-      `<option value="${f.value}" ${f.value === selected ? "selected" : ""}>${f.label}</option>`,
-  ).join("");
+  const opts = [
+    { value: "todos", label: "Buscar em todos os campos" },
+    { value: "bu", label: "B.U" },
+    { value: "razao", label: "Razão Social" },
+    { value: "cnpj_cliente", label: "CNPJ" },
+    { value: "projeto", label: "Projeto" },
+    { value: "representada", label: "Representada" },
+    { value: "tipo_oferta", label: "Tipo (Compra/Orçamento)" },
+    { value: "status", label: "Status" },
+    { value: "usuario", label: "Usuário" },
+  ];
+
+  return opts
+    .map(
+      (o) =>
+        `<option value="${o.value}" ${o.value === selected ? "selected" : ""}>${o.label}</option>`,
+    )
+    .join("");
 }
 
 function addFiltroRegistroRow({ field = "todos", term = "" } = {}) {
@@ -4015,28 +4409,111 @@ function addFiltroRegistroRow({ field = "todos", term = "" } = {}) {
       ${buildRegistrosFieldOptions(field)}
     </select>
 
-    <input class="multiTerm" type="text" placeholder="Digite para filtrar..." value="${term || ""}" />
+    <div class="multiTermWrap"></div>
 
     <button type="button" class="secondary btn-remove">Remover</button>
   `;
 
+  wrap.appendChild(div);
+
+  const fieldEl = div.querySelector(".multiField");
+  if (fieldEl) fieldEl.value = field;
+
+  renderFiltroRegistroValor(div, field, term);
+
   div.querySelector(".btn-remove")?.addEventListener("click", () => {
     div.remove();
-    const rest = document.querySelectorAll("#filtersRegistros .filter-item");
-
     currentPage = 1;
     renderTabela();
   });
 
-  div.querySelector(".multiField")?.addEventListener("change", () => {
+  fieldEl?.addEventListener("change", (e) => {
+    renderFiltroRegistroValor(div, e.target.value, "");
     currentPage = 1;
     renderTabela();
   });
+}
 
-  div.querySelector(".multiTerm")?.addEventListener("input", () => {
-    renderTabelaDebounced();
-  });
-  wrap.appendChild(div);
+function renderFiltroRegistroValor(row, field = "todos", term = "") {
+  const wrap = row.querySelector(".multiTermWrap");
+  if (!wrap) return;
+
+  const camposComSelect = ["bu", "representada", "tipo_oferta", "status", "usuario"];
+
+  let options = [];
+
+  if (field === "bu") {
+    options = [
+      "T&I",
+      "OGP",
+      "OEM",
+      "High Voltage",
+      "OHTL",
+      "Telecom",
+      "Power Distribution",
+      "Acessórios",
+      "MMS",
+      "Renováveis",
+      "Serviços",
+    ];
+  }
+
+  if (field === "representada") {
+    options = Array.from(
+      new Set(
+        representadas
+          .map((r) => String(r.nome || "").trim())
+          .filter(Boolean),
+      ),
+    ).sort((a, b) =>
+      a.localeCompare(b, "pt-BR", { sensitivity: "base" }),
+    );
+  }
+
+  if (field === "tipo_oferta") {
+    options = ["Compra", "Orçamento"];
+  }
+
+  if (field === "status") {
+    options = (window.STATUS_OPTIONS || []).slice();
+  }
+
+if (field === "usuario") {
+  options = getUsuariosComRegistrosOptions();
+}
+
+  if (camposComSelect.includes(field)) {
+wrap.innerHTML = `
+  <select class="multiTerm">
+    <option value="">Selecione</option>
+    ${options
+      .map(
+        (opt) =>
+          `<option value="${opt}" ${String(opt).toLowerCase() === String(term).toLowerCase() ? "selected" : ""}>${opt}</option>`,
+      )
+      .join("")}
+    <option value="vazio" ${String(term).toLowerCase() === "vazio" ? "selected" : ""}>Vazio</option>
+  </select>
+`;
+
+    wrap.querySelector(".multiTerm")?.addEventListener("change", () => {
+      currentPage = 1;
+      renderTabela();
+    });
+  } else {
+    wrap.innerHTML = `
+      <input
+        class="multiTerm"
+        type="text"
+        placeholder="Digite para filtrar... (ou 'vazio')"
+        value="${term || ""}"
+      />
+    `;
+
+    wrap.querySelector(".multiTerm")?.addEventListener("input", () => {
+      renderTabelaDebounced();
+    });
+  }
 }
 
 function initFiltrosRegistrosUI() {
@@ -4059,8 +4536,8 @@ function initFiltrosRegistrosUI() {
     const rev = document.getElementById("revisaoFilter");
     if (rev) rev.value = "todos";
 
-    registrosCurrentPage = 1;
-    renderTabelaRegistros();
+    currentPage = 1;
+    renderTabela();
   });
 }
 
@@ -4125,4 +4602,450 @@ function isEmptyByFieldRegistro(reg, field) {
   }
 
   return isEmptyValue(value);
+}
+
+function preencherSelectPadrao(selectId, optionsArray, placeholder) {
+  const select = document.getElementById(selectId);
+  if (!select) return;
+
+  select.innerHTML = "";
+
+  const optDefault = document.createElement("option");
+  optDefault.value = "";
+  optDefault.textContent = placeholder || "Selecione";
+  select.appendChild(optDefault);
+
+  optionsArray.forEach((opt) => {
+    const option = document.createElement("option");
+    option.value = opt;
+    option.textContent = opt;
+    select.appendChild(option);
+  });
+}
+
+function getUsuariosFiltroOptions() {
+  const nomes = usuarios
+    .map((u) => primeiroNome(u.nome || u.email || ""))
+    .filter(Boolean);
+
+  return Array.from(new Set(nomes)).sort((a, b) =>
+    a.localeCompare(b, "pt-BR", { sensitivity: "base" }),
+  );
+}
+
+function getRepresentadasFiltroOptions() {
+  const nomes = representadas
+    .map((r) => String(r.nome || "").trim())
+    .filter(Boolean);
+
+  return Array.from(new Set(nomes)).sort((a, b) =>
+    a.localeCompare(b, "pt-BR", { sensitivity: "base" }),
+  );
+}
+
+function getBUFiltroOptions() {
+  return [
+    "T&I",
+    "OGP",
+    "OEM",
+    "High Voltage",
+    "OHTL",
+    "Telecom",
+    "Power Distribution",
+    "Acessórios",
+    "MMS",
+    "Renováveis",
+    "Serviços",
+  ];
+}
+
+function getTipoOfertaFiltroOptions() {
+  return ["compra", "orcamento"];
+}
+
+function getStatusFiltroOptions() {
+  return (window.STATUS_OPTIONS || []).slice();
+}
+
+function campoRegistroUsaSelect(field) {
+  return [
+    "bu",
+    "representada",
+    "tipo_oferta",
+    "status",
+    "usuario",
+  ].includes(field);
+}
+
+function getOpcoesCampoRegistro(field) {
+  switch (field) {
+    case "bu":
+      return getBUFiltroOptions();
+    case "representada":
+      return getRepresentadasFiltroOptions();
+    case "tipo_oferta":
+      return getTipoOfertaFiltroOptions();
+    case "status":
+      return getStatusFiltroOptions();
+    case "usuario":
+      return getUsuariosFiltroOptions();
+    default:
+      return [];
+  }
+}
+
+function campoClienteUsaSelect(field) {
+  return ["segmento", "usuario"].includes(field);
+}
+
+function getUsuariosClientesFiltroOptions() {
+  const nomes = clientes
+    .map((c) => formatarNomeUsuario(c.atualizadoPor || c.criadoPor || ""))
+    .filter((v) => v && v !== "-");
+
+  return Array.from(new Set(nomes)).sort((a, b) =>
+    a.localeCompare(b, "pt-BR", { sensitivity: "base" }),
+  );
+}
+
+function getSegmentosClientesFiltroOptions() {
+  return [...(window.SEGMENTO_OPTIONS || []), "vazio"];
+}
+
+function getOpcoesCampoCliente(field) {
+  switch (field) {
+    case "segmento":
+      return getSegmentosClientesFiltroOptions();
+    case "usuario":
+      return getUsuariosClientesFiltroOptions();
+    default:
+      return [];
+  }
+}
+
+function renderClienteTermInput(row, selectedField = "todos", selectedValue = "") {
+  const wrap = row.querySelector(".multiTermWrap");
+  if (!wrap) return;
+
+  if (campoClienteUsaSelect(selectedField)) {
+    const options = getOpcoesCampoCliente(selectedField);
+
+    wrap.innerHTML = `
+      <select class="multiTerm">
+        <option value="">Selecione</option>
+        ${options
+          .map(
+            (opt) =>
+              `<option value="${opt}" ${opt === selectedValue ? "selected" : ""}>${opt}</option>`,
+          )
+          .join("")}
+
+      </select>
+    `;
+  } else {
+    wrap.innerHTML = `
+      <input
+        class="multiTerm"
+        type="text"
+        placeholder="Digite para filtrar... (ou 'vazio')"
+        value="${selectedValue || ""}"
+      />
+    `;
+  }
+
+  const termEl = row.querySelector(".multiTerm");
+  if (!termEl) return;
+
+  if (termEl.tagName === "SELECT") {
+    termEl.addEventListener("change", () => {
+      clientesCurrentPage = 1;
+      renderTabelaClientes();
+    });
+  } else {
+    termEl.addEventListener("input", () => {
+      clientesCurrentPage = 1;
+      renderTabelaClientes();
+    });
+  }
+}
+
+function addFiltroClienteRow(field = "todos", term = "") {
+  const wrap = document.getElementById("filtersClientes");
+  if (!wrap) return;
+
+  const div = document.createElement("div");
+  div.className = "filter-item";
+  div.innerHTML = `
+    <select class="multiField">
+      <option value="todos">Todos</option>
+      <option value="razao">Razão Social</option>
+      <option value="cnpj">CNPJ</option>
+      <option value="sap">SAP</option>
+      <option value="segmento">Segmento</option>
+      <option value="usuario">Usuário</option>
+    </select>
+
+    <div class="multiTermWrap"></div>
+
+    <button type="button" class="btn-remove">Remover</button>
+  `;
+
+  wrap.appendChild(div);
+
+  const fieldEl = div.querySelector(".multiField");
+  fieldEl.value = field;
+
+  renderClienteTermInput(div, field, term);
+
+  fieldEl.addEventListener("change", (e) => {
+    renderClienteTermInput(div, e.target.value, "");
+    clientesCurrentPage = 1;
+    renderTabelaClientes();
+  });
+
+  div.querySelector(".btn-remove")?.addEventListener("click", () => {
+    div.remove();
+    clientesCurrentPage = 1;
+    renderTabelaClientes();
+  });
+}
+
+function getUsuariosComRegistrosOptions() {
+  const nomes = registros
+    .map((r) => formatarNomeUsuario(r.atualizadoPor || r.criadoPor || ""))
+    .filter((nome) => nome && nome !== "-" && nome !== "Desconhecido");
+
+  return Array.from(new Set(nomes)).sort((a, b) =>
+    a.localeCompare(b, "pt-BR", { sensitivity: "base" }),
+  );
+}
+
+
+
+
+function normalizarValorHistorico(valor) {
+  if (valor === null || valor === undefined || valor === "") return "(vazio)";
+  if (typeof valor === "string") return valor.trim() || "(vazio)";
+  return String(valor);
+}
+
+function criarEventoHistorico({ usuario, acao, campo, de = "", para = "" }) {
+  return {
+    dataHora: new Date().toISOString(),
+    usuario: usuario || "Desconhecido",
+    acao: acao || "alterou",
+    campo: campo || "",
+    de: normalizarValorHistorico(de),
+    para: normalizarValorHistorico(para),
+  };
+}
+
+function compararValoresHistorico(a, b) {
+  return normalizarValorHistorico(a) !== normalizarValorHistorico(b);
+}
+
+function montarHistoricoAlteracoes(objAntigo, objNovo, usuario, mapaCampos) {
+  const eventos = [];
+
+  Object.keys(mapaCampos).forEach((campo) => {
+    const antigo = objAntigo?.[campo];
+    const novo = objNovo?.[campo];
+
+    if (compararValoresHistorico(antigo, novo)) {
+      eventos.push(
+        criarEventoHistorico({
+          usuario,
+          acao: "alterou",
+          campo: mapaCampos[campo],
+          de: antigo,
+          para: novo,
+        }),
+      );
+    }
+  });
+
+  return eventos;
+}
+
+function formatDateTimeBR(v) {
+  if (!v) return "-";
+
+  let d = v;
+
+  if (typeof v === "object") {
+    if (typeof v.toDate === "function") d = v.toDate();
+    else if (typeof v.seconds === "number") d = new Date(v.seconds * 1000);
+  } else {
+    d = new Date(v);
+  }
+
+  if (!(d instanceof Date) || isNaN(d.getTime())) return String(v);
+
+  const dd = String(d.getDate()).padStart(2, "0");
+  const mm = String(d.getMonth() + 1).padStart(2, "0");
+  const yy = d.getFullYear();
+  const hh = String(d.getHours()).padStart(2, "0");
+  const mi = String(d.getMinutes()).padStart(2, "0");
+
+  return `${dd}/${mm}/${yy} ${hh}:${mi}`;
+}
+
+function renderHistoricoHtml(historico = []) {
+  if (!historico.length) {
+    return `<div class="historico-vazio">Nenhuma atividade registrada.</div>`;
+  }
+
+  const itens = historico
+    .slice()
+    .sort((a, b) =>
+      String(a.dataHora || "").localeCompare(String(b.dataHora || ""))
+    )
+    .map((ev) => {
+
+      const acao = (ev.acao || "").toLowerCase();
+
+      let classeAcao = "historico-acao-alterou";
+      if (acao.includes("criou")) classeAcao = "historico-acao-criou";
+      if (acao.includes("removeu") || acao.includes("excluiu"))
+        classeAcao = "historico-acao-removeu";
+
+      return `
+        <div class="historico-item">
+
+          <div class="historico-topo">
+            <span class="historico-data">[${formatDateTimeBR(ev.dataHora)}]</span>
+            <span class="historico-usuario">${escapeHtml(formatarNomeUsuario(ev.usuario || "Desconhecido"))}</span>
+          </div>
+
+          <div class="historico-texto">
+            <span class="historico-acao ${classeAcao}">
+              ${escapeHtml(ev.acao || "")}
+            </span>
+            <strong>${escapeHtml(ev.campo || "")}</strong>
+          </div>
+
+          <div class="historico-valores">
+            <span class="historico-de">${escapeHtml(ev.de || "(vazio)")}</span>
+            <span class="historico-seta">→</span>
+            <span class="historico-para">${escapeHtml(ev.para || "(vazio)")}</span>
+          </div>
+
+        </div>
+      `;
+    })
+    .join("");
+
+  return `<div class="historico-lista">${itens}</div>`;
+}
+
+function abrirModalHistorico(titulo, historico = []) {
+  const modal = document.getElementById("modalHistorico");
+  const tituloEl = document.getElementById("modalHistoricoTitulo");
+  const corpoEl = document.getElementById("modalHistoricoCorpo");
+
+  if (!modal || !tituloEl || !corpoEl) return;
+
+  tituloEl.textContent = titulo || "Histórico";
+  corpoEl.innerHTML = renderHistoricoHtml(historico);
+
+  modal.classList.remove("hidden");
+
+  requestAnimationFrame(() => {
+    modal.classList.add("show");
+  });
+}
+
+function fecharModalHistorico() {
+  const modal = document.getElementById("modalHistorico");
+  if (!modal) return;
+
+  modal.classList.remove("show");
+
+  setTimeout(() => {
+    modal.classList.add("hidden");
+  }, 180);
+}
+
+function montarHistoricoAlteracoesPath(objAntigo, objNovo, usuario, mapaCampos) {
+  const eventos = [];
+
+  Object.keys(mapaCampos).forEach((path) => {
+    const antigo = getByPath(objAntigo || {}, path);
+    const novo = getByPath(objNovo || {}, path);
+
+    if (compararValoresHistorico(antigo, novo)) {
+      eventos.push(
+        criarEventoHistorico({
+          usuario,
+          acao: "alterou",
+          campo: mapaCampos[path],
+          de: antigo,
+          para: novo,
+        }),
+      );
+    }
+  });
+
+  return eventos;
+}
+
+function resumoContatoHistorico(ct = {}) {
+  const nome = ct.nome || "(sem nome)";
+  const funcao = ct.funcao || "(sem função)";
+  const email = ct.email || "(sem e-mail)";
+  const telefone = ct.telefone || "(sem telefone)";
+  return `${nome} | ${funcao} | ${email} | ${telefone}`;
+}
+
+function montarHistoricoAlteracoesContato(contatoAntigo, contatoNovo, usuario) {
+  const eventos = [];
+
+  const mapaCamposContato = {
+    nome: "nome do contato",
+    funcao: "função do contato",
+    email: "e-mail do contato",
+    telefone: "telefone do contato",
+    responsavelNome: "responsável do contato",
+    principal: "contato principal",
+  };
+
+  Object.keys(mapaCamposContato).forEach((campo) => {
+    const antigo = contatoAntigo?.[campo];
+    const novo = contatoNovo?.[campo];
+
+    let antigoFmt = antigo;
+    let novoFmt = novo;
+
+    if (campo === "principal") {
+      antigoFmt = antigo ? "Sim" : "Não";
+      novoFmt = novo ? "Sim" : "Não";
+    }
+
+    if (compararValoresHistorico(antigoFmt, novoFmt)) {
+      eventos.push(
+        criarEventoHistorico({
+          usuario,
+          acao: "alterou",
+          campo: mapaCamposContato[campo],
+          de: antigoFmt,
+          para: novoFmt,
+        }),
+      );
+    }
+  });
+
+  return eventos;
+}
+
+function abrirHistoricoContato(index, nomeContato) {
+  const cliente = clientes.find((c) => c.id === clienteContatoAtualId);
+  if (!cliente) return;
+
+  const contato = cliente.contatos?.[index];
+  if (!contato) return;
+
+  abrirModalHistorico(
+    `Histórico do Contato - ${nomeContato}`,
+    contato.historico || [],
+  );
 }
