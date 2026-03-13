@@ -83,6 +83,10 @@ function abrirHistoricoAtual(titulo) {
   abrirModalHistorico(titulo, historicoAtualModal || []);
 }
 
+let ordemRegistros = "asc";
+let ordemClientes = "asc";
+let ordemRepresentadas = "asc";
+
 let clienteContatoAtualId = null;
 
 let registros = [];
@@ -1517,13 +1521,15 @@ function renderTabela() {
   tbody.innerHTML = "";
 
   const filtrados = getRegistrosFiltrados();
-  const total = filtrados.length;
+  const listaOrdenada =
+  ordemRegistros === "asc" ? [...filtrados] : [...filtrados].reverse();
+const total = listaOrdenada.length;
   const totalPages = Math.max(1, Math.ceil(total / pageSize));
   if (currentPage > totalPages) currentPage = totalPages;
 
   const start = (currentPage - 1) * pageSize;
   const end = start + pageSize;
-  const pageData = filtrados.slice(start, end);
+  const pageData = listaOrdenada.slice(start, end);
 
   if (pageData.length === 0) {
     const tr = document.createElement("tr");
@@ -1542,7 +1548,11 @@ function renderTabela() {
 
       const tr = document.createElement("tr");
       tr.innerHTML = `
-        <td>${start + index + 1}</td>
+<td>${
+  ordemRegistros === "asc"
+    ? start + index + 1
+    : total - (start + index)
+}</td>
         <td>${reg.bu || ""}</td>
         <td>${reg.razao || ""}</td>
         <td>${reg.cnpj_cliente || ""}</td>
@@ -1573,6 +1583,9 @@ function renderTabela() {
   if (countEl) {
     countEl.textContent = `${filtrados.length} registro(s) encontrado(s)`;
   }
+
+const seta = document.getElementById("setaOrdemRegistros");
+if (seta) seta.textContent = ordemRegistros === "asc" ? "↑" : "↓";
 
   renderActiveFilterTags();
 }
@@ -2651,19 +2664,21 @@ function renderTabelaClientes() {
   tbody.innerHTML = "";
 
   const filtrados = getClientesFiltrados();
+  const listaOrdenada =
+  ordemClientes === "asc" ? [...filtrados] : [...filtrados].reverse();
   const countEl = document.getElementById("clientesCount");
 if (countEl) {
   countEl.textContent = `${filtrados.length} cliente(s) encontrado(s)`;
 }
-  const totalPages = Math.max(
-    1,
-    Math.ceil(filtrados.length / clientesPageSize),
-  );
+const totalPages = Math.max(
+  1,
+  Math.ceil(listaOrdenada.length / clientesPageSize),
+);
   if (clientesCurrentPage > totalPages) clientesCurrentPage = totalPages;
 
   const start = (clientesCurrentPage - 1) * clientesPageSize;
   const end = start + clientesPageSize;
-  const pageData = filtrados.slice(start, end);
+const pageData = listaOrdenada.slice(start, end);
 
   if (pageData.length === 0) {
     const tr = document.createElement("tr");
@@ -2687,7 +2702,11 @@ if (countEl) {
       ).length;
 
       tr.innerHTML = `
-        <td>${start + index + 1}</td>
+<td>${
+  ordemClientes === "asc"
+    ? start + index + 1
+    : listaOrdenada.length - (start + index)
+}</td>
         <td>${cli.razao || ""}</td>
         <td>${cli.cnpj || ""}</td>
         <td>${cli.segmento || ""}</td>
@@ -2705,6 +2724,10 @@ if (countEl) {
 
   if (pageInfoClientes)
     pageInfoClientes.textContent = `Página ${clientesCurrentPage} de ${totalPages}`;
+
+  const seta = document.getElementById("setaOrdemClientes");
+if (seta) seta.textContent = ordemClientes === "asc" ? "↑" : "↓";
+
 }
 
 function bindGotoPage(inputId, getTotalPages, setPageAndRender) {
@@ -2987,19 +3010,27 @@ function renderTabelaRepresentadas() {
   const tbody = document.querySelector("#tabelaRepresentadas tbody");
   if (!tbody) return;
 
+  representadas.sort((a, b) =>
+  String(a.nome || "").localeCompare(String(b.nome || ""), "pt-BR", {
+    sensitivity: "base",
+  })
+);
+
   tbody.innerHTML = "";
 
   const filtrados = getRepresentadasFiltradas();
+  const listaOrdenada =
+  ordemRepresentadas === "asc" ? [...filtrados] : [...filtrados].reverse();
   const totalPages = Math.max(
     1,
-    Math.ceil(filtrados.length / representadasPageSize),
+    Math.ceil(listaOrdenada.length / representadasPageSize),
   );
   if (representadasCurrentPage > totalPages)
     representadasCurrentPage = totalPages;
 
   const start = (representadasCurrentPage - 1) * representadasPageSize;
   const end = start + representadasPageSize;
-  const pageData = filtrados.slice(start, end);
+  const pageData = listaOrdenada.slice(start, end);
 
   if (!pageData.length) {
     const tr = document.createElement("tr");
@@ -3021,7 +3052,11 @@ function renderTabelaRepresentadas() {
 
     const tr = document.createElement("tr");
     tr.innerHTML = `
-    <td>${start + index + 1}</td>
+<td>${
+  ordemRepresentadas === "asc"
+    ? start + index + 1
+    : listaOrdenada.length - (start + index)
+}</td>
       <td>${rep.nome}</td>
       <td class="col-center">${qtdOfertas}</td>
       <td>${usuario}</td>
@@ -3035,18 +3070,29 @@ function renderTabelaRepresentadas() {
   const pageInfo = document.getElementById("pageInfoRepresentadas");
   if (pageInfo)
     pageInfo.textContent = `Página ${representadasCurrentPage} de ${totalPages}`;
+
+  const seta = document.getElementById("setaOrdemRepresentadas");
+if (seta) seta.textContent = ordemRepresentadas === "asc" ? "↑" : "↓";
+
 }
 
 function preencherSelectRepresentadas() {
   const select = document.getElementById("representada");
   if (!select) return;
 
-  select.innerHTML = '<option value="">Selecione</option>';
-  representadas.forEach((rep) => {
-    const opt = document.createElement("option");
-    opt.value = rep.id;
-    opt.textContent = rep.nome;
-    select.appendChild(opt);
+  select.innerHTML = `<option value="">Selecione</option>`;
+
+  const representadasOrdenadas = [...representadas].sort((a, b) =>
+    String(a.nome || "").localeCompare(String(b.nome || ""), "pt-BR", {
+      sensitivity: "base",
+    }),
+  );
+
+  representadasOrdenadas.forEach((rep) => {
+    const option = document.createElement("option");
+    option.value = rep.id;
+    option.textContent = rep.nome;
+    select.appendChild(option);
   });
 }
 
@@ -5049,3 +5095,19 @@ function abrirHistoricoContato(index, nomeContato) {
     contato.historico || [],
   );
 }
+
+function toggleOrdemRegistros() {
+  ordemRegistros = ordemRegistros === "asc" ? "desc" : "asc";
+  renderTabela();
+}
+
+function toggleOrdemClientes() {
+  ordemClientes = ordemClientes === "asc" ? "desc" : "asc";
+  renderTabelaClientes();
+}
+
+function toggleOrdemRepresentadas() {
+  ordemRepresentadas = ordemRepresentadas === "asc" ? "desc" : "asc";
+  renderTabelaRepresentadas();
+}
+

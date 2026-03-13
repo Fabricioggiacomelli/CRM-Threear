@@ -1663,3 +1663,15 @@ body.dark .historico-para {
   transform: translateY(0) scale(1);
   opacity: 1;
 }
+
+.th-ordenavel {
+  cursor: pointer;
+  user-select: none;
+  white-space: nowrap;
+}
+
+.th-ordenavel span {
+  font-size: 12px;
+  margin-left: 4px;
+  opacity: 0.8;
+}

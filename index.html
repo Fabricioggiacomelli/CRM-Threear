@@ -412,7 +412,9 @@
           <table id="tabelaRegistros">
             <thead>
               <tr>
-                <th>#</th>
+                <th class="th-ordenavel" onclick="toggleOrdemRegistros()">
+  # <span id="setaOrdemRegistros">↑</span>
+</th>
                 <th>B.U</th>
                 <th>RAZÃO SOCIAL</th>
                 <th>CNPJ</th>
@@ -526,7 +528,9 @@
         <table id="tabelaClientes">
           <thead>
             <tr>
-              <th>#</th>
+              <th class="th-ordenavel" onclick="toggleOrdemClientes()">
+  # <span id="setaOrdemClientes">↑</span>
+</th>
               <th>Razão Social</th>
               <th>CNPJ</th>
               <th>Segmento</th>
@@ -583,7 +587,9 @@
         <table id="tabelaRepresentadas">
           <thead>
             <tr>
-              <th>#</th>
+              <th class="th-ordenavel" onclick="toggleOrdemRepresentadas()">
+  # <span id="setaOrdemRepresentadas">↑</span>
+</th>
               <th>Nome</th>
               <th class="col-center">Quantidade de Ofertas</th>
               <th>Usuário</th>
