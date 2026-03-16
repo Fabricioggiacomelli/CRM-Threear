@@ -2,13 +2,14 @@ let currentUserName = null;
 function getCurrentUserName() {
   return currentUserName || "Desconhecido";
 }
-const ADMIN_EMAIL = "fabricio.giacomelli@threear.com.br";
+const ADMIN_EMAILS = [
+  "fabricio.giacomelli@threear.com.br",
+  "ronaldo.giacomelli@threear.com.br",
+];
+
 function isAdminEmail(email) {
-  return (
-    String(email || "")
-      .trim()
-      .toLowerCase() === ADMIN_EMAIL
-  );
+  const emailNormalizado = String(email || "").trim().toLowerCase();
+  return ADMIN_EMAILS.includes(emailNormalizado);
 }
 
 const RESPONSAVEIS_FIXOS = [
@@ -45,7 +46,7 @@ window.STATUS_OPTIONS = [
   "Liberação Prysmian",
   "Perdido",
   "Proposta enviada",
-  "Revisão Prysmian"
+  "Revisão Prysmian",
 ];
 
 window.SEGMENTO_OPTIONS = [
@@ -74,7 +75,7 @@ window.SEGMENTO_OPTIONS = [
   "Solar",
   "Subestações",
   "Transporte",
-  "UHE, UTE e PCH"
+  "UHE, UTE e PCH",
 ];
 
 let historicoAtualModal = [];
@@ -160,6 +161,7 @@ window.addEventListener("load", async () => {
   initMoneyMask();
   initPhoneMask();
   initCnpjMask();
+  initValidacaoVisualCampos();
   initClientesUI();
   initRepresentadasUI();
   initLigacaoClienteOferta();
@@ -353,10 +355,10 @@ function mostrarApp() {
 
   preencherSelectRepresentadas();
   initUnidadesMantex();
-  
+
   preencherSelectPadrao("status", STATUS_OPTIONS, "");
   preencherSelectPadrao("cli_segmento", SEGMENTO_OPTIONS, "");
-  
+
   renderTabela();
   renderTabelaClientes();
   renderTabelaRepresentadas();
@@ -835,50 +837,50 @@ function initForm() {
   if (!btnAdicionar) return;
 
   const mapaCamposOferta = {
-  bu: "B.U",
-  segmento: "segmento",
-  razao: "razão social",
-  cnpj_cliente: "CNPJ",
-  solicitante: "solicitante",
-  telefone: "telefone",
-  email: "e-mail",
-  oferta: "nº da oferta",
-  nome_projeto: "projeto",
-  representadaNome: "representada",
-  unidade: "unidade",
-  valor_total: "valor total",
-  ref_cliente: "ref. cliente",
-  data_entrada: "data entrada",
-  status: "status",
-  data_envio: "data envio",
-  tipo_oferta: "tipo",
-  atendimentoSpot: "atendimento spot",
-  possuiPedido: "possui pedido",
-  possuiRevisao: "possui revisão",
-  obs_geral: "observações gerais",
-};
+    bu: "B.U",
+    segmento: "segmento",
+    razao: "razão social",
+    cnpj_cliente: "CNPJ",
+    solicitante: "solicitante",
+    telefone: "telefone",
+    email: "e-mail",
+    oferta: "nº da oferta",
+    nome_projeto: "projeto",
+    representadaNome: "representada",
+    unidade: "unidade",
+    valor_total: "valor total",
+    ref_cliente: "ref. cliente",
+    data_entrada: "data entrada",
+    status: "status",
+    data_envio: "data envio",
+    tipo_oferta: "tipo",
+    atendimentoSpot: "atendimento spot",
+    possuiPedido: "possui pedido",
+    possuiRevisao: "possui revisão",
+    obs_geral: "observações gerais",
+  };
 
-const mapaCamposPedido = {
-  "pedido.numero_pedido": "nº pedido",
-  "pedido.data_po": "data P.O.",
-  "pedido.valor_pedido": "valor pedido",
-  "pedido.cond_pagamento": "condição de pagamento",
-  "pedido.ref_projeto": "ref./projeto do pedido",
-  "pedido.tipo_produto": "tipo de produto",
-  "pedido.obs": "obs do pedido",
-  "pedido.data_nf": "data NF",
-  "pedido.numero_nf": "número NF",
-  "pedido.valor_nf": "valor NF",
-  "pedido.prazo_entrega_contratual": "prazo entrega contratual",
-  "pedido.solicitacao_oc": "SOV",
-  "pedido.ref_oc": "ref. OV",
-  "pedido.data_implantacao": "data de implantação",
-};
+  const mapaCamposPedido = {
+    "pedido.numero_pedido": "nº pedido",
+    "pedido.data_po": "data P.O.",
+    "pedido.valor_pedido": "valor pedido",
+    "pedido.cond_pagamento": "condição de pagamento",
+    "pedido.ref_projeto": "ref./projeto do pedido",
+    "pedido.tipo_produto": "tipo de produto",
+    "pedido.obs": "obs do pedido",
+    "pedido.data_nf": "data NF",
+    "pedido.numero_nf": "número NF",
+    "pedido.valor_nf": "valor NF",
+    "pedido.prazo_entrega_contratual": "prazo entrega contratual",
+    "pedido.solicitacao_oc": "SOV",
+    "pedido.ref_oc": "ref. OV",
+    "pedido.data_implantacao": "data de implantação",
+  };
 
-const mapaCamposRevisao = {
-  "revisao.numero_oferta_anterior": "nº oferta anterior",
-  "revisao.mudou": "o que mudou na revisão",
-};
+  const mapaCamposRevisao = {
+    "revisao.numero_oferta_anterior": "nº oferta anterior",
+    "revisao.mudou": "o que mudou na revisão",
+  };
 
   btnAdicionar.addEventListener("click", async () => {
     const bu = document.getElementById("bu");
@@ -913,20 +915,37 @@ const mapaCamposRevisao = {
 
     const nowIso = new Date().toISOString();
 
-    const cnpjDigits = (cnpj_cliente.value || "").replace(/\D/g, "");
-    if (cnpjDigits && cnpjDigits.length !== 14) {
-      alert("CNPJ inválido. Verifique antes de salvar.");
-      cnpj_cliente.focus();
-      return;
-    }
+const segmentoVisivel = segmentoEl && segmentoEl.offsetParent !== null;
 
-    const telDigits = (telefone.value || "").replace(/\D/g, "");
-    if (telDigits && telDigits.length < 10) {
-      alert("Telefone inválido. Informe DDD + 8 ou 9 dígitos.");
-      telefone.focus();
-      return;
-    }
+const valido = validarCamposObrigatorios([
+  { el: bu, nome: "B.U" },
+  { el: segmentoEl, nome: "Segmento", condicao: segmentoVisivel },
+  { el: razao, nome: "Razão Social" },
+  { el: solicitante, nome: "Solicitante" },
+  { el: telefone, nome: "Telefone" },
+  { el: email, nome: "E-mail" },
+  { el: representadaSelect, nome: "Representada" },
+  { el: valor_total, nome: "Valor Total" },
+  { el: status, nome: "Status" },
+  { el: tipoNegocio, nome: "Tipo" },
+]);
 
+if (!valido) return;
+
+if (cnpj_cliente.value && !validarCNPJ(cnpj_cliente.value)) {
+  marcarErroCampo(cnpj_cliente);
+  alert("CNPJ inválido. Verifique os números informados.");
+  cnpj_cliente.focus();
+  return;
+}
+
+const telDigits = (telefone.value || "").replace(/\D/g, "");
+if (telDigits && (telDigits.length < 10 || telDigits.length > 11)) {
+  marcarErroCampo(telefone);
+  alert("Telefone inválido. Informe DDD + 8 ou 9 dígitos.");
+  telefone.focus();
+  return;
+}
     const registroBase = {
       bu: bu.value,
       segmento: segmentoEl ? segmentoEl.value || "" : "",
@@ -1035,7 +1054,7 @@ const mapaCamposRevisao = {
             campo: "registro",
             de: "",
             para: registroBase.oferta || "nova oferta",
-          }), 
+          }),
         ],
       };
       await db.collection("ofertas").doc(id).set(registro);
@@ -1044,32 +1063,32 @@ const mapaCamposRevisao = {
     } else {
       const idx = registros.findIndex((r) => r.id === editId);
       const antigo = registros[idx] || {};
-const eventosHistoricoBase = montarHistoricoAlteracoes(
-  antigo,
-  registroBase,
-  currentUser,
-  mapaCamposOferta,
-);
+      const eventosHistoricoBase = montarHistoricoAlteracoes(
+        antigo,
+        registroBase,
+        currentUser,
+        mapaCamposOferta,
+      );
 
-const eventosHistoricoPedido = montarHistoricoAlteracoesPath(
-  antigo,
-  registroBase,
-  currentUser,
-  mapaCamposPedido,
-);
+      const eventosHistoricoPedido = montarHistoricoAlteracoesPath(
+        antigo,
+        registroBase,
+        currentUser,
+        mapaCamposPedido,
+      );
 
-const eventosHistoricoRevisao = montarHistoricoAlteracoesPath(
-  antigo,
-  registroBase,
-  currentUser,
-  mapaCamposRevisao,
-);
+      const eventosHistoricoRevisao = montarHistoricoAlteracoesPath(
+        antigo,
+        registroBase,
+        currentUser,
+        mapaCamposRevisao,
+      );
 
-const eventosHistorico = [
-  ...eventosHistoricoBase,
-  ...eventosHistoricoPedido,
-  ...eventosHistoricoRevisao,
-];
+      const eventosHistorico = [
+        ...eventosHistoricoBase,
+        ...eventosHistoricoPedido,
+        ...eventosHistoricoRevisao,
+      ];
       if (idx !== -1) {
         const registro = {
           id: editId,
@@ -1455,9 +1474,13 @@ function getClientesFiltrados() {
     })
     .filter((f) => f.term);
 
-  return clientes.filter((cli) => {
-    if (!filtros.length) return true;
+  const filtrosPorCampo = filtros.reduce((acc, f) => {
+    if (!acc[f.field]) acc[f.field] = [];
+    acc[f.field].push(f.term);
+    return acc;
+  }, {});
 
+  return clientes.filter((cli) => {
     const usuario = formatarNomeUsuario(
       cli.atualizadoPor || cli.criadoPor || "",
     ).toLowerCase();
@@ -1473,40 +1496,41 @@ function getClientesFiltrados() {
       .join(" ")
       .toLowerCase();
 
-    for (const f of filtros) {
-      const wantEmpty =
-        f.term === "vazio" || f.term === "em branco" || f.term === "sem";
+    for (const field in filtrosPorCampo) {
+      const termos = filtrosPorCampo[field];
 
-      if (wantEmpty) {
-        let value = "";
-        if (f.field === "razao") value = cli.razao;
-        else if (f.field === "cnpj") value = cli.cnpj;
-        else if (f.field === "sap") value = cli.sap;
-        else if (f.field === "segmento") value = cli.segmento;
-        else if (f.field === "usuario") value = usuario;
-        else return false;
+      const passouNoGrupo = termos.some((term) => {
+        const wantEmpty =
+          term === "vazio" || term === "em branco" || term === "sem";
 
-        if (!isEmptyValue(value)) return false;
-        continue;
-      }
-
-      if (f.field === "todos") {
-        if (!textoTodos.includes(f.term)) return false;
-      } else {
-        let value = "";
-
-        if (f.field === "razao") value = cli.razao || "";
-        if (f.field === "cnpj") value = normalizeCNPJ(cli.cnpj || "");
-        if (f.field === "sap") value = (cli.sap || "").toLowerCase();
-        if (f.field === "segmento") value = (cli.segmento || "").toLowerCase();
-        if (f.field === "usuario") value = usuario;
-
-        if (f.field === "cnpj") {
-          if (!value.includes(normalizeCNPJ(f.term))) return false;
-        } else {
-          if (!String(value).toLowerCase().includes(f.term)) return false;
+        if (field === "todos") {
+          if (wantEmpty) return false;
+          return textoTodos.includes(term);
         }
-      }
+
+        let value = "";
+
+        if (field === "razao") value = cli.razao || "";
+        if (field === "cnpj") value = cli.cnpj || "";
+        if (field === "sap") value = cli.sap || "";
+        if (field === "segmento") value = cli.segmento || "";
+        if (field === "usuario") value = usuario;
+
+        if (wantEmpty) {
+          if (field === "cnpj") {
+            return normalizeCNPJ(value).length === 0;
+          }
+          return isEmptyValue(value);
+        }
+
+        if (field === "cnpj") {
+          return normalizeCNPJ(value).includes(normalizeCNPJ(term));
+        }
+
+        return String(value).toLowerCase().includes(term);
+      });
+
+      if (!passouNoGrupo) return false;
     }
 
     return true;
@@ -1522,8 +1546,8 @@ function renderTabela() {
 
   const filtrados = getRegistrosFiltrados();
   const listaOrdenada =
-  ordemRegistros === "asc" ? [...filtrados] : [...filtrados].reverse();
-const total = listaOrdenada.length;
+    ordemRegistros === "asc" ? [...filtrados] : [...filtrados].reverse();
+  const total = listaOrdenada.length;
   const totalPages = Math.max(1, Math.ceil(total / pageSize));
   if (currentPage > totalPages) currentPage = totalPages;
 
@@ -1549,10 +1573,8 @@ const total = listaOrdenada.length;
       const tr = document.createElement("tr");
       tr.innerHTML = `
 <td>${
-  ordemRegistros === "asc"
-    ? start + index + 1
-    : total - (start + index)
-}</td>
+        ordemRegistros === "asc" ? start + index + 1 : total - (start + index)
+      }</td>
         <td>${reg.bu || ""}</td>
         <td>${reg.razao || ""}</td>
         <td>${reg.cnpj_cliente || ""}</td>
@@ -1584,8 +1606,8 @@ const total = listaOrdenada.length;
     countEl.textContent = `${filtrados.length} registro(s) encontrado(s)`;
   }
 
-const seta = document.getElementById("setaOrdemRegistros");
-if (seta) seta.textContent = ordemRegistros === "asc" ? "↑" : "↓";
+  const seta = document.getElementById("setaOrdemRegistros");
+  if (seta) seta.textContent = ordemRegistros === "asc" ? "↑" : "↓";
 
   renderActiveFilterTags();
 }
@@ -2272,7 +2294,6 @@ function initClientesUI() {
     .getElementById("btnCancelarEdicaoContato")
     ?.addEventListener("click", cancelarEdicaoContato);
 
-
   const pageSizeClientesInput = document.getElementById("pageSizeClientes");
   if (pageSizeClientesInput) {
     const saved = parseInt(localStorage.getItem("pageSizeClientes") || "", 10);
@@ -2304,16 +2325,16 @@ function initClientesUI() {
     }
   });
 
-document.getElementById("btnNextClientes")?.addEventListener("click", () => {
-  const totalPages = Math.max(
-    1,
-    Math.ceil(getClientesFiltrados().length / clientesPageSize),
-  );
-  if (clientesCurrentPage < totalPages) {
-    clientesCurrentPage++;
-    renderTabelaClientes();
-  }
-});
+  document.getElementById("btnNextClientes")?.addEventListener("click", () => {
+    const totalPages = Math.max(
+      1,
+      Math.ceil(getClientesFiltrados().length / clientesPageSize),
+    );
+    if (clientesCurrentPage < totalPages) {
+      clientesCurrentPage++;
+      renderTabelaClientes();
+    }
+  });
 
   const btnAddContato = document.getElementById("btnAddContato");
   const btnSalvarCliente = document.getElementById("btnSalvarCliente");
@@ -2339,70 +2360,82 @@ document.getElementById("btnNextClientes")?.addEventListener("click", () => {
     const responsavelNome = selResp ? selResp.value : "";
     const responsavelId = responsavelNome;
 
-    if (!nome) {
-      alert("Informe pelo menos o nome do contato.");
-      return;
-    }
+const ctNome = document.getElementById("ct_nome");
+const ctTel = document.getElementById("ct_tel");
+const ctEmail = document.getElementById("ct_email");
 
-    const telDigits = telefone.replace(/\D/g, "");
-    if (telefone && telDigits.length < 10) {
-      alert("Telefone do contato inválido. Informe DDD + 8 ou 9 dígitos.");
-      document.getElementById("ct_tel")?.focus();
-      return;
-    }
+const validoContato = validarCamposObrigatorios([
+  { el: ctNome, nome: "Nome" },
+  { el: ctTel, nome: "Telefone" },
+  { el: ctEmail, nome: "E-mail" },
+]);
 
-const nowIso = new Date().toISOString();
+if (!validoContato) return;
 
-const contatoBase = {
-  nome,
-  telefone,
-  email,
-  funcao,
-  principal: principalChecked,
-  responsavelId,
-  responsavelNome,
-  criadoEm: nowIso,
-  atualizadoEm: nowIso,
-};
+const telDigits = telefone.replace(/\D/g, "");
+if (telefone && (telDigits.length < 10 || telDigits.length > 11)) {
+  const campoTel = document.getElementById("ct_tel");
+  marcarErroCampo(campoTel);
+  alert("Telefone do contato inválido. Informe DDD + 8 ou 9 dígitos.");
+  campoTel?.focus();
+  return;
+}
+
+    const nowIso = new Date().toISOString();
+
+    const contatoBase = {
+      nome,
+      telefone,
+      email,
+      funcao,
+      principal: principalChecked,
+      responsavelId,
+      responsavelNome,
+      criadoEm: nowIso,
+      atualizadoEm: nowIso,
+    };
 
     if (contatoBase.principal) {
       contatosTemp = contatosTemp.map((c) => ({ ...c, principal: false }));
     }
 
-const currentUser = getCurrentUserName();
+    const currentUser = getCurrentUserName();
 
-if (editContatoIndex === null) {
-contatoBase.historico = [
-  criarEventoHistorico({
-    usuario: currentUser,
-    acao: "criou",
-    campo: "contato",
-    de: "",
-    para: contatoBase.nome || "novo contato",
-  }),
-];
+    if (editContatoIndex === null) {
+      contatoBase.historico = [
+        criarEventoHistorico({
+          usuario: currentUser,
+          acao: "criou",
+          campo: "contato",
+          de: "",
+          para: contatoBase.nome || "novo contato",
+        }),
+      ];
 
-contatosTemp.push(contatoBase);
+      contatosTemp.push(contatoBase);
+    } else {
+      const antigoContato = contatosTemp[editContatoIndex] || {};
 
-} else {
-const antigoContato = contatosTemp[editContatoIndex] || {};
+      contatoBase.criadoEm = antigoContato.criadoEm || nowIso;
+      contatoBase.atualizadoEm = nowIso;
 
-contatoBase.criadoEm = antigoContato.criadoEm || nowIso;
-contatoBase.atualizadoEm = nowIso;
+      contatoBase.historico = [
+        ...(antigoContato.historico || []),
+        ...montarHistoricoAlteracoesContato(
+          antigoContato,
+          contatoBase,
+          currentUser,
+        ),
+      ];
 
-contatoBase.historico = [
-  ...(antigoContato.historico || []),
-  ...montarHistoricoAlteracoesContato(antigoContato, contatoBase, currentUser),
-];
+      contatosTemp[editContatoIndex] = contatoBase;
 
-contatosTemp[editContatoIndex] = contatoBase;
-
-editContatoIndex = null;
-btnAddContato.textContent = "Adicionar Contato";
-document
-  .getElementById("btnCancelarEdicaoContato")
-  ?.classList.add("hidden");
-}
+      editContatoIndex = null;
+      btnAddContato.textContent = "Adicionar Contato";
+      document
+        .getElementById("btnCancelarEdicaoContato")
+        ?.classList.add("hidden");
+    }
 
     document.getElementById("ct_nome").value = "";
     document.getElementById("ct_tel").value = "";
@@ -2415,13 +2448,13 @@ document
   });
 
   const mapaCamposCliente = {
-  razao: "razão social",
-  cnpj: "CNPJ",
-  ie: "inscrição estadual",
-  endereco: "endereço",
-  segmento: "segmento",
-  sap: "código SAP",
-};
+    razao: "razão social",
+    cnpj: "CNPJ",
+    ie: "inscrição estadual",
+    endereco: "endereço",
+    segmento: "segmento",
+    sap: "código SAP",
+  };
 
   btnSalvarCliente.addEventListener("click", async () => {
     const razao = document.getElementById("cli_razao")?.value.trim() || "";
@@ -2435,17 +2468,25 @@ document
     const currentUser = getCurrentUserName();
     const nowIso = new Date().toISOString();
 
-    if (!razao || !cnpj) {
-      alert("Razão Social e CNPJ são obrigatórios.");
-      return;
-    }
+const cliRazao = document.getElementById("cli_razao");
+const cliCnpj = document.getElementById("cli_cnpj");
+const cliSegmento = document.getElementById("cli_segmento");
 
-    const cnpjDigits = cnpj.replace(/\D/g, "");
-    if (cnpjDigits.length !== 14) {
-      alert("CNPJ do cliente inválido. Deve conter 14 dígitos.");
-      document.getElementById("cli_cnpj")?.focus();
-      return;
-    }
+const validoCliente = validarCamposObrigatorios([
+  { el: cliRazao, nome: "Razão Social" },
+  { el: cliCnpj, nome: "CNPJ" },
+  { el: cliSegmento, nome: "Segmento" },
+]);
+
+if (!validoCliente) return;
+
+const cliCnpjEl = document.getElementById("cli_cnpj");
+if (!validarCNPJ(cnpj)) {
+  marcarErroCampo(cliCnpjEl);
+  alert("CNPJ inválido. Verifique os números informados.");
+  cliCnpjEl?.focus();
+  return;
+}
 
     if (contatosTemp.length > 0 && !contatosTemp.some((c) => c.principal)) {
       contatosTemp[0].principal = true;
@@ -2474,7 +2515,7 @@ document
           historico: [
             criarEventoHistorico({
               usuario: currentUser,
-              acao: "Criou", 
+              acao: "Criou",
               campo: "cliente",
               de: "",
               para: clienteBase.razao || "novo cliente",
@@ -2488,17 +2529,14 @@ document
         const idx = clientes.findIndex((c) => c.id === editClienteId);
         const antigo = clientes[idx] || {};
 
-const eventosHistoricoBase = montarHistoricoAlteracoes(
-  antigo,
-  clienteBase,
-  currentUser,
-  mapaCamposCliente
-);
+        const eventosHistoricoBase = montarHistoricoAlteracoes(
+          antigo,
+          clienteBase,
+          currentUser,
+          mapaCamposCliente,
+        );
 
-const eventosHistorico = [
-  ...eventosHistoricoBase,
-];
-
+        const eventosHistorico = [...eventosHistoricoBase];
 
         if (idx !== -1) {
           const cliente = {
@@ -2548,16 +2586,20 @@ const eventosHistorico = [
     }
   });
 
-  document.getElementById("btnAddFiltroCliente")?.addEventListener("click", () => {
-    addFiltroClienteRow();
-  });
+  document
+    .getElementById("btnAddFiltroCliente")
+    ?.addEventListener("click", () => {
+      addFiltroClienteRow();
+    });
 
-  document.getElementById("btnLimparFiltrosClientes")?.addEventListener("click", () => {
-    const wrap = document.getElementById("filtersClientes");
-    if (wrap) wrap.innerHTML = "";
-    clientesCurrentPage = 1;
-    renderTabelaClientes();
-  });
+  document
+    .getElementById("btnLimparFiltrosClientes")
+    ?.addEventListener("click", () => {
+      const wrap = document.getElementById("filtersClientes");
+      if (wrap) wrap.innerHTML = "";
+      clientesCurrentPage = 1;
+      renderTabelaClientes();
+    });
 
   if (!document.querySelector("#filtersClientes .filter-item")) {
     addFiltroClienteRow();
@@ -2665,20 +2707,20 @@ function renderTabelaClientes() {
 
   const filtrados = getClientesFiltrados();
   const listaOrdenada =
-  ordemClientes === "asc" ? [...filtrados] : [...filtrados].reverse();
+    ordemClientes === "asc" ? [...filtrados] : [...filtrados].reverse();
   const countEl = document.getElementById("clientesCount");
-if (countEl) {
-  countEl.textContent = `${filtrados.length} cliente(s) encontrado(s)`;
-}
-const totalPages = Math.max(
-  1,
-  Math.ceil(listaOrdenada.length / clientesPageSize),
-);
+  if (countEl) {
+    countEl.textContent = `${filtrados.length} cliente(s) encontrado(s)`;
+  }
+  const totalPages = Math.max(
+    1,
+    Math.ceil(listaOrdenada.length / clientesPageSize),
+  );
   if (clientesCurrentPage > totalPages) clientesCurrentPage = totalPages;
 
   const start = (clientesCurrentPage - 1) * clientesPageSize;
   const end = start + clientesPageSize;
-const pageData = listaOrdenada.slice(start, end);
+  const pageData = listaOrdenada.slice(start, end);
 
   if (pageData.length === 0) {
     const tr = document.createElement("tr");
@@ -2703,10 +2745,10 @@ const pageData = listaOrdenada.slice(start, end);
 
       tr.innerHTML = `
 <td>${
-  ordemClientes === "asc"
-    ? start + index + 1
-    : listaOrdenada.length - (start + index)
-}</td>
+        ordemClientes === "asc"
+          ? start + index + 1
+          : listaOrdenada.length - (start + index)
+      }</td>
         <td>${cli.razao || ""}</td>
         <td>${cli.cnpj || ""}</td>
         <td>${cli.segmento || ""}</td>
@@ -2726,8 +2768,7 @@ const pageData = listaOrdenada.slice(start, end);
     pageInfoClientes.textContent = `Página ${clientesCurrentPage} de ${totalPages}`;
 
   const seta = document.getElementById("setaOrdemClientes");
-if (seta) seta.textContent = ordemClientes === "asc" ? "↑" : "↓";
-
+  if (seta) seta.textContent = ordemClientes === "asc" ? "↑" : "↓";
 }
 
 function bindGotoPage(inputId, getTotalPages, setPageAndRender) {
@@ -2904,19 +2945,19 @@ function initRepresentadasUI() {
     } else {
       const idx = representadas.findIndex((r) => r.id === editRepresentadaId);
       const antigo = representadas[idx] || {};
-const eventosHistorico = [];
+      const eventosHistorico = [];
 
-if (compararValoresHistorico(antigo.nome, nome)) {
-  eventosHistorico.push(
-    criarEventoHistorico({
-      usuario: currentUser,
-      acao: "alterou",
-      campo: "nome",
-      de: antigo.nome,
-      para: nome,
-    }),
-  );
-}
+      if (compararValoresHistorico(antigo.nome, nome)) {
+        eventosHistorico.push(
+          criarEventoHistorico({
+            usuario: currentUser,
+            acao: "alterou",
+            campo: "nome",
+            de: antigo.nome,
+            para: nome,
+          }),
+        );
+      }
 
       if (idx !== -1) {
         const rep = {
@@ -2986,24 +3027,28 @@ if (compararValoresHistorico(antigo.nome, nome)) {
     });
   }
 
-  document.getElementById("btnPrevRepresentadas")?.addEventListener("click", () => {
-  if (representadasCurrentPage > 1) {
-    representadasCurrentPage--;
-    renderTabelaRepresentadas();
-  }
-});
+  document
+    .getElementById("btnPrevRepresentadas")
+    ?.addEventListener("click", () => {
+      if (representadasCurrentPage > 1) {
+        representadasCurrentPage--;
+        renderTabelaRepresentadas();
+      }
+    });
 
-document.getElementById("btnNextRepresentadas")?.addEventListener("click", () => {
-  const totalPages = Math.max(
-    1,
-    Math.ceil(getRepresentadasFiltradas().length / representadasPageSize),
-  );
+  document
+    .getElementById("btnNextRepresentadas")
+    ?.addEventListener("click", () => {
+      const totalPages = Math.max(
+        1,
+        Math.ceil(getRepresentadasFiltradas().length / representadasPageSize),
+      );
 
-  if (representadasCurrentPage < totalPages) {
-    representadasCurrentPage++;
-    renderTabelaRepresentadas();
-  }
-});
+      if (representadasCurrentPage < totalPages) {
+        representadasCurrentPage++;
+        renderTabelaRepresentadas();
+      }
+    });
 }
 
 function renderTabelaRepresentadas() {
@@ -3011,16 +3056,16 @@ function renderTabelaRepresentadas() {
   if (!tbody) return;
 
   representadas.sort((a, b) =>
-  String(a.nome || "").localeCompare(String(b.nome || ""), "pt-BR", {
-    sensitivity: "base",
-  })
-);
+    String(a.nome || "").localeCompare(String(b.nome || ""), "pt-BR", {
+      sensitivity: "base",
+    }),
+  );
 
   tbody.innerHTML = "";
 
   const filtrados = getRepresentadasFiltradas();
   const listaOrdenada =
-  ordemRepresentadas === "asc" ? [...filtrados] : [...filtrados].reverse();
+    ordemRepresentadas === "asc" ? [...filtrados] : [...filtrados].reverse();
   const totalPages = Math.max(
     1,
     Math.ceil(listaOrdenada.length / representadasPageSize),
@@ -3053,10 +3098,10 @@ function renderTabelaRepresentadas() {
     const tr = document.createElement("tr");
     tr.innerHTML = `
 <td>${
-  ordemRepresentadas === "asc"
-    ? start + index + 1
-    : listaOrdenada.length - (start + index)
-}</td>
+      ordemRepresentadas === "asc"
+        ? start + index + 1
+        : listaOrdenada.length - (start + index)
+    }</td>
       <td>${rep.nome}</td>
       <td class="col-center">${qtdOfertas}</td>
       <td>${usuario}</td>
@@ -3072,8 +3117,7 @@ function renderTabelaRepresentadas() {
     pageInfo.textContent = `Página ${representadasCurrentPage} de ${totalPages}`;
 
   const seta = document.getElementById("setaOrdemRepresentadas");
-if (seta) seta.textContent = ordemRepresentadas === "asc" ? "↑" : "↓";
-
+  if (seta) seta.textContent = ordemRepresentadas === "asc" ? "↑" : "↓";
 }
 
 function preencherSelectRepresentadas() {
@@ -3317,8 +3361,6 @@ function verCliente(id) {
      <br>
   `;
 
-
-
   html += `
     <hr>
     <div class="modal-section"><strong>Usuário:</strong> ${usuario}</div>
@@ -3341,9 +3383,7 @@ function verCliente(id) {
             ct.responsavelNome
               ? `<br><br>
               <hr>
-              <strong>Responsável:</strong> ${primeiroNome(
-                  ct.responsavelNome,
-                )}`
+              <strong>Responsável:</strong> ${primeiroNome(ct.responsavelNome)}`
               : ""
           }
           <br>
@@ -4288,9 +4328,9 @@ function verContatosCliente(id) {
     return abrirModal("Contatos do Cliente", html);
   }
 
-html += contatos
-  .map(
-    (ct, index) => `
+  html += contatos
+    .map(
+      (ct, index) => `
     <div class="modal-section">
 <br>
       <strong>${ct.nome || "-"}</strong>
@@ -4325,8 +4365,8 @@ html += contatos
 
     </div>
   `,
-  )
-  .join("");
+    )
+    .join("");
 
   abrirModal("Contatos do Cliente", html);
 }
@@ -4484,7 +4524,13 @@ function renderFiltroRegistroValor(row, field = "todos", term = "") {
   const wrap = row.querySelector(".multiTermWrap");
   if (!wrap) return;
 
-  const camposComSelect = ["bu", "representada", "tipo_oferta", "status", "usuario"];
+  const camposComSelect = [
+    "bu",
+    "representada",
+    "tipo_oferta",
+    "status",
+    "usuario",
+  ];
 
   let options = [];
 
@@ -4507,13 +4553,9 @@ function renderFiltroRegistroValor(row, field = "todos", term = "") {
   if (field === "representada") {
     options = Array.from(
       new Set(
-        representadas
-          .map((r) => String(r.nome || "").trim())
-          .filter(Boolean),
+        representadas.map((r) => String(r.nome || "").trim()).filter(Boolean),
       ),
-    ).sort((a, b) =>
-      a.localeCompare(b, "pt-BR", { sensitivity: "base" }),
-    );
+    ).sort((a, b) => a.localeCompare(b, "pt-BR", { sensitivity: "base" }));
   }
 
   if (field === "tipo_oferta") {
@@ -4524,12 +4566,12 @@ function renderFiltroRegistroValor(row, field = "todos", term = "") {
     options = (window.STATUS_OPTIONS || []).slice();
   }
 
-if (field === "usuario") {
-  options = getUsuariosComRegistrosOptions();
-}
+  if (field === "usuario") {
+    options = getUsuariosComRegistrosOptions();
+  }
 
   if (camposComSelect.includes(field)) {
-wrap.innerHTML = `
+    wrap.innerHTML = `
   <select class="multiTerm">
     <option value="">Selecione</option>
     ${options
@@ -4714,13 +4756,9 @@ function getStatusFiltroOptions() {
 }
 
 function campoRegistroUsaSelect(field) {
-  return [
-    "bu",
-    "representada",
-    "tipo_oferta",
-    "status",
-    "usuario",
-  ].includes(field);
+  return ["bu", "representada", "tipo_oferta", "status", "usuario"].includes(
+    field,
+  );
 }
 
 function getOpcoesCampoRegistro(field) {
@@ -4769,7 +4807,11 @@ function getOpcoesCampoCliente(field) {
   }
 }
 
-function renderClienteTermInput(row, selectedField = "todos", selectedValue = "") {
+function renderClienteTermInput(
+  row,
+  selectedField = "todos",
+  selectedValue = "",
+) {
   const wrap = row.querySelector(".multiTermWrap");
   if (!wrap) return;
 
@@ -4866,9 +4908,6 @@ function getUsuariosComRegistrosOptions() {
   );
 }
 
-
-
-
 function normalizarValorHistorico(valor) {
   if (valor === null || valor === undefined || valor === "") return "(vazio)";
   if (typeof valor === "string") return valor.trim() || "(vazio)";
@@ -4944,10 +4983,9 @@ function renderHistoricoHtml(historico = []) {
   const itens = historico
     .slice()
     .sort((a, b) =>
-      String(a.dataHora || "").localeCompare(String(b.dataHora || ""))
+      String(a.dataHora || "").localeCompare(String(b.dataHora || "")),
     )
     .map((ev) => {
-
       const acao = (ev.acao || "").toLowerCase();
 
       let classeAcao = "historico-acao-alterou";
@@ -5012,7 +5050,12 @@ function fecharModalHistorico() {
   }, 180);
 }
 
-function montarHistoricoAlteracoesPath(objAntigo, objNovo, usuario, mapaCampos) {
+function montarHistoricoAlteracoesPath(
+  objAntigo,
+  objNovo,
+  usuario,
+  mapaCampos,
+) {
   const eventos = [];
 
   Object.keys(mapaCampos).forEach((path) => {
@@ -5111,3 +5154,229 @@ function toggleOrdemRepresentadas() {
   renderTabelaRepresentadas();
 }
 
+function getRegistrosFiltrados() {
+  const statusFilter = (document.getElementById("statusFilter")?.value || "")
+    .trim()
+    .toLowerCase();
+
+  const pedidoFilter =
+    document.getElementById("pedidoFilter")?.value || "todos";
+  const revisaoFilter =
+    document.getElementById("revisaoFilter")?.value || "todos";
+
+  const filtros = Array.from(
+    document.querySelectorAll("#filtersRegistros .filter-item"),
+  )
+    .map((row) => {
+      const field = row.querySelector(".multiField")?.value || "todos";
+      const term = (row.querySelector(".multiTerm")?.value || "")
+        .trim()
+        .toLowerCase();
+      return { field, term };
+    })
+    .filter((f) => f.term);
+
+  const filtrosPorCampo = filtros.reduce((acc, f) => {
+    if (!acc[f.field]) acc[f.field] = [];
+    acc[f.field].push(f.term);
+    return acc;
+  }, {});
+
+  return registros.filter((reg) => {
+    const textoTodos = getTextoRegistroTodosCampos(reg);
+
+    for (const field in filtrosPorCampo) {
+      const termos = filtrosPorCampo[field];
+
+      const passouNoGrupo = termos.some((term) => {
+        const wantEmpty =
+          term === "vazio" || term === "em branco" || term === "sem";
+
+        if (field === "todos") {
+          if (wantEmpty) return false;
+          return textoTodos.includes(term);
+        }
+
+        const valorCampo = (getValorCampoRegistro(reg, field) || "")
+          .toString()
+          .toLowerCase();
+
+        if (wantEmpty) {
+          return isEmptyByFieldRegistro(reg, field);
+        }
+
+        if (field === "cnpj_cliente") {
+          return normalizeCNPJ(valorCampo).includes(normalizeCNPJ(term));
+        }
+
+        return valorCampo.includes(term);
+      });
+
+      if (!passouNoGrupo) return false;
+    }
+
+    if (statusFilter) {
+      if (!String(reg.status || "").toLowerCase().includes(statusFilter)) {
+        return false;
+      }
+    }
+
+    if (pedidoFilter === "com" && reg.possuiPedido !== "sim") return false;
+    if (pedidoFilter === "sem" && reg.possuiPedido !== "nao") return false;
+
+    if (revisaoFilter === "com" && reg.possuiRevisao !== "sim") return false;
+    if (revisaoFilter === "sem" && reg.possuiRevisao !== "nao") return false;
+
+    return true;
+  });
+}
+
+function validarCNPJ(cnpj) {
+  const cnpjLimpo = String(cnpj || "").replace(/\D/g, "");
+
+  if (cnpjLimpo.length !== 14) return false;
+
+  // rejeita sequências repetidas
+  if (/^(\d)\1{13}$/.test(cnpjLimpo)) return false;
+
+  const calcularDigito = (base, pesos) => {
+    const soma = base
+      .split("")
+      .reduce((acc, num, i) => acc + Number(num) * pesos[i], 0);
+
+    const resto = soma % 11;
+    return resto < 2 ? 0 : 11 - resto;
+  };
+
+  const base12 = cnpjLimpo.slice(0, 12);
+  const digito1 = calcularDigito(base12, [5, 4, 3, 2, 9, 8, 7, 6, 5, 4, 3, 2]);
+  const digito2 = calcularDigito(
+    base12 + digito1,
+    [6, 5, 4, 3, 2, 9, 8, 7, 6, 5, 4, 3, 2]
+  );
+
+  return cnpjLimpo === base12 + String(digito1) + String(digito2);
+}
+
+function limparErrosCampos() {
+  document.querySelectorAll(".input-erro").forEach((el) => {
+    el.classList.remove("input-erro");
+  });
+}
+
+function marcarErroCampo(campo) {
+  if (!campo) return;
+
+  campo.classList.add("input-erro");
+
+  const validarNovamente = () => {
+    const id = campo.id;
+
+    if (id === "cli_cnpj" || id === "cnpj_cliente") {
+      const valor = campo.value.trim();
+      if (!valor) {
+        campo.classList.remove("input-erro");
+        return;
+      }
+      if (validarCNPJ(valor)) {
+        campo.classList.remove("input-erro");
+      }
+      return;
+    }
+
+    if (id === "telefone" || id === "ct_tel") {
+      const digits = campo.value.replace(/\D/g, "");
+      if (!campo.value.trim()) {
+        campo.classList.remove("input-erro");
+        return;
+      }
+      if (digits.length >= 10 && digits.length <= 11) {
+        campo.classList.remove("input-erro");
+      }
+      return;
+    }
+
+    if (String(campo.value || "").trim()) {
+      campo.classList.remove("input-erro");
+    }
+  };
+
+  campo.addEventListener("input", validarNovamente);
+  campo.addEventListener("blur", validarNovamente);
+  campo.addEventListener("change", validarNovamente);
+}
+
+function validarCamposObrigatorios(campos) {
+  limparErrosCampos();
+
+  const invalidos = [];
+
+  campos.forEach(({ el, nome, condicao = true }) => {
+    if (!el || !condicao) return;
+
+    const valor =
+      el.type === "radio" || el.type === "checkbox"
+        ? el.checked
+        : String(el.value || "").trim();
+
+    const vazio = el.tagName === "SELECT" ? !el.value : !valor;
+
+    if (vazio) {
+      marcarErroCampo(el);
+      invalidos.push({ el, nome });
+    }
+  });
+
+  if (invalidos.length) {
+    invalidos[0].el.focus();
+    alert("Preencha todos os campos obrigatórios destacados em vermelho.");
+    return false;
+  }
+
+  return true;
+}
+
+function initValidacaoVisualCampos() {
+  const cnpjOferta = document.getElementById("cnpj_cliente");
+  const cnpjCliente = document.getElementById("cli_cnpj");
+  const telOferta = document.getElementById("telefone");
+  const telContato = document.getElementById("ct_tel");
+
+  [cnpjOferta, cnpjCliente].forEach((campo) => {
+    if (!campo) return;
+
+    campo.addEventListener("blur", () => {
+      const valor = campo.value.trim();
+      if (!valor) {
+        campo.classList.remove("input-erro");
+        return;
+      }
+
+      if (!validarCNPJ(valor)) {
+        campo.classList.add("input-erro");
+      } else {
+        campo.classList.remove("input-erro");
+      }
+    });
+  });
+
+  [telOferta, telContato].forEach((campo) => {
+    if (!campo) return;
+
+    campo.addEventListener("blur", () => {
+      const valor = campo.value.trim();
+      const digits = valor.replace(/\D/g, "");
+
+      if (!valor) {
+        campo.classList.remove("input-erro");
+        return;
+      }
+
+      if (digits.length < 10 || digits.length > 11) {
+        campo.classList.add("input-erro");
+      } else {
+        campo.classList.remove("input-erro");
+      }
+    });
+  });
+}
