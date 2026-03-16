@@ -8,7 +8,9 @@ const ADMIN_EMAILS = [
 ];
 
 function isAdminEmail(email) {
-  const emailNormalizado = String(email || "").trim().toLowerCase();
+  const emailNormalizado = String(email || "")
+    .trim()
+    .toLowerCase();
   return ADMIN_EMAILS.includes(emailNormalizado);
 }
 
@@ -915,37 +917,37 @@ function initForm() {
 
     const nowIso = new Date().toISOString();
 
-const segmentoVisivel = segmentoEl && segmentoEl.offsetParent !== null;
+    const segmentoVisivel = segmentoEl && segmentoEl.offsetParent !== null;
 
-const valido = validarCamposObrigatorios([
-  { el: bu, nome: "B.U" },
-  { el: segmentoEl, nome: "Segmento", condicao: segmentoVisivel },
-  { el: razao, nome: "Razão Social" },
-  { el: solicitante, nome: "Solicitante" },
-  { el: telefone, nome: "Telefone" },
-  { el: email, nome: "E-mail" },
-  { el: representadaSelect, nome: "Representada" },
-  { el: valor_total, nome: "Valor Total" },
-  { el: status, nome: "Status" },
-  { el: tipoNegocio, nome: "Tipo" },
-]);
+    const valido = validarCamposObrigatorios([
+      { el: bu, nome: "B.U" },
+      { el: segmentoEl, nome: "Segmento", condicao: segmentoVisivel },
+      { el: razao, nome: "Razão Social" },
+      { el: solicitante, nome: "Solicitante" },
+      { el: telefone, nome: "Telefone" },
+      { el: email, nome: "E-mail" },
+      { el: representadaSelect, nome: "Representada" },
+      { el: valor_total, nome: "Valor Total" },
+      { el: status, nome: "Status" },
+      { el: tipoNegocio, nome: "Tipo" },
+    ]);
 
-if (!valido) return;
+    if (!valido) return;
 
-if (cnpj_cliente.value && !validarCNPJ(cnpj_cliente.value)) {
-  marcarErroCampo(cnpj_cliente);
-  alert("CNPJ inválido. Verifique os números informados.");
-  cnpj_cliente.focus();
-  return;
-}
+    if (cnpj_cliente.value && !validarCNPJ(cnpj_cliente.value)) {
+      marcarErroCampo(cnpj_cliente);
+      alert("CNPJ inválido. Verifique os números informados.");
+      cnpj_cliente.focus();
+      return;
+    }
 
-const telDigits = (telefone.value || "").replace(/\D/g, "");
-if (telDigits && (telDigits.length < 10 || telDigits.length > 11)) {
-  marcarErroCampo(telefone);
-  alert("Telefone inválido. Informe DDD + 8 ou 9 dígitos.");
-  telefone.focus();
-  return;
-}
+    const telDigits = (telefone.value || "").replace(/\D/g, "");
+    if (telDigits && (telDigits.length < 10 || telDigits.length > 11)) {
+      marcarErroCampo(telefone);
+      alert("Telefone inválido. Informe DDD + 8 ou 9 dígitos.");
+      telefone.focus();
+      return;
+    }
     const registroBase = {
       bu: bu.value,
       segmento: segmentoEl ? segmentoEl.value || "" : "",
@@ -982,18 +984,24 @@ if (telDigits && (telDigits.length < 10 || telDigits.length > 11)) {
       const ref_projeto = document.getElementById("ref_projeto");
       const tipo_produto = document.getElementById("tipo_produto");
       const obs = document.getElementById("obs");
-
       const data_nf = document.getElementById("data_nf");
       const valor_nf = document.getElementById("valor_nf");
       const prazo_entrega_contratual = document.getElementById(
         "prazo_entrega_contratual",
       );
-
       const solicitacao_oc =
         document.querySelector("input[name='sol_oc']:checked")?.value || "nao";
       const ref_oc = document.getElementById("ref_oc");
       const data_implantacao = document.getElementById("data_implantacao");
       const numero_nf = document.getElementById("numero_nf");
+
+      const validoPedido = validarCamposObrigatorios([
+        { el: valor_pedido, nome: "Valor Total Pedido" },
+        { el: cond_pagamento, nome: "Condição de Pagamento" },
+        { el: ref_projeto, nome: "Ref./Projeto" },
+      ]);
+
+      if (!validoPedido) return;
 
       registroBase.pedido = {
         numero_pedido: numero_pedido?.value || "",
@@ -1019,16 +1027,12 @@ if (telDigits && (telDigits.length < 10 || telDigits.length > 11)) {
       const rev_num_oferta = document.getElementById("rev_num_oferta");
       const rev_mudou = document.getElementById("rev_mudou");
 
-      if (!rev_num_oferta.value.trim()) {
-        alert("Informe o número da oferta anterior (revisão).");
-        rev_num_oferta.focus();
-        return;
-      }
-      if (!rev_mudou.value.trim()) {
-        alert("Descreva o que mudou na revisão.");
-        rev_mudou.focus();
-        return;
-      }
+      const validoRevisao = validarCamposObrigatorios([
+        { el: rev_num_oferta, nome: "Nº da Oferta Anterior" },
+        { el: rev_mudou, nome: "O que mudou?" },
+      ]);
+
+      if (!validoRevisao) return;
 
       registroBase.revisao = {
         numero_oferta_anterior: rev_num_oferta.value.trim(),
@@ -1485,13 +1489,7 @@ function getClientesFiltrados() {
       cli.atualizadoPor || cli.criadoPor || "",
     ).toLowerCase();
 
-    const textoTodos = [
-      cli.razao,
-      cli.cnpj,
-      cli.sap,
-      cli.segmento,
-      usuario,
-    ]
+    const textoTodos = [cli.razao, cli.cnpj, cli.sap, cli.segmento, usuario]
       .filter(Boolean)
       .join(" ")
       .toLowerCase();
@@ -2360,26 +2358,26 @@ function initClientesUI() {
     const responsavelNome = selResp ? selResp.value : "";
     const responsavelId = responsavelNome;
 
-const ctNome = document.getElementById("ct_nome");
-const ctTel = document.getElementById("ct_tel");
-const ctEmail = document.getElementById("ct_email");
+    const ctNome = document.getElementById("ct_nome");
+    const ctTel = document.getElementById("ct_tel");
+    const ctEmail = document.getElementById("ct_email");
 
-const validoContato = validarCamposObrigatorios([
-  { el: ctNome, nome: "Nome" },
-  { el: ctTel, nome: "Telefone" },
-  { el: ctEmail, nome: "E-mail" },
-]);
+    const validoContato = validarCamposObrigatorios([
+      { el: ctNome, nome: "Nome" },
+      { el: ctTel, nome: "Telefone" },
+      { el: ctEmail, nome: "E-mail" },
+    ]);
 
-if (!validoContato) return;
+    if (!validoContato) return;
 
-const telDigits = telefone.replace(/\D/g, "");
-if (telefone && (telDigits.length < 10 || telDigits.length > 11)) {
-  const campoTel = document.getElementById("ct_tel");
-  marcarErroCampo(campoTel);
-  alert("Telefone do contato inválido. Informe DDD + 8 ou 9 dígitos.");
-  campoTel?.focus();
-  return;
-}
+    const telDigits = telefone.replace(/\D/g, "");
+    if (telefone && (telDigits.length < 10 || telDigits.length > 11)) {
+      const campoTel = document.getElementById("ct_tel");
+      marcarErroCampo(campoTel);
+      alert("Telefone do contato inválido. Informe DDD + 8 ou 9 dígitos.");
+      campoTel?.focus();
+      return;
+    }
 
     const nowIso = new Date().toISOString();
 
@@ -2468,25 +2466,25 @@ if (telefone && (telDigits.length < 10 || telDigits.length > 11)) {
     const currentUser = getCurrentUserName();
     const nowIso = new Date().toISOString();
 
-const cliRazao = document.getElementById("cli_razao");
-const cliCnpj = document.getElementById("cli_cnpj");
-const cliSegmento = document.getElementById("cli_segmento");
+    const cliRazao = document.getElementById("cli_razao");
+    const cliCnpj = document.getElementById("cli_cnpj");
+    const cliSegmento = document.getElementById("cli_segmento");
 
-const validoCliente = validarCamposObrigatorios([
-  { el: cliRazao, nome: "Razão Social" },
-  { el: cliCnpj, nome: "CNPJ" },
-  { el: cliSegmento, nome: "Segmento" },
-]);
+    const validoCliente = validarCamposObrigatorios([
+      { el: cliRazao, nome: "Razão Social" },
+      { el: cliCnpj, nome: "CNPJ" },
+      { el: cliSegmento, nome: "Segmento" },
+    ]);
 
-if (!validoCliente) return;
+    if (!validoCliente) return;
 
-const cliCnpjEl = document.getElementById("cli_cnpj");
-if (!validarCNPJ(cnpj)) {
-  marcarErroCampo(cliCnpjEl);
-  alert("CNPJ inválido. Verifique os números informados.");
-  cliCnpjEl?.focus();
-  return;
-}
+    const cliCnpjEl = document.getElementById("cli_cnpj");
+    if (!validarCNPJ(cnpj)) {
+      marcarErroCampo(cliCnpjEl);
+      alert("CNPJ inválido. Verifique os números informados.");
+      cliCnpjEl?.focus();
+      return;
+    }
 
     if (contatosTemp.length > 0 && !contatosTemp.some((c) => c.principal)) {
       contatosTemp[0].principal = true;
@@ -5216,7 +5214,11 @@ function getRegistrosFiltrados() {
     }
 
     if (statusFilter) {
-      if (!String(reg.status || "").toLowerCase().includes(statusFilter)) {
+      if (
+        !String(reg.status || "")
+          .toLowerCase()
+          .includes(statusFilter)
+      ) {
         return false;
       }
     }
@@ -5252,7 +5254,7 @@ function validarCNPJ(cnpj) {
   const digito1 = calcularDigito(base12, [5, 4, 3, 2, 9, 8, 7, 6, 5, 4, 3, 2]);
   const digito2 = calcularDigito(
     base12 + digito1,
-    [6, 5, 4, 3, 2, 9, 8, 7, 6, 5, 4, 3, 2]
+    [6, 5, 4, 3, 2, 9, 8, 7, 6, 5, 4, 3, 2],
   );
 
   return cnpjLimpo === base12 + String(digito1) + String(digito2);
