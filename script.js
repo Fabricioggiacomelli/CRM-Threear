@@ -144,6 +144,7 @@ window.addEventListener("load", async () => {
   initTotpUI();
 
   initForm();
+  initNotasFiscaisUI();
 
   document
     .getElementById("btnCancelarEdicao")
@@ -984,8 +985,17 @@ function initForm() {
       const ref_projeto = document.getElementById("ref_projeto");
       const tipo_produto = document.getElementById("tipo_produto");
       const obs = document.getElementById("obs");
-      const data_nf = document.getElementById("data_nf");
-      const valor_nf = document.getElementById("valor_nf");
+      const notasFiscais = Array.from(
+        document.querySelectorAll("#blocoNotasFiscais .nf-item"),
+      )
+        .map((item) => {
+          const data = item.querySelector(".nf-data")?.value || "";
+          const numero = item.querySelector(".nf-numero")?.value?.trim() || "";
+          const valor = item.querySelector(".nf-valor")?.value || "";
+
+          return { data, numero, valor };
+        })
+        .filter((nf) => nf.data || nf.numero || nf.valor);
       const prazo_entrega_contratual = document.getElementById(
         "prazo_entrega_contratual",
       );
@@ -993,7 +1003,6 @@ function initForm() {
         document.querySelector("input[name='sol_oc']:checked")?.value || "nao";
       const ref_oc = document.getElementById("ref_oc");
       const data_implantacao = document.getElementById("data_implantacao");
-      const numero_nf = document.getElementById("numero_nf");
 
       const validoPedido = validarCamposObrigatorios([
         { el: valor_pedido, nome: "Valor Total Pedido" },
@@ -1003,22 +1012,23 @@ function initForm() {
 
       if (!validoPedido) return;
 
-      registroBase.pedido = {
-        numero_pedido: numero_pedido?.value || "",
-        data_po: data_po?.value || "",
-        valor_pedido: valor_pedido?.value || "",
-        cond_pagamento: cond_pagamento?.value || "",
-        ref_projeto: ref_projeto?.value || "",
-        tipo_produto: tipo_produto?.value || "",
-        obs: obs?.value || "",
-        data_nf: data_nf?.value || "",
-        valor_nf: valor_nf?.value || "",
-        prazo_entrega_contratual: prazo_entrega_contratual?.value || "",
-        solicitacao_oc,
-        ref_oc: ref_oc?.value || "",
-        data_implantacao: data_implantacao?.value || "",
-        numero_nf: numero_nf?.value || "",
-      };
+registroBase.pedido = {
+  numero_pedido: numero_pedido?.value || "",
+  data_po: data_po?.value || "",
+  valor_pedido: valor_pedido?.value || "",
+  cond_pagamento: cond_pagamento?.value || "",
+  ref_projeto: ref_projeto?.value || "",
+  tipo_produto: tipo_produto?.value || "",
+  obs: obs?.value || "",
+  data_nf: notasFiscais[0]?.data || "",
+  numero_nf: notasFiscais[0]?.numero || "",
+  valor_nf: notasFiscais[0]?.valor || "",
+  notas_fiscais: notasFiscais,
+  prazo_entrega_contratual: prazo_entrega_contratual?.value || "",
+  solicitacao_oc,
+  ref_oc: ref_oc?.value || "",
+  data_implantacao: data_implantacao?.value || "",
+};
     } else {
       registroBase.pedido = null;
     }
@@ -1088,10 +1098,27 @@ function initForm() {
         mapaCamposRevisao,
       );
 
+const notasAntigas = resumoNotasFiscaisHistorico(antigo.pedido || {});
+const notasNovas = resumoNotasFiscaisHistorico(registroBase.pedido || {});
+
+const eventosHistoricoNotasFiscais = [];
+if (notasAntigas !== notasNovas) {
+  eventosHistoricoNotasFiscais.push(
+    criarEventoHistorico({
+      usuario: currentUser,
+      acao: "alterou",
+      campo: "notas fiscais",
+      de: notasAntigas,
+      para: notasNovas,
+    }),
+  );
+}
+
       const eventosHistorico = [
         ...eventosHistoricoBase,
         ...eventosHistoricoPedido,
         ...eventosHistoricoRevisao,
+        ...eventosHistoricoNotasFiscais,
       ];
       if (idx !== -1) {
         const registro = {
@@ -1115,6 +1142,7 @@ function initForm() {
     salvarRegistros();
 
     document.getElementById("formOferta").reset();
+    resetNotasFiscaisUI();
     document.getElementById("secaoPedido").classList.add("hidden");
     document.getElementById("secaoRevisao").classList.add("hidden");
 
@@ -1687,15 +1715,12 @@ function editarRegistro(id) {
     document.getElementById("tipo_produto").value =
       reg.pedido.tipo_produto || "";
     document.getElementById("obs").value = reg.pedido.obs || "";
-
-    document.getElementById("data_nf").value = reg.pedido.data_nf || "";
-    document.getElementById("valor_nf").value = reg.pedido.valor_nf || "";
+    preencherNotasFiscaisUI(reg.pedido);
     document.getElementById("prazo_entrega_contratual").value =
       reg.pedido.prazo_entrega_contratual || "";
     document.getElementById("ref_oc").value = reg.pedido.ref_oc || "";
     document.getElementById("data_implantacao").value =
       reg.pedido?.data_implantacao || "";
-    document.getElementById("numero_nf").value = reg.pedido?.numero_nf || "";
 
     document
       .querySelector(
@@ -1704,6 +1729,7 @@ function editarRegistro(id) {
       ?.click();
   } else {
     document.getElementById("secaoPedido").classList.add("hidden");
+    resetNotasFiscaisUI();
   }
 
   if (reg.possuiRevisao === "sim" && reg.revisao) {
@@ -1742,25 +1768,27 @@ function exportExcel() {
     return;
   }
 
-  console.log("DEBUG EXPORT", {
-    registrosLen: registros?.length,
-    filtradosLen: getRegistrosFiltrados()?.length,
-    term: document.getElementById("searchTerm")?.value,
-    field: document.getElementById("filterField")?.value,
-    status: document.getElementById("statusFilter")?.value,
-    pedido: document.getElementById("pedidoFilter")?.value,
-    revisao: document.getElementById("revisaoFilter")?.value,
-    schemaLen: (window.OFERTA_SCHEMA || []).length,
-    schemaSample: (window.OFERTA_SCHEMA || [])[0],
-    sampleRegistro: (getRegistrosFiltrados() || [])[0],
-  });
+const schemaBase = window.OFERTA_SCHEMA || [];
+const maxNFs = getMaxNotasFiscais(filtrados);
+const schemaFinal = buildSchemaComNotas(schemaBase, maxNFs);
 
   const linhas = filtrados.map((reg, i) => {
     const row = {};
     row["#"] = i + 1;
 
-    (window.OFERTA_SCHEMA || []).forEach((c) => {
-      let val = getByPath(reg, c.key);
+    schemaFinal.forEach((c) => {
+      let val;
+
+if (c.key.startsWith("nf_")) {
+  const partes = c.key.split("_"); // nf_1_data
+  const idx = parseInt(partes[1]) - 1;
+  const campo = partes[2];
+
+  const notas = getNotasFiscaisPedido(reg.pedido || {});
+  val = notas[idx]?.[campo] || "";
+} else {
+  val = getByPath(reg, c.key);
+}
 
       if (c.type === "yesno") val = asYesNo(val);
       if (c.type === "date") val = formatDateBR(val);
@@ -1769,12 +1797,22 @@ function exportExcel() {
       row[c.label] = val ?? "";
     });
 
+    const notas = getNotasFiscaisPedido(reg.pedido || {});
+
+    for (let j = 0; j < maxNFs; j++) {
+      const nf = notas[j] || {};
+      row[`Data NF ${j + 1}`] = formatDateBR(nf.data || "");
+      row[`Número NF ${j + 1}`] = nf.numero || "";
+      row[`Valor NF ${j + 1}`] = nf.valor || "";
+    }
+
     return row;
   });
 
   const ws = XLSX.utils.json_to_sheet(linhas);
+
   ws["!cols"] = Object.keys(linhas[0]).map((k) => ({
-    wch: Math.max(12, k.length + 2),
+    wch: Math.max(14, k.length + 2),
   }));
 
   const range = XLSX.utils.decode_range(ws["!ref"]);
@@ -1799,6 +1837,7 @@ function exportExcel() {
       }
     }
   }
+
   const wb = XLSX.utils.book_new();
   XLSX.utils.book_append_sheet(wb, ws, "Registros");
   XLSX.writeFile(wb, "registros_ofertas.xlsx");
@@ -1811,7 +1850,11 @@ function exportPdf() {
     return;
   }
 
-  const cols = ["#", ...(window.OFERTA_SCHEMA || []).map((c) => c.label)];
+const cols = [
+  "#",
+  ...(window.OFERTA_SCHEMA || []).map((c) => c.label),
+  "Notas Fiscais",
+];
 
   let html = `
     <html>
@@ -1845,6 +1888,7 @@ function exportPdf() {
       if (c.type === "date") val = formatDateBR(val);
 
       tds.push(`<td>${String(val ?? "").replace(/\n/g, "<br>")}</td>`);
+      tds.push(`<td>${formatarNotasFiscaisTexto(reg.pedido).replace(/\|\|/g, "<br>")}</td>`);
     });
 
     html += `<tr>${tds.join("")}</tr>`;
@@ -2089,6 +2133,7 @@ function exportBackupExcel() {
     RefProjetoPedido: r.pedido?.ref_projeto || "",
     TipoProduto: r.pedido?.tipo_produto || "",
     ObsPedido: r.pedido?.obs || "",
+    NotasFiscais: formatarNotasFiscaisTexto(r.pedido),
     DataNF: r.pedido?.data_nf || "",
     ValorNF: r.pedido?.valor_nf || "",
     PrazoEntregaContratual: r.pedido?.prazo_entrega_contratual || "",
@@ -3287,9 +3332,8 @@ function verOferta(id) {
           <strong>Tipo de Produto:</strong> ${pedido.tipo_produto || "-"}<br>
           <strong>Obs:</strong> ${pedido.obs || "-"}<br><br>
 
-          <strong>Data NF:</strong> ${formatDateBR(pedido.data_nf)}<br>
-          <strong>Número NF:</strong> ${pedido.numero_nf || "-"}<br>
-          <strong>Valor NF:</strong> ${pedido.valor_nf || "-"}<br>
+          ${formatarNotasFiscaisHtml(pedido)}
+
           <strong>Prazo entrega contratual:</strong> ${formatDateBR(pedido.prazo_entrega_contratual)}<br>
           <strong>SOV?</strong> ${pedido.solicitacao_oc === "sim" ? "Sim" : "Não"}<br>
           <strong>Ref. OV:</strong> ${pedido.ref_oc || "-"}<br>
@@ -5381,4 +5425,367 @@ function initValidacaoVisualCampos() {
       }
     });
   });
+}
+
+function initNotasFiscaisUI() {
+  const btn = document.getElementById("btnAdicionarNF");
+  const container = document.getElementById("blocoNotasFiscais");
+
+  if (!btn || !container) return;
+  if (btn.dataset.bound === "1") return;
+  btn.dataset.bound = "1";
+
+  btn.addEventListener("click", () => {
+    const total = container.querySelectorAll(".nf-item").length;
+    const indice = total + 1;
+
+    const div = document.createElement("div");
+    div.className = "nf-item";
+    div.dataset.index = indice;
+
+    div.innerHTML = `
+      <hr class="nf-divider">
+
+      <div class="nf-header-row">
+        <strong class="nf-title">NF ${indice}</strong>
+        <button type="button" class="btn-sm btn-danger btn-remover-nf">Remover</button>
+      </div>
+
+      <label for="data_nf_${indice}">Data da Nota Fiscal ${indice}</label>
+      <input type="date" id="data_nf_${indice}" class="nf-data">
+
+      <label for="numero_nf_${indice}">Número da NF ${indice}</label>
+      <input type="text" id="numero_nf_${indice}" class="nf-numero">
+
+      <label for="valor_nf_${indice}">Valor da Nota Fiscal ${indice}</label>
+      <input type="text" id="valor_nf_${indice}" class="money nf-valor" placeholder="R$">
+    `;
+
+    container.appendChild(div);
+
+    const btnRemover = div.querySelector(".btn-remover-nf");
+    btnRemover?.addEventListener("click", () => {
+      div.remove();
+      reindexarNotasFiscais();
+      initMoneyMask();
+    });
+
+    initMoneyMask();
+  });
+}
+
+function reindexarNotasFiscais() {
+  const container = document.getElementById("blocoNotasFiscais");
+  if (!container) return;
+
+  const itens = container.querySelectorAll(".nf-item");
+
+  itens.forEach((item, i) => {
+    const indice = i + 1;
+    item.dataset.index = indice;
+
+    if (indice === 1) {
+      const lblData = item.querySelector('label[for^="data_nf"]');
+      const inpData =
+        item.querySelector(".nf-data") || document.getElementById("data_nf");
+      const lblNumero = item.querySelector('label[for^="numero_nf"]');
+      const inpNumero =
+        item.querySelector(".nf-numero") ||
+        document.getElementById("numero_nf");
+      const lblValor = item.querySelector('label[for^="valor_nf"]');
+      const inpValor =
+        item.querySelector(".nf-valor") || document.getElementById("valor_nf");
+
+      if (lblData) {
+        lblData.setAttribute("for", "data_nf");
+        lblData.textContent = "Data da Nota Fiscal";
+      }
+      if (inpData) {
+        inpData.id = "data_nf";
+        inpData.classList.add("nf-data");
+      }
+
+      if (lblNumero) {
+        lblNumero.setAttribute("for", "numero_nf");
+        lblNumero.textContent = "Número da NF";
+      }
+      if (inpNumero) {
+        inpNumero.id = "numero_nf";
+        inpNumero.classList.add("nf-numero");
+      }
+
+      if (lblValor) {
+        lblValor.setAttribute("for", "valor_nf");
+        lblValor.textContent = "Valor da Nota Fiscal";
+      }
+      if (inpValor) {
+        inpValor.id = "valor_nf";
+        inpValor.classList.add("nf-valor");
+      }
+
+      const header = item.querySelector(".nf-header-row");
+      const divider = item.querySelector(".nf-divider");
+      header?.remove();
+      divider?.remove();
+    } else {
+      let header = item.querySelector(".nf-header-row");
+      if (!header) {
+        header = document.createElement("div");
+        header.className = "nf-header-row";
+        header.innerHTML = `
+          <strong class="nf-title"></strong>
+          <button type="button" class="btn-sm btn-danger btn-remover-nf">Remover</button>
+        `;
+        item.prepend(header);
+
+        header
+          .querySelector(".btn-remover-nf")
+          ?.addEventListener("click", () => {
+            item.remove();
+            reindexarNotasFiscais();
+            initMoneyMask();
+          });
+      }
+
+      let divider = item.querySelector(".nf-divider");
+      if (!divider) {
+        divider = document.createElement("hr");
+        divider.className = "nf-divider";
+        item.prepend(divider);
+      }
+
+      const lblData = item.querySelector('label[for^="data_nf"]');
+      const inpData = item.querySelector(".nf-data");
+      const lblNumero = item.querySelector('label[for^="numero_nf"]');
+      const inpNumero = item.querySelector(".nf-numero");
+      const lblValor = item.querySelector('label[for^="valor_nf"]');
+      const inpValor = item.querySelector(".nf-valor");
+      const title = item.querySelector(".nf-title");
+
+      if (title) title.textContent = `NF ${indice}`;
+
+      if (lblData) {
+        lblData.setAttribute("for", `data_nf_${indice}`);
+        lblData.textContent = `Data da Nota Fiscal ${indice}`;
+      }
+      if (inpData) inpData.id = `data_nf_${indice}`;
+
+      if (lblNumero) {
+        lblNumero.setAttribute("for", `numero_nf_${indice}`);
+        lblNumero.textContent = `Número da NF ${indice}`;
+      }
+      if (inpNumero) inpNumero.id = `numero_nf_${indice}`;
+
+      if (lblValor) {
+        lblValor.setAttribute("for", `valor_nf_${indice}`);
+        lblValor.textContent = `Valor da Nota Fiscal ${indice}`;
+      }
+      if (inpValor) inpValor.id = `valor_nf_${indice}`;
+    }
+  });
+}
+
+function resetNotasFiscaisUI() {
+  const container = document.getElementById("blocoNotasFiscais");
+  if (!container) return;
+
+  container.innerHTML = `
+    <div class="nf-item" data-index="1">
+      <label for="data_nf">Data da Nota Fiscal</label>
+      <input type="date" id="data_nf" class="nf-data">
+
+      <label for="numero_nf">Número da NF</label>
+      <input type="text" id="numero_nf" class="nf-numero">
+
+      <label for="valor_nf">Valor da Nota Fiscal</label>
+      <input type="text" id="valor_nf" class="money nf-valor" placeholder="R$">
+    </div>
+  `;
+
+  initMoneyMask();
+}
+
+function getNotasFiscaisPedido(pedido = {}) {
+  if (Array.isArray(pedido?.notas_fiscais) && pedido.notas_fiscais.length) {
+    return pedido.notas_fiscais.map((nf) => ({
+      data: nf?.data || "",
+      numero: nf?.numero || "",
+      valor: nf?.valor || "",
+    }));
+  }
+
+  const primeira = {
+    data: pedido?.data_nf || "",
+    numero: pedido?.numero_nf || "",
+    valor: pedido?.valor_nf || "",
+  };
+
+  if (primeira.data || primeira.numero || primeira.valor) {
+    return [primeira];
+  }
+
+  return [];
+}
+
+function formatarNotasFiscaisTexto(pedido = {}) {
+  const notas = getNotasFiscaisPedido(pedido);
+  if (!notas.length) return "-";
+
+  return notas
+    .map((nf, i) => {
+      return `NF ${i + 1}: Nº ${nf.numero || "-"} | Data: ${formatDateBR(nf.data)} | Valor: ${nf.valor || "-"}`;
+    })
+    .join(" || ");
+}
+
+function formatarNotasFiscaisHtml(pedido = {}) {
+  const notas = getNotasFiscaisPedido(pedido);
+  if (!notas.length) {
+    return `<div class="modal-section"><strong>Notas Fiscais:</strong> -</div>`;
+  }
+
+  return `
+    <div class="modal-section">
+      <strong>Notas Fiscais:</strong><br><br>
+      ${notas
+        .map(
+          (nf, i) => `
+            <div style="margin-bottom:10px;">
+              <strong>NF ${i + 1}</strong><br>
+              Data: ${formatDateBR(nf.data)}<br>
+              Número: ${nf.numero || "-"}<br>
+              Valor: ${nf.valor || "-"}
+            </div>
+          `,
+        )
+        .join("")}
+    </div>
+  `;
+}
+
+function resumoNotasFiscaisHistorico(pedido = {}) {
+  const notas = getNotasFiscaisPedido(pedido);
+  if (!notas.length) return "(vazio)";
+
+  return notas
+    .map((nf, i) => `NF${i + 1}[${nf.numero || "-"} | ${formatDateBR(nf.data)} | ${nf.valor || "-"}]`)
+    .join(" ; ");
+}
+
+function preencherNotasFiscaisUI(pedido = {}) {
+  const container = document.getElementById("blocoNotasFiscais");
+  if (!container) return;
+
+  const notas = getNotasFiscaisPedido(pedido);
+  const lista = notas.length
+    ? notas
+    : [{ data: "", numero: "", valor: "" }];
+
+  container.innerHTML = "";
+
+  lista.forEach((nf, idx) => {
+    const indice = idx + 1;
+    const isPrimeira = indice === 1;
+
+    const div = document.createElement("div");
+    div.className = "nf-item";
+    div.dataset.index = indice;
+
+    div.innerHTML = `
+      ${!isPrimeira ? '<hr class="nf-divider">' : ""}
+      ${
+        !isPrimeira
+          ? `
+        <div class="nf-header-row">
+          <strong class="nf-title">NF ${indice}</strong>
+          <button type="button" class="btn-sm btn-danger btn-remover-nf">Remover</button>
+        </div>
+      `
+          : ""
+      }
+
+      <label for="${isPrimeira ? "data_nf" : `data_nf_${indice}`}">
+        Data da Nota Fiscal${isPrimeira ? "" : ` ${indice}`}
+      </label>
+      <input
+        type="date"
+        id="${isPrimeira ? "data_nf" : `data_nf_${indice}`}"
+        class="nf-data"
+        value="${nf.data || ""}"
+      >
+
+      <label for="${isPrimeira ? "numero_nf" : `numero_nf_${indice}`}">
+        Número da NF${isPrimeira ? "" : ` ${indice}`}
+      </label>
+      <input
+        type="text"
+        id="${isPrimeira ? "numero_nf" : `numero_nf_${indice}`}"
+        class="nf-numero"
+        value="${nf.numero || ""}"
+      >
+
+      <label for="${isPrimeira ? "valor_nf" : `valor_nf_${indice}`}">
+        Valor da Nota Fiscal${isPrimeira ? "" : ` ${indice}`}
+      </label>
+      <input
+        type="text"
+        id="${isPrimeira ? "valor_nf" : `valor_nf_${indice}`}"
+        class="money nf-valor"
+        placeholder="R$"
+        value="${nf.valor || ""}"
+      >
+    `;
+
+    container.appendChild(div);
+
+    div.querySelector(".btn-remover-nf")?.addEventListener("click", () => {
+      div.remove();
+      reindexarNotasFiscais();
+      initMoneyMask();
+    });
+  });
+
+  initMoneyMask();
+}
+
+function getMaxNotasFiscais(registrosLista = []) {
+  return Math.max(
+    1,
+    ...registrosLista.map((reg) => getNotasFiscaisPedido(reg.pedido || {}).length),
+  );
+}
+
+function buildNotasFiscaisColumns(maxNFs) {
+  const cols = [];
+
+  for (let i = 1; i <= maxNFs; i++) {
+    cols.push(
+      { key: `nf_${i}_data`, label: `Data NF ${i}` },
+      { key: `nf_${i}_numero`, label: `Número NF ${i}` },
+      { key: `nf_${i}_valor`, label: `Valor NF ${i}` },
+    );
+  }
+
+  return cols;
+}
+
+function buildSchemaComNotas(schemaBase, maxNFs) {
+  const novoSchema = [];
+
+  schemaBase.forEach((c) => {
+    novoSchema.push(c);
+
+    // 👇 ponto onde entra NF (depois de obs do pedido)
+    if (c.key === "pedido.obs") {
+      for (let i = 1; i <= maxNFs; i++) {
+        novoSchema.push(
+          { key: `nf_${i}_data`, label: `Data NF ${i}`, type: "date" },
+          { key: `nf_${i}_numero`, label: `Número NF ${i}` },
+          { key: `nf_${i}_valor`, label: `Valor NF ${i}` },
+        );
+      }
+    }
+  });
+
+  return novoSchema;
 }

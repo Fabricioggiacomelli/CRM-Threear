@@ -1577,3 +1577,23 @@ body.dark .input-erro {
   background: rgba(239, 68, 68, 0.08) !important;
 }
 
+.nf-header-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  margin-top: 14px;
+  margin-bottom: 6px;
+}
+
+.nf-title {
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--text-strong);
+}
+
+.nf-divider {
+  border: 0;
+  border-top: 1px dashed var(--border-soft);
+  margin: 16px 0 10px;
+}

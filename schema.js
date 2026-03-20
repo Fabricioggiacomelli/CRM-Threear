@@ -26,9 +26,7 @@ window.OFERTA_SCHEMA = [
   { key: "pedido.ref_projeto", label: "Ref. Projeto" },
   { key: "pedido.tipo_produto", label: "Tipo de Produto" },
   { key: "pedido.obs", label: "Obs" },
-  { key: "pedido.data_nf", label: "Data Nota Fiscal", type: "date" },
-  { key: "pedido.numero_nf", label: "Número da NF" },
-  { key: "pedido.valor_nf", label: "Valor da Nota Fiscal", type: "money" },
+  
   { key: "pedido.prazo_entrega_contratual", label: "Prazo de Entrega Contratual", type: "date", },
   { key: "pedido.sov", label: "SOV", type: "yesno" },
   { key: "pedido.ref_ov", label: "Ref OV" },
