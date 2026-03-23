@@ -1597,3 +1597,60 @@ body.dark .input-erro {
   border-top: 1px dashed var(--border-soft);
   margin: 16px 0 10px;
 }
+
+.badge-atrasado {
+  display: inline-block;
+  margin-left: 8px;
+  padding: 2px 8px;
+  border-radius: 999px;
+  font-size: 11px;
+  font-weight: 600;
+  background: rgba(239, 68, 68, 0.12);
+  color: #dc2626;
+}
+
+.projeto-atrasado {
+  color: #dc2626 !important;
+  font-weight: 600;
+}
+
+.atualizacao-item {
+  border: 1px solid var(--border-soft);
+  border-radius: 12px;
+  padding: 10px 12px;
+  margin-top: 10px;
+  background: rgba(255, 255, 255, 0.03);
+}
+
+.atualizacao-topo {
+  display: flex;
+  justify-content: space-between;
+  gap: 10px;
+  flex-wrap: wrap;
+  margin-bottom: 6px;
+  font-size: 12px;
+}
+
+.atualizacao-texto {
+  font-size: 13px;
+  line-height: 1.5;
+  white-space: pre-wrap;
+}
+
+body.dark .atualizacao-item {
+  background: rgba(255, 255, 255, 0.03);
+}
+
+input.input-erro,
+textarea.input-erro,
+select.input-erro {
+  border: 2px solid #ef4444 !important;
+  background: #fef2f2 !important;
+}
+
+body.dark input.input-erro,
+body.dark textarea.input-erro,
+body.dark select.input-erro {
+  border: 2px solid #ef4444 !important;
+  background: rgba(239, 68, 68, 0.08) !important;
+}

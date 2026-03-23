@@ -87,6 +87,11 @@
         <span class="label">Clientes</span>
       </button>
 
+      <button type="button" class="menu-item" onclick="irPara('projetos')">
+        <span class="icon">📁</span>
+        <span class="label">Projetos</span>
+      </button>
+
       <button type="button" class="menu-item" onclick="irPara('representadas')">
         <span class="icon">🏭</span>
         <span class="label">Representadas</span>
@@ -235,7 +240,10 @@
 
             <div class="form-col">
               <label for="nome_projeto">Nome do Projeto</label>
-              <input type="text" id="nome_projeto">
+              <div class="autocomplete-wrap">
+                <input type="text" id="nome_projeto" autocomplete="off">
+                <div id="projetoAuto" class="autocomplete-box hidden"></div>
+              </div>
 
               <label for="representada">Representada *</label>
               <select id="representada">
@@ -571,6 +579,139 @@
           <input type="text" id="gotoPageClientes" min="1" inputmode="numeric" />
         </div>
 
+      </section>
+      <section id="secProjetos">
+        <h3>Cadastro de Projetos</h3>
+
+        <div class="form-grid">
+          <div class="form-col">
+            <label for="proj_nome">Nome do Projeto <span class="required">*</span></label>
+            <input type="text" id="proj_nome">
+
+            <label for="proj_tipo">Tipo de Projeto <span class="required">*</span></label>
+            <select id="proj_tipo"></select>
+
+            <label for="proj_status">Status <span class="required">*</span></label>
+            <select id="proj_status"></select>
+
+            <label for="proj_referencia">Número de Referência</label>
+            <input type="text" id="proj_referencia">
+
+            <label for="proj_prazo_final">Prazo Final</label>
+            <input type="date" id="proj_prazo_final">
+
+            <label for="proj_valor_investimento">Valor do investimento</label>
+            <input type="text" id="proj_valor_investimento" class="money" placeholder="R$">
+
+            <label for="proj_prev_fechamento">Prev. Fechamento</label>
+            <input type="date" id="proj_prev_fechamento">
+
+            <label for="proj_inicio_entregas">Início das entregas</label>
+            <input type="date" id="proj_inicio_entregas">
+
+            <label for="proj_fim_entregas">Fim das entregas</label>
+            <input type="date" id="proj_fim_entregas">
+
+            <label for="proj_obs">Obs</label>
+            <textarea id="proj_obs" rows="5"></textarea>
+          </div>
+
+          <div class="form-col">
+            <h4>Responsáveis pelo Projeto</h4>
+
+            <label for="proj_ct_nome">Nome <span class="required">*</span></label>
+            <input type="text" id="proj_ct_nome">
+
+            <label for="proj_ct_tel">Telefone <span class="required">*</span></label>
+            <input type="text" id="proj_ct_tel" placeholder="(11) 98888-7777">
+
+            <label for="proj_ct_email">E-mail <span class="required">*</span></label>
+            <input type="email" id="proj_ct_email">
+
+            <label for="proj_ct_funcao">Função / Cargo</label>
+            <input type="text" id="proj_ct_funcao">
+
+            <label for="proj_ct_responsavel">Responsável pelo contato</label>
+            <select id="proj_ct_responsavel">
+              <option value="">Selecione</option>
+            </select>
+
+            <div class="checkbox-inline">
+              <input type="checkbox" id="proj_ct_principal">
+              <span>Definir como contato principal</span>
+            </div>
+
+            <button type="button" class="secondary" id="btnAddContatoProjeto">Adicionar Contato</button>
+            <button id="btnCancelarEdicaoContatoProjeto" type="button" class="btn-cancelar-edicao hidden">
+              Cancelar edição
+            </button>
+
+            <div id="listaContatosProjeto" class="contatos-lista"></div>
+
+            <div id="blocoAtualizacoesProjetoWrap" class="hidden" style="margin-top: 16px;">
+              <h4>Atualizações do Projeto</h4>
+
+              <label for="proj_update_texto">Nova atualização</label>
+              <textarea id="proj_update_texto" rows="4" placeholder="Digite a atualização do projeto..."></textarea>
+
+              <button type="button" class="secondary" id="btnAddAtualizacaoProjeto">Adicionar Atualização</button>
+              <button id="btnCancelarEdicaoAtualizacaoProjeto" type="button" class="btn-cancelar-edicao hidden">
+                Cancelar edição
+              </button>
+
+              <div id="listaAtualizacoesProjeto" class="contatos-lista"></div>
+            </div>
+          </div>
+        </div>
+
+        <button type="button" id="btnSalvarProjeto">Salvar Projeto</button>
+        <button id="btnCancelarEdicaoProjeto" type="button" class="btn-cancelar-edicao hidden">
+          Cancelar edição
+        </button>
+
+        <h4 style="margin-top:20px;">Consultar Projetos</h4>
+
+        <div id="projetosCount" style="margin: 8px 0 6px 0;"></div>
+
+        <div id="filtersProjetos" class="filters-stack"></div>
+        <div class="actions-row">
+          <button type="button" id="btnAddFiltroProjeto" class="secondary">+ Adicionar filtro</button>
+          <button type="button" id="btnLimparFiltrosProjetos" class="secondary">Limpar filtros</button>
+        </div>
+
+        <table id="tabelaProjetos">
+          <thead>
+            <tr>
+              <th class="th-ordenavel" onclick="toggleOrdemProjetos()">
+                # <span id="setaOrdemProjetos">↑</span>
+              </th>
+              <th>Nome do Projeto</th>
+              <th>Tipo</th>
+              <th>Status</th>
+              <th>Número de Referência</th>
+              <th>Qtd. Ofertas</th>
+              <th>Usuário</th>
+              <th>Ações</th>
+            </tr>
+          </thead>
+          <tbody></tbody>
+        </table>
+
+        <div class="paginacao" id="paginacaoProjetos">
+          <button id="btnPrevProjetos" class="secondary" type="button">Anterior</button>
+          <span id="pageInfoProjetos">Página 1 de 1</span>
+          <button id="btnNextProjetos" class="secondary" type="button">Próxima</button>
+        </div>
+
+        <div class="page-size-row">
+          <label for="pageSizeProjetos">Itens por página:</label>
+          <input id="pageSizeProjetos" type="text" min="1" max="200" value="5" />
+        </div>
+
+        <div class="goto-page-row">
+          <label for="gotoPageProjetos">Ir para a página:</label>
+          <input type="text" id="gotoPageProjetos" min="1" inputmode="numeric" />
+        </div>
       </section>
 
       <section id="secRepresentadas">

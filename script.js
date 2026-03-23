@@ -1,7 +1,9 @@
 let currentUserName = null;
+
 function getCurrentUserName() {
   return currentUserName || "Desconhecido";
 }
+
 const ADMIN_EMAILS = [
   "fabricio.giacomelli@threear.com.br",
   "ronaldo.giacomelli@threear.com.br",
@@ -80,6 +82,25 @@ window.SEGMENTO_OPTIONS = [
   "UHE, UTE e PCH",
 ];
 
+window.TIPO_PROJETO_OPTIONS = ["Solar"];
+
+window.STATUS_PROJETO_OPTIONS = [
+  "Anúncio Oficial",
+  "Em andamento",
+  "Em avaliação",
+  "Em Licitação",
+  "Processos em Andamento",
+];
+
+let projetos = [];
+let projetoContatosTemp = [];
+let projetoAtualizacoesTemp = [];
+let editProjetoId = null;
+let editContatoProjetoIndex = null;
+let editAtualizacaoProjetoIndex = null;
+let ordemProjetos = "asc";
+let projetosCurrentPage = 1;
+let projetosPageSize = 5;
 let historicoAtualModal = [];
 
 function abrirHistoricoAtual(titulo) {
@@ -89,30 +110,23 @@ function abrirHistoricoAtual(titulo) {
 let ordemRegistros = "asc";
 let ordemClientes = "asc";
 let ordemRepresentadas = "asc";
-
 let clienteContatoAtualId = null;
-
 let registros = [];
 let clientes = [];
 let usuarios = [];
 let representadas = [];
-
 let contatosTemp = [];
-
 let editId = null;
 let editClienteId = null;
 let editRepresentadaId = null;
 let editContatoIndex = null;
-
 let currentPage = 1;
 let pageSize = 5;
 let clientesSearchPageSize = 5;
 let representadasCurrentPage = 1;
 let representadasPageSize = 5;
-
 let clientesCurrentPage = 1;
 let clientesPageSize = 5;
-
 let backupImportMode = null;
 
 function getApiBase() {
@@ -166,8 +180,10 @@ window.addEventListener("load", async () => {
   initCnpjMask();
   initValidacaoVisualCampos();
   initClientesUI();
+  initProjetosUI();
   initRepresentadasUI();
   initLigacaoClienteOferta();
+  initAutoCompleteProjetoOferta();
   initBackupUI();
   initBuSegmento();
   initUnidadesMantex();
@@ -298,15 +314,18 @@ async function carregarDadosDoFirebase() {
       carregarRepresentadasFirebase(),
       carregarRegistrosFirebase(),
       carregarUsuariosFirebase(),
+      carregarProjetosFirebase(),
     ]);
 
     preencherSelectRepresentadas();
     preencherSelectResponsaveisContato();
-
+    preencherSelectResponsaveisProjeto();
     renderTabela();
     renderTabelaClientes();
     renderTabelaRepresentadas();
+    renderTabelaProjetos();
     initAutoCompleteCnpjSimples();
+    initAutoCompleteProjetoOferta(); // <- AQUI TAMBÉM
   } catch (err) {
     console.error("carregarDadosDoFirebase falhou:", err);
     throw err;
@@ -339,6 +358,11 @@ async function carregarRegistrosFirebase() {
   registros = snap.docs.map((doc) => ({ id: doc.id, ...doc.data() }));
 }
 
+async function carregarProjetosFirebase() {
+  const snap = await db.collection("projetos").get();
+  projetos = snap.docs.map((doc) => ({ id: doc.id, ...doc.data() }));
+}
+
 function mostrarLogin() {
   const loginContainer = document.getElementById("loginContainer");
   const appContainer = document.getElementById("appContainer");
@@ -366,6 +390,9 @@ function mostrarApp() {
   renderTabelaClientes();
   renderTabelaRepresentadas();
   initFiltrosEPaginacao();
+  preencherSelectPadrao("proj_tipo", TIPO_PROJETO_OPTIONS, "");
+  preencherSelectPadrao("proj_status", STATUS_PROJETO_OPTIONS, "");
+  renderTabelaProjetos();
 }
 
 function logout() {
@@ -485,6 +512,7 @@ function setTotpStatus(msg) {
   const el = document.getElementById("totp_status");
   if (el) el.textContent = msg || "";
 }
+
 function formatarNomeUsuario(raw) {
   if (!raw) return "";
 
@@ -708,18 +736,26 @@ function formatMoney(e) {
 }
 
 function initPhoneMask() {
-  const telPrincipal = document.getElementById("telefone");
-  const telContato = document.getElementById("ct_tel");
+  const camposTelefone = [
+    document.getElementById("telefone"),
+    document.getElementById("ct_tel"),
+    document.getElementById("proj_ct_tel"),
+  ].filter(Boolean);
 
-  if (telPrincipal) {
-    telPrincipal.addEventListener("input", onPhoneInput);
-    telPrincipal.addEventListener("paste", onPhonePaste);
-  }
-  if (telContato) {
-    telContato.addEventListener("input", onPhoneInput);
-    telContato.addEventListener("paste", onPhonePaste);
-  }
+  camposTelefone.forEach((campo) => {
+    if (campo.dataset.phoneBound === "1") return;
+    campo.dataset.phoneBound = "1";
+
+    campo.addEventListener("input", onPhoneInput);
+    campo.addEventListener("paste", onPhonePaste);
+
+    if (campo.id === "proj_ct_tel") {
+      campo.addEventListener("input", validarTelefoneProjetoVisual);
+      campo.addEventListener("blur", validarTelefoneProjetoVisual);
+    }
+  });
 }
+
 function onPhoneInput(e) {
   let value = e.target.value.replace(/\D/g, "");
   if (value.length > 11) value = value.slice(0, 11);
@@ -740,6 +776,7 @@ function onPhoneInput(e) {
 
   e.target.value = value;
 }
+
 function onPhonePaste(e) {
   e.preventDefault();
   const text = (e.clipboardData || window.clipboardData).getData("text");
@@ -763,6 +800,7 @@ function initCnpjMask() {
     input.addEventListener("blur", onCnpjBlur);
   });
 }
+
 function formatCnpjValue(value) {
   value = value.replace(/\D/g, "");
   value = value.slice(0, 14);
@@ -780,14 +818,17 @@ function formatCnpjValue(value) {
 
   return value;
 }
+
 function onCnpjInput(e) {
   e.target.value = formatCnpjValue(e.target.value);
 }
+
 function onCnpjPaste(e) {
   e.preventDefault();
   const text = (e.clipboardData || window.clipboardData).getData("text");
   e.target.value = formatCnpjValue(text);
 }
+
 let cnpjBlurLock = false;
 
 function onCnpjBlur(e) {
@@ -960,6 +1001,7 @@ function initForm() {
       email: email.value,
       oferta: oferta.value,
       nome_projeto: nome_projeto.value,
+      projetoId: nome_projeto.dataset.projetoId || null,
       representadaId: representadaSelect.value || null,
       representadaNome:
         representadaSelect.options[representadaSelect.selectedIndex]?.text ||
@@ -1012,23 +1054,23 @@ function initForm() {
 
       if (!validoPedido) return;
 
-registroBase.pedido = {
-  numero_pedido: numero_pedido?.value || "",
-  data_po: data_po?.value || "",
-  valor_pedido: valor_pedido?.value || "",
-  cond_pagamento: cond_pagamento?.value || "",
-  ref_projeto: ref_projeto?.value || "",
-  tipo_produto: tipo_produto?.value || "",
-  obs: obs?.value || "",
-  data_nf: notasFiscais[0]?.data || "",
-  numero_nf: notasFiscais[0]?.numero || "",
-  valor_nf: notasFiscais[0]?.valor || "",
-  notas_fiscais: notasFiscais,
-  prazo_entrega_contratual: prazo_entrega_contratual?.value || "",
-  solicitacao_oc,
-  ref_oc: ref_oc?.value || "",
-  data_implantacao: data_implantacao?.value || "",
-};
+      registroBase.pedido = {
+        numero_pedido: numero_pedido?.value || "",
+        data_po: data_po?.value || "",
+        valor_pedido: valor_pedido?.value || "",
+        cond_pagamento: cond_pagamento?.value || "",
+        ref_projeto: ref_projeto?.value || "",
+        tipo_produto: tipo_produto?.value || "",
+        obs: obs?.value || "",
+        data_nf: notasFiscais[0]?.data || "",
+        numero_nf: notasFiscais[0]?.numero || "",
+        valor_nf: notasFiscais[0]?.valor || "",
+        notas_fiscais: notasFiscais,
+        prazo_entrega_contratual: prazo_entrega_contratual?.value || "",
+        solicitacao_oc,
+        ref_oc: ref_oc?.value || "",
+        data_implantacao: data_implantacao?.value || "",
+      };
     } else {
       registroBase.pedido = null;
     }
@@ -1098,21 +1140,21 @@ registroBase.pedido = {
         mapaCamposRevisao,
       );
 
-const notasAntigas = resumoNotasFiscaisHistorico(antigo.pedido || {});
-const notasNovas = resumoNotasFiscaisHistorico(registroBase.pedido || {});
+      const notasAntigas = resumoNotasFiscaisHistorico(antigo.pedido || {});
+      const notasNovas = resumoNotasFiscaisHistorico(registroBase.pedido || {});
 
-const eventosHistoricoNotasFiscais = [];
-if (notasAntigas !== notasNovas) {
-  eventosHistoricoNotasFiscais.push(
-    criarEventoHistorico({
-      usuario: currentUser,
-      acao: "alterou",
-      campo: "notas fiscais",
-      de: notasAntigas,
-      para: notasNovas,
-    }),
-  );
-}
+      const eventosHistoricoNotasFiscais = [];
+      if (notasAntigas !== notasNovas) {
+        eventosHistoricoNotasFiscais.push(
+          criarEventoHistorico({
+            usuario: currentUser,
+            acao: "alterou",
+            campo: "notas fiscais",
+            de: notasAntigas,
+            para: notasNovas,
+          }),
+        );
+      }
 
       const eventosHistorico = [
         ...eventosHistoricoBase,
@@ -1142,6 +1184,7 @@ if (notasAntigas !== notasNovas) {
     salvarRegistros();
 
     document.getElementById("formOferta").reset();
+    document.getElementById("nome_projeto").dataset.projetoId = "";
     resetNotasFiscaisUI();
     document.getElementById("secaoPedido").classList.add("hidden");
     document.getElementById("secaoRevisao").classList.add("hidden");
@@ -1176,11 +1219,12 @@ function ensureActionsMenu() {
   menu = document.createElement("div");
   menu.id = "actionsMenu";
   menu.innerHTML = `
-    <button id="actVer" type="button">Ver</button>
-    <button id="actVerContatos" type="button">Ver contatos</button>
-    <button id="actEditar" type="button">Editar</button>
-    <button id="actExcluir" type="button" class="danger">Excluir</button>
-  `;
+  <button id="actVer" type="button">Ver</button>
+  <button id="actVerContatos" type="button">Ver contatos</button>
+  <button id="actVerOfertas" type="button">Ver ofertas</button>
+  <button id="actEditar" type="button">Editar</button>
+  <button id="actExcluir" type="button" class="danger">Excluir</button>
+`;
   document.body.appendChild(menu);
 
   document.addEventListener("click", () => closeActionsMenu());
@@ -1200,6 +1244,7 @@ function openActionsMenu(ev, type, id) {
 
   const btnVer = document.getElementById("actVer");
   const btnVerContatos = document.getElementById("actVerContatos");
+  const btnVerOfertas = document.getElementById("actVerOfertas");
   const btnEditar = document.getElementById("actEditar");
   const btnExcluir = document.getElementById("actExcluir");
 
@@ -1207,15 +1252,31 @@ function openActionsMenu(ev, type, id) {
     closeActionsMenu();
     if (type === "oferta") verOferta(id);
     if (type === "cliente") verCliente(id);
+    if (type === "projeto") verProjeto(id);
     if (type === "rep") verRepresentada(id);
   };
 
   if (btnVerContatos) {
-    const isCliente = type === "cliente";
-    btnVerContatos.style.display = isCliente ? "block" : "none";
+    const mostrarContatos = type === "cliente" || type === "projeto";
+    btnVerContatos.style.display = mostrarContatos ? "block" : "none";
+
     btnVerContatos.onclick = () => {
       closeActionsMenu();
-      verContatosCliente(id);
+      if (type === "cliente") verContatosCliente(id);
+      if (type === "projeto") verContatosProjeto(id);
+    };
+  }
+
+  if (btnVerOfertas) {
+    const mostrarOfertas =
+      type === "cliente" || type === "projeto" || type === "rep";
+    btnVerOfertas.style.display = mostrarOfertas ? "block" : "none";
+
+    btnVerOfertas.onclick = () => {
+      closeActionsMenu();
+      if (type === "cliente") verOfertasCliente(id);
+      if (type === "projeto") verOfertasProjeto(id);
+      if (type === "rep") verOfertasRepresentada(id);
     };
   }
 
@@ -1223,6 +1284,7 @@ function openActionsMenu(ev, type, id) {
     closeActionsMenu();
     if (type === "oferta") editarRegistro(id);
     if (type === "cliente") editarCliente(id);
+    if (type === "projeto") editarProjeto(id);
     if (type === "rep") editarRepresentada(id);
   };
 
@@ -1230,6 +1292,7 @@ function openActionsMenu(ev, type, id) {
     closeActionsMenu();
     if (type === "oferta") excluirRegistro(id);
     if (type === "cliente") excluirCliente(id);
+    if (type === "projeto") excluirProjeto(id);
     if (type === "rep") excluirRepresentada(id);
   };
 
@@ -1663,6 +1726,8 @@ function editarRegistro(id) {
   document.getElementById("email").value = reg.email || "";
   document.getElementById("oferta").value = reg.oferta || "";
   document.getElementById("nome_projeto").value = reg.nome_projeto || "";
+  document.getElementById("nome_projeto").dataset.projetoId =
+    reg.projetoId || "";
   document.getElementById("valor_total").value = reg.valor_total || "";
   document.getElementById("ref_cliente").value = reg.ref_cliente || "";
   document.getElementById("data_entrada").value = reg.data_entrada || "";
@@ -1768,9 +1833,9 @@ function exportExcel() {
     return;
   }
 
-const schemaBase = window.OFERTA_SCHEMA || [];
-const maxNFs = getMaxNotasFiscais(filtrados);
-const schemaFinal = buildSchemaComNotas(schemaBase, maxNFs);
+  const schemaBase = window.OFERTA_SCHEMA || [];
+  const maxNFs = getMaxNotasFiscais(filtrados);
+  const schemaFinal = buildSchemaComNotas(schemaBase, maxNFs);
 
   const linhas = filtrados.map((reg, i) => {
     const row = {};
@@ -1779,16 +1844,16 @@ const schemaFinal = buildSchemaComNotas(schemaBase, maxNFs);
     schemaFinal.forEach((c) => {
       let val;
 
-if (c.key.startsWith("nf_")) {
-  const partes = c.key.split("_"); // nf_1_data
-  const idx = parseInt(partes[1]) - 1;
-  const campo = partes[2];
+      if (c.key.startsWith("nf_")) {
+        const partes = c.key.split("_"); // nf_1_data
+        const idx = parseInt(partes[1]) - 1;
+        const campo = partes[2];
 
-  const notas = getNotasFiscaisPedido(reg.pedido || {});
-  val = notas[idx]?.[campo] || "";
-} else {
-  val = getByPath(reg, c.key);
-}
+        const notas = getNotasFiscaisPedido(reg.pedido || {});
+        val = notas[idx]?.[campo] || "";
+      } else {
+        val = getByPath(reg, c.key);
+      }
 
       if (c.type === "yesno") val = asYesNo(val);
       if (c.type === "date") val = formatDateBR(val);
@@ -1850,11 +1915,11 @@ function exportPdf() {
     return;
   }
 
-const cols = [
-  "#",
-  ...(window.OFERTA_SCHEMA || []).map((c) => c.label),
-  "Notas Fiscais",
-];
+  const cols = [
+    "#",
+    ...(window.OFERTA_SCHEMA || []).map((c) => c.label),
+    "Notas Fiscais",
+  ];
 
   let html = `
     <html>
@@ -1888,7 +1953,9 @@ const cols = [
       if (c.type === "date") val = formatDateBR(val);
 
       tds.push(`<td>${String(val ?? "").replace(/\n/g, "<br>")}</td>`);
-      tds.push(`<td>${formatarNotasFiscaisTexto(reg.pedido).replace(/\|\|/g, "<br>")}</td>`);
+      tds.push(
+        `<td>${formatarNotasFiscaisTexto(reg.pedido).replace(/\|\|/g, "<br>")}</td>`,
+      );
     });
 
     html += `<tr>${tds.join("")}</tr>`;
@@ -3226,6 +3293,7 @@ async function excluirRepresentada(id) {
   renderTabelaRepresentadas();
   preencherSelectRepresentadas();
 }
+
 function verOferta(id) {
   const reg = registros.find((r) => r.id === id);
   if (!reg) return;
@@ -3482,6 +3550,7 @@ function verRepresentada(id) {
 
   abrirModal(`Representada - ${rep.nome || ""}`, html);
 }
+
 function formatCnpjMask(digits) {
   const v = String(digits || "")
     .replace(/\D/g, "")
@@ -3651,9 +3720,11 @@ function primeiroNome(texto) {
 function salvarRegistros() {
   localStorage.setItem("registros", JSON.stringify(registros));
 }
+
 function salvarClientes() {
   localStorage.setItem("clientes", JSON.stringify(clientes));
 }
+
 function salvarRepresentadas() {
   localStorage.setItem("representadas", JSON.stringify(representadas));
 }
@@ -3670,6 +3741,10 @@ function irPara(tela) {
   if (tela === "clientes")
     document
       .getElementById("secClientes")
+      ?.scrollIntoView({ behavior: "smooth" });
+  if (tela === "projetos")
+    document
+      .getElementById("secProjetos")
       ?.scrollIntoView({ behavior: "smooth" });
   if (tela === "representadas")
     document
@@ -3725,6 +3800,7 @@ function atualizarSugestoesCnpj() {
     .map((cnpj) => `<option value="${cnpj}"></option>`)
     .join("");
 }
+
 function initAuthTabs() {
   const tabLogin = document.getElementById("tabLogin");
   const tabSignup = document.getElementById("tabSignup");
@@ -3745,6 +3821,7 @@ function initAuthTabs() {
 
   showLogin();
 }
+
 function setLoginMsg(msg) {
   const el = document.getElementById("loginMsg");
   if (el) el.textContent = msg || "";
@@ -3956,6 +4033,7 @@ function initSignup() {
     }
   });
 }
+
 function initAprovacaoUsuariosUI() {
   const btnReload = document.getElementById("btnReloadUsuariosPendentes");
   if (btnReload) btnReload.addEventListener("click", carregarUsuariosPendentes);
@@ -4276,11 +4354,14 @@ function initUnidadesMantex() {
 
   atualizar();
 }
+
 function cancelarEdicao() {
   editId = null;
 
   const form = document.getElementById("formOferta");
   if (form) form.reset();
+
+  document.getElementById("nome_projeto").dataset.projetoId = "";
 
   document.getElementById("secaoPedido")?.classList.add("hidden");
   document.getElementById("secaoRevisao")?.classList.add("hidden");
@@ -4298,8 +4379,6 @@ function cancelarEdicao() {
   if (btnAdicionar) btnAdicionar.textContent = "Adicionar";
 
   document.getElementById("btnCancelarEdicao")?.classList.add("hidden");
-
-  window.scrollTo({ top: 0, behavior: "smooth" });
 }
 
 function cancelarEdicaoCliente() {
@@ -4320,8 +4399,6 @@ function cancelarEdicaoCliente() {
   document.getElementById("btnCancelarEdicaoCliente")?.classList.add("hidden");
 
   renderListaContatos();
-
-  window.scrollTo({ top: 0, behavior: "smooth" });
 }
 
 function cancelarEdicaoRepresentada() {
@@ -4334,8 +4411,8 @@ function cancelarEdicaoRepresentada() {
   document
     .getElementById("btnCancelarEdicaoRepresentada")
     ?.classList.add("hidden");
-  window.scrollTo({ top: 0, behavior: "smooth" });
 }
+
 document
   .getElementById("btnCancelarEdicaoRepresentada")
   ?.addEventListener("click", cancelarEdicaoRepresentada);
@@ -4455,6 +4532,7 @@ function formatDateTimeBR(v) {
 
   return s;
 }
+
 function enableHorizontalWheel(selector = ".table-scroll") {
   document.querySelectorAll(selector).forEach((el) => {
     let scrollAmount = 0;
@@ -5668,7 +5746,10 @@ function resumoNotasFiscaisHistorico(pedido = {}) {
   if (!notas.length) return "(vazio)";
 
   return notas
-    .map((nf, i) => `NF${i + 1}[${nf.numero || "-"} | ${formatDateBR(nf.data)} | ${nf.valor || "-"}]`)
+    .map(
+      (nf, i) =>
+        `NF${i + 1}[${nf.numero || "-"} | ${formatDateBR(nf.data)} | ${nf.valor || "-"}]`,
+    )
     .join(" ; ");
 }
 
@@ -5677,9 +5758,7 @@ function preencherNotasFiscaisUI(pedido = {}) {
   if (!container) return;
 
   const notas = getNotasFiscaisPedido(pedido);
-  const lista = notas.length
-    ? notas
-    : [{ data: "", numero: "", valor: "" }];
+  const lista = notas.length ? notas : [{ data: "", numero: "", valor: "" }];
 
   container.innerHTML = "";
 
@@ -5751,7 +5830,9 @@ function preencherNotasFiscaisUI(pedido = {}) {
 function getMaxNotasFiscais(registrosLista = []) {
   return Math.max(
     1,
-    ...registrosLista.map((reg) => getNotasFiscaisPedido(reg.pedido || {}).length),
+    ...registrosLista.map(
+      (reg) => getNotasFiscaisPedido(reg.pedido || {}).length,
+    ),
   );
 }
 
@@ -5788,4 +5869,1340 @@ function buildSchemaComNotas(schemaBase, maxNFs) {
   });
 
   return novoSchema;
+}
+
+function initProjetosUI() {
+  preencherSelectPadrao("proj_tipo", TIPO_PROJETO_OPTIONS, "");
+  preencherSelectPadrao("proj_status", STATUS_PROJETO_OPTIONS, "");
+  preencherSelectResponsaveisProjeto();
+
+  const pageSizeProjetosInput = document.getElementById("pageSizeProjetos");
+  if (pageSizeProjetosInput) {
+    const saved = parseInt(localStorage.getItem("pageSizeProjetos") || "", 10);
+    if (!isNaN(saved) && saved > 0) projetosPageSize = saved;
+    pageSizeProjetosInput.value = String(projetosPageSize);
+
+    const apply = () => {
+      const v = parseInt(pageSizeProjetosInput.value, 10);
+      if (!v || v < 1) return;
+      projetosPageSize = Math.min(Math.max(v, 1), 200);
+      localStorage.setItem("pageSizeProjetos", String(projetosPageSize));
+      projetosCurrentPage = 1;
+      renderTabelaProjetos();
+    };
+
+    pageSizeProjetosInput.addEventListener("change", apply);
+    pageSizeProjetosInput.addEventListener("blur", apply);
+    pageSizeProjetosInput.addEventListener("keydown", (e) => {
+      if (e.key === "Enter") apply();
+    });
+  }
+
+  document.getElementById("btnPrevProjetos")?.addEventListener("click", () => {
+    if (projetosCurrentPage > 1) {
+      projetosCurrentPage--;
+      renderTabelaProjetos();
+    }
+  });
+
+  document.getElementById("btnNextProjetos")?.addEventListener("click", () => {
+    const totalPages = Math.max(
+      1,
+      Math.ceil(getProjetosFiltrados().length / projetosPageSize),
+    );
+    if (projetosCurrentPage < totalPages) {
+      projetosCurrentPage++;
+      renderTabelaProjetos();
+    }
+  });
+
+  bindGotoPage(
+    "gotoPageProjetos",
+    () =>
+      Math.max(1, Math.ceil(getProjetosFiltrados().length / projetosPageSize)),
+    (page) => {
+      projetosCurrentPage = page;
+      renderTabelaProjetos();
+    },
+  );
+
+  document
+    .getElementById("btnCancelarEdicaoProjeto")
+    ?.addEventListener("click", cancelarEdicaoProjeto);
+
+  document
+    .getElementById("btnCancelarEdicaoContatoProjeto")
+    ?.addEventListener("click", cancelarEdicaoContatoProjeto);
+
+  document
+    .getElementById("btnCancelarEdicaoAtualizacaoProjeto")
+    ?.addEventListener("click", cancelarEdicaoAtualizacaoProjeto);
+
+  initContatosProjetoUI();
+  initAtualizacoesProjetoUI();
+  initSalvarProjetoUI();
+  initFiltrosProjetosUI();
+  initValidacaoContatoProjetoVisual();
+  renderTabelaProjetos();
+}
+
+function preencherSelectResponsaveisProjeto() {
+  const select = document.getElementById("proj_ct_responsavel");
+  if (!select) return;
+
+  select.innerHTML = '<option value="">Selecione</option>';
+  RESPONSAVEIS_FIXOS.forEach((nome) => {
+    const opt = document.createElement("option");
+    opt.value = nome;
+    opt.textContent = nome;
+    select.appendChild(opt);
+  });
+}
+
+function initContatosProjetoUI() {
+  const btn = document.getElementById("btnAddContatoProjeto");
+  if (!btn || btn.dataset.bound === "1") return;
+  btn.dataset.bound = "1";
+
+  btn.addEventListener("click", () => {
+    const nomeEl = document.getElementById("proj_ct_nome");
+    const telEl = document.getElementById("proj_ct_tel");
+    const emailEl = document.getElementById("proj_ct_email");
+    const funcaoEl = document.getElementById("proj_ct_funcao");
+    const responsavelEl = document.getElementById("proj_ct_responsavel");
+    const principalEl = document.getElementById("proj_ct_principal");
+
+    const valido = validarCamposObrigatorios([
+      { el: nomeEl, nome: "Nome" },
+      { el: telEl, nome: "Telefone" },
+      { el: emailEl, nome: "E-mail" },
+    ]);
+
+    if (!valido) return;
+
+    const telDigits = (telEl.value || "").replace(/\D/g, "");
+    if (telDigits.length < 10 || telDigits.length > 11) {
+      marcarErroCampo(telEl);
+      alert("Telefone inválido. Informe DDD + 8 ou 9 dígitos.");
+      telEl.focus();
+      return;
+    }
+
+    const nowIso = new Date().toISOString();
+    const contatoBase = {
+      nome: nomeEl.value.trim(),
+      telefone: telEl.value.trim(),
+      email: emailEl.value.trim(),
+      funcao: funcaoEl.value.trim(),
+      responsavelId: responsavelEl.value || "",
+      responsavelNome: responsavelEl.value || "",
+      principal: !!principalEl.checked,
+      criadoEm: nowIso,
+      atualizadoEm: nowIso,
+    };
+
+    const currentUser = getCurrentUserName();
+
+    if (editContatoProjetoIndex === null) {
+      contatoBase.historico = [
+        criarEventoHistorico({
+          usuario: currentUser,
+          acao: "criou",
+          campo: "contato do projeto",
+          de: "",
+          para: contatoBase.nome || "novo contato",
+        }),
+      ];
+      projetoContatosTemp.push(contatoBase);
+    } else {
+      const antigo = projetoContatosTemp[editContatoProjetoIndex] || {};
+      contatoBase.criadoEm = antigo.criadoEm || nowIso;
+      contatoBase.atualizadoEm = nowIso;
+      contatoBase.historico = [
+        ...(antigo.historico || []),
+        ...montarHistoricoAlteracoesContato(antigo, contatoBase, currentUser),
+      ];
+      projetoContatosTemp[editContatoProjetoIndex] = contatoBase;
+      editContatoProjetoIndex = null;
+      btn.textContent = "Adicionar Contato";
+      document
+        .getElementById("btnCancelarEdicaoContatoProjeto")
+        ?.classList.add("hidden");
+    }
+
+    nomeEl.value = "";
+    telEl.value = "";
+    emailEl.value = "";
+    funcaoEl.value = "";
+    responsavelEl.value = "";
+    principalEl.checked = false;
+
+    renderListaContatosProjeto();
+  });
+}
+
+function renderListaContatosProjeto() {
+  const lista = document.getElementById("listaContatosProjeto");
+  if (!lista) return;
+
+  lista.innerHTML = "";
+
+  if (!projetoContatosTemp.length) {
+    lista.innerHTML = "<p>Nenhum contato adicionado.</p>";
+    return;
+  }
+
+  projetoContatosTemp.forEach((ct, index) => {
+    const div = document.createElement("div");
+    div.className = "contato-item";
+    div.innerHTML = `
+      <strong>${ct.nome}</strong>
+      ${ct.principal ? '<span class="tag-principal">(Principal)</span>' : ""}
+      <br>
+      ${ct.funcao || ""}
+      <br>
+      Tel: ${ct.telefone || ""} • E-mail: ${ct.email || ""}
+      ${
+        ct.responsavelNome
+          ? `<br><strong>Responsável:</strong> ${primeiroNome(ct.responsavelNome)}`
+          : ""
+      }
+      <br>
+      <button class="btn-sm" onclick="editarContatoProjeto(${index})">Editar</button>
+      <button class="btn-sm btn-danger" onclick="excluirContatoProjeto(${index})">Excluir</button>
+      <hr>
+    `;
+    lista.appendChild(div);
+  });
+}
+
+function editarContatoProjeto(index) {
+  const ct = projetoContatosTemp[index];
+  if (!ct) return;
+
+  document.getElementById("proj_ct_nome").value = ct.nome || "";
+  document.getElementById("proj_ct_tel").value = ct.telefone || "";
+  document.getElementById("proj_ct_email").value = ct.email || "";
+  document.getElementById("proj_ct_funcao").value = ct.funcao || "";
+  document.getElementById("proj_ct_responsavel").value = ct.responsavelId || "";
+  document.getElementById("proj_ct_principal").checked = !!ct.principal;
+
+  editContatoProjetoIndex = index;
+  document.getElementById("btnAddContatoProjeto").textContent = "Salvar Edição";
+  document
+    .getElementById("btnCancelarEdicaoContatoProjeto")
+    ?.classList.remove("hidden");
+}
+
+function excluirContatoProjeto(index) {
+  const ct = projetoContatosTemp[index];
+  if (!ct) return;
+  if (!confirm("Tem certeza que deseja excluir este contato do projeto?"))
+    return;
+
+  const currentUser = getCurrentUserName();
+  projetoContatosTemp.splice(index, 1);
+
+  projetoContatosTemp.historicoRemocoes =
+    projetoContatosTemp.historicoRemocoes || [];
+  projetoContatosTemp.historicoRemocoes.push(
+    criarEventoHistorico({
+      usuario: currentUser,
+      acao: "removeu",
+      campo: "contato do projeto",
+      de: resumoContatoHistorico(ct),
+      para: "",
+    }),
+  );
+
+  editContatoProjetoIndex = null;
+  document.getElementById("btnAddContatoProjeto").textContent =
+    "Adicionar Contato";
+  renderListaContatosProjeto();
+}
+
+function cancelarEdicaoContatoProjeto() {
+  editContatoProjetoIndex = null;
+  document.getElementById("proj_ct_nome").value = "";
+  document.getElementById("proj_ct_tel").value = "";
+  document.getElementById("proj_ct_email").value = "";
+  document.getElementById("proj_ct_funcao").value = "";
+  document.getElementById("proj_ct_responsavel").value = "";
+  document.getElementById("proj_ct_principal").checked = false;
+  document.getElementById("btnAddContatoProjeto").textContent =
+    "Adicionar Contato";
+  document
+    .getElementById("btnCancelarEdicaoContatoProjeto")
+    ?.classList.add("hidden");
+}
+
+function initAtualizacoesProjetoUI() {
+  const btn = document.getElementById("btnAddAtualizacaoProjeto");
+  if (!btn || btn.dataset.bound === "1") return;
+  btn.dataset.bound = "1";
+
+  btn.addEventListener("click", () => {
+    const textoEl = document.getElementById("proj_update_texto");
+    const texto = textoEl?.value.trim() || "";
+
+    if (!texto) {
+      marcarErroCampo(textoEl);
+      alert("Digite o texto da atualização.");
+      textoEl?.focus();
+      return;
+    }
+
+    const currentUser = getCurrentUserName();
+    const nowIso = new Date().toISOString();
+
+    if (editAtualizacaoProjetoIndex === null) {
+      projetoAtualizacoesTemp.push({
+        texto,
+        criadoEm: nowIso,
+        atualizadoEm: nowIso,
+        criadoPor: currentUser,
+        atualizadoPor: currentUser,
+      });
+    } else {
+      const antiga = projetoAtualizacoesTemp[editAtualizacaoProjetoIndex] || {};
+      projetoAtualizacoesTemp[editAtualizacaoProjetoIndex] = {
+        ...antiga,
+        texto,
+        atualizadoEm: nowIso,
+        atualizadoPor: currentUser,
+      };
+      editAtualizacaoProjetoIndex = null;
+      btn.textContent = "Adicionar Atualização";
+      document
+        .getElementById("btnCancelarEdicaoAtualizacaoProjeto")
+        ?.classList.add("hidden");
+    }
+
+    textoEl.value = "";
+    renderListaAtualizacoesProjeto();
+  });
+}
+
+function renderListaAtualizacoesProjeto() {
+  const lista = document.getElementById("listaAtualizacoesProjeto");
+  if (!lista) return;
+
+  lista.innerHTML = "";
+
+  if (!projetoAtualizacoesTemp.length) {
+    lista.innerHTML = "<p>Nenhuma atualização adicionada.</p>";
+    return;
+  }
+
+  projetoAtualizacoesTemp.forEach((up, index) => {
+    const div = document.createElement("div");
+    div.className = "atualizacao-item";
+    div.innerHTML = `
+      <div class="atualizacao-topo">
+        <span><strong>${primeiroNome(up.atualizadoPor || up.criadoPor || "-")}</strong></span>
+        <span>${formatDateTimeBR(up.atualizadoEm || up.criadoEm)}</span>
+      </div>
+      <div class="atualizacao-texto">${escapeHtml(up.texto || "")}</div>
+      <br>
+      <button class="btn-sm" onclick="editarAtualizacaoProjeto(${index})">Editar</button>
+      <button class="btn-sm btn-danger" onclick="excluirAtualizacaoProjeto(${index})">Excluir</button>
+    `;
+    lista.appendChild(div);
+  });
+}
+
+function editarAtualizacaoProjeto(index) {
+  const up = projetoAtualizacoesTemp[index];
+  if (!up) return;
+
+  document.getElementById("proj_update_texto").value = up.texto || "";
+  editAtualizacaoProjetoIndex = index;
+  document.getElementById("btnAddAtualizacaoProjeto").textContent =
+    "Salvar Edição";
+  document
+    .getElementById("btnCancelarEdicaoAtualizacaoProjeto")
+    ?.classList.remove("hidden");
+}
+
+function excluirAtualizacaoProjeto(index) {
+  if (!confirm("Tem certeza que deseja excluir esta atualização?")) return;
+  projetoAtualizacoesTemp.splice(index, 1);
+  editAtualizacaoProjetoIndex = null;
+  document.getElementById("btnAddAtualizacaoProjeto").textContent =
+    "Adicionar Atualização";
+  renderListaAtualizacoesProjeto();
+}
+
+function cancelarEdicaoAtualizacaoProjeto() {
+  editAtualizacaoProjetoIndex = null;
+  document.getElementById("proj_update_texto").value = "";
+  document.getElementById("btnAddAtualizacaoProjeto").textContent =
+    "Adicionar Atualização";
+  document
+    .getElementById("btnCancelarEdicaoAtualizacaoProjeto")
+    ?.classList.add("hidden");
+}
+
+function initSalvarProjetoUI() {
+  const btn = document.getElementById("btnSalvarProjeto");
+
+  if (!btn || btn.dataset.bound === "1") return;
+  btn.dataset.bound = "1";
+
+  const mapaCamposProjeto = {
+    nome: "nome do projeto",
+    tipo: "tipo do projeto",
+    status: "status",
+    numero_referencia: "número de referência",
+    prazo_final: "prazo final",
+    valor_investimento: "valor do investimento",
+    prev_fechamento: "previsão de fechamento",
+    inicio_entregas: "início das entregas",
+    fim_entregas: "fim das entregas",
+    obs: "observações",
+  };
+
+  btn.addEventListener("click", async () => {
+    const nomeEl = document.getElementById("proj_nome");
+    const tipoEl = document.getElementById("proj_tipo");
+    const statusEl = document.getElementById("proj_status");
+    const refEl = document.getElementById("proj_referencia");
+    const prazoEl = document.getElementById("proj_prazo_final");
+    const valorEl = document.getElementById("proj_valor_investimento");
+    const prevEl = document.getElementById("proj_prev_fechamento");
+    const inicioEl = document.getElementById("proj_inicio_entregas");
+    const fimEl = document.getElementById("proj_fim_entregas");
+    const obsEl = document.getElementById("proj_obs");
+
+    const valido = validarCamposObrigatorios([
+      { el: nomeEl, nome: "Nome do Projeto" },
+      { el: tipoEl, nome: "Tipo de Projeto" },
+      { el: statusEl, nome: "Status" },
+    ]);
+
+    if (!valido) return;
+
+    const currentUser = getCurrentUserName();
+    const nowIso = new Date().toISOString();
+
+    const projetoBase = {
+      nome: nomeEl.value.trim(),
+      tipo: tipoEl.value,
+      status: statusEl.value,
+      numero_referencia: refEl.value.trim(),
+      prazo_final: prazoEl.value,
+      valor_investimento: valorEl.value,
+      prev_fechamento: prevEl.value,
+      inicio_entregas: inicioEl.value,
+      fim_entregas: fimEl.value,
+      obs: obsEl.value.trim(),
+      contatos: projetoContatosTemp.slice(),
+      atualizacoes: projetoAtualizacoesTemp.slice(),
+    };
+
+    try {
+      if (!editProjetoId) {
+        const id = gerarId();
+        const projeto = {
+          id,
+          ...projetoBase,
+          criadoPor: currentUser,
+          atualizadoPor: currentUser,
+          criadoEm: nowIso,
+          atualizadoEm: nowIso,
+          historico: [
+            criarEventoHistorico({
+              usuario: currentUser,
+              acao: "Criou",
+              campo: "projeto",
+              de: "",
+              para: projetoBase.nome || "novo projeto",
+            }),
+          ],
+        };
+
+        await db.collection("projetos").doc(id).set(projeto);
+        projetos.push(projeto);
+        alert("Projeto salvo!");
+      } else {
+        const idx = projetos.findIndex((p) => p.id === editProjetoId);
+        const antigo = projetos[idx] || {};
+
+        const eventosHistoricoBase = montarHistoricoAlteracoes(
+          antigo,
+          projetoBase,
+          currentUser,
+          mapaCamposProjeto,
+        );
+
+        if (antigo.status !== projetoBase.status) {
+          eventosHistoricoBase.push(
+            criarEventoHistorico({
+              usuario: currentUser,
+              acao: "alterou",
+              campo: "status do projeto",
+              de: antigo.status,
+              para: projetoBase.status,
+            }),
+          );
+        }
+
+        const projeto = {
+          id: editProjetoId,
+          ...projetoBase,
+          criadoPor: antigo.criadoPor || currentUser,
+          atualizadoPor: currentUser,
+          criadoEm: antigo.criadoEm || nowIso,
+          atualizadoEm: nowIso,
+          historico: [...(antigo.historico || []), ...eventosHistoricoBase],
+        };
+
+        await db.collection("projetos").doc(editProjetoId).set(projeto);
+        projetos[idx] = projeto;
+
+        alert("Projeto atualizado!");
+      }
+
+      cancelarEdicaoProjeto();
+      renderTabelaProjetos();
+      atualizarSugestoesProjetosOferta();
+    } catch (e) {
+      console.error(e);
+      alert("Erro ao salvar projeto: " + (e?.message || e));
+    }
+  });
+}
+
+function getProjetosFiltrados() {
+  const filtros = Array.from(
+    document.querySelectorAll("#filtersProjetos .filter-item"),
+  )
+    .map((row) => {
+      const field = row.querySelector(".multiField")?.value || "todos";
+      const term = (row.querySelector(".multiTerm")?.value || "")
+        .trim()
+        .toLowerCase();
+      return { field, term };
+    })
+    .filter((f) => f.term);
+
+  const filtrosPorCampo = filtros.reduce((acc, f) => {
+    if (!acc[f.field]) acc[f.field] = [];
+    acc[f.field].push(f.term);
+    return acc;
+  }, {});
+
+  return projetos.filter((proj) => {
+    const usuario = formatarNomeUsuario(
+      proj.atualizadoPor || proj.criadoPor || "",
+    ).toLowerCase();
+    const textoTodos = [
+      proj.nome,
+      proj.tipo,
+      proj.status,
+      proj.numero_referencia,
+      usuario,
+    ]
+      .filter(Boolean)
+      .join(" ")
+      .toLowerCase();
+
+    for (const field in filtrosPorCampo) {
+      const termos = filtrosPorCampo[field];
+
+      const passouNoGrupo = termos.some((term) => {
+        if (field === "todos") return textoTodos.includes(term);
+
+        let value = "";
+        if (field === "nome") value = proj.nome || "";
+        if (field === "tipo") value = proj.tipo || "";
+        if (field === "status") value = proj.status || "";
+        if (field === "numero_referencia") value = proj.numero_referencia || "";
+        if (field === "usuario") value = usuario;
+
+        return String(value).toLowerCase().includes(term);
+      });
+
+      if (!passouNoGrupo) return false;
+    }
+
+    return true;
+  });
+}
+
+function renderTabelaProjetos() {
+  const tbody = document.querySelector("#tabelaProjetos tbody");
+  const pageInfo = document.getElementById("pageInfoProjetos");
+  const countEl = document.getElementById("projetosCount");
+  if (!tbody) return;
+
+  tbody.innerHTML = "";
+
+  const filtrados = getProjetosFiltrados();
+  const listaOrdenada =
+    ordemProjetos === "asc" ? [...filtrados] : [...filtrados].reverse();
+
+  if (countEl)
+    countEl.textContent = `${filtrados.length} projeto(s) encontrado(s)`;
+
+  const totalPages = Math.max(
+    1,
+    Math.ceil(listaOrdenada.length / projetosPageSize),
+  );
+  if (projetosCurrentPage > totalPages) projetosCurrentPage = totalPages;
+
+  const start = (projetosCurrentPage - 1) * projetosPageSize;
+  const end = start + projetosPageSize;
+  const pageData = listaOrdenada.slice(start, end);
+
+  if (!pageData.length) {
+    const tr = document.createElement("tr");
+    const td = document.createElement("td");
+    td.colSpan = 8;
+    td.textContent = "Nenhum projeto encontrado.";
+    tr.appendChild(td);
+    tbody.appendChild(tr);
+  } else {
+    pageData.forEach((proj, index) => {
+      const usuario = formatarNomeUsuario(
+        proj.atualizadoPor || proj.criadoPor || "-",
+      );
+      const qtdOfertas = registros.filter(
+        (r) => r.projetoId === proj.id,
+      ).length;
+      const atrasado =
+        proj.prazo_final &&
+        new Date(proj.prazo_final) <
+          new Date(new Date().toISOString().slice(0, 10));
+
+      const tr = document.createElement("tr");
+      tr.innerHTML = `
+        <td>${ordemProjetos === "asc" ? start + index + 1 : listaOrdenada.length - (start + index)}</td>
+        <td>
+          ${proj.nome || ""}
+          ${atrasado ? '<span class="badge-atrasado">Atrasado</span>' : ""}
+        </td>
+        <td>${proj.tipo || ""}</td>
+        <td>${proj.status || ""}</td>
+        <td>${proj.numero_referencia || ""}</td>
+        <td class="col-center">${qtdOfertas}</td>
+        <td>${usuario}</td>
+        <td style="text-align:center;">
+          <button class="btn-kebab" onclick="openActionsMenu(event,'projeto','${proj.id}')">...</button>
+        </td>
+      `;
+      tbody.appendChild(tr);
+    });
+  }
+
+  if (pageInfo)
+    pageInfo.textContent = `Página ${projetosCurrentPage} de ${totalPages}`;
+  const seta = document.getElementById("setaOrdemProjetos");
+  if (seta) seta.textContent = ordemProjetos === "asc" ? "↑" : "↓";
+}
+
+function toggleOrdemProjetos() {
+  ordemProjetos = ordemProjetos === "asc" ? "desc" : "asc";
+  renderTabelaProjetos();
+}
+
+function addFiltroProjetoRow(field = "todos", term = "") {
+  const wrap = document.getElementById("filtersProjetos");
+  if (!wrap) return;
+
+  const div = document.createElement("div");
+  div.className = "filter-item";
+  div.innerHTML = `
+    <select class="multiField">
+      <option value="todos">Todos</option>
+      <option value="nome">Nome do Projeto</option>
+      <option value="tipo">Tipo</option>
+      <option value="status">Status</option>
+      <option value="numero_referencia">Número de Referência</option>
+      <option value="usuario">Usuário</option>
+    </select>
+    <div class="multiTermWrap"></div>
+    <button type="button" class="btn-remove">Remover</button>
+  `;
+
+  wrap.appendChild(div);
+
+  const fieldEl = div.querySelector(".multiField");
+  fieldEl.value = field;
+
+  renderProjetoTermInput(div, field, term);
+
+  fieldEl.addEventListener("change", (e) => {
+    renderProjetoTermInput(div, e.target.value, "");
+    projetosCurrentPage = 1;
+    renderTabelaProjetos();
+  });
+
+  div.querySelector(".btn-remove")?.addEventListener("click", () => {
+    div.remove();
+    projetosCurrentPage = 1;
+    renderTabelaProjetos();
+  });
+}
+
+function renderProjetoTermInput(
+  row,
+  selectedField = "todos",
+  selectedValue = "",
+) {
+  const wrap = row.querySelector(".multiTermWrap");
+  if (!wrap) return;
+
+  if (["tipo", "status", "usuario"].includes(selectedField)) {
+    let options = [];
+    if (selectedField === "tipo") options = window.TIPO_PROJETO_OPTIONS || [];
+    if (selectedField === "status")
+      options = window.STATUS_PROJETO_OPTIONS || [];
+    if (selectedField === "usuario") {
+      options = Array.from(
+        new Set(
+          projetos
+            .map((p) =>
+              formatarNomeUsuario(p.atualizadoPor || p.criadoPor || ""),
+            )
+            .filter((v) => v && v !== "-"),
+        ),
+      ).sort((a, b) => a.localeCompare(b, "pt-BR", { sensitivity: "base" }));
+    }
+
+    wrap.innerHTML = `
+      <select class="multiTerm">
+        <option value="">Selecione</option>
+        ${options
+          .map(
+            (opt) =>
+              `<option value="${opt}" ${opt === selectedValue ? "selected" : ""}>${opt}</option>`,
+          )
+          .join("")}
+      </select>
+    `;
+
+    wrap.querySelector(".multiTerm")?.addEventListener("change", () => {
+      projetosCurrentPage = 1;
+      renderTabelaProjetos();
+    });
+  } else {
+    wrap.innerHTML = `
+      <input class="multiTerm" type="text" placeholder="Digite para filtrar..." value="${selectedValue || ""}" />
+    `;
+
+    wrap.querySelector(".multiTerm")?.addEventListener("input", () => {
+      projetosCurrentPage = 1;
+      renderTabelaProjetos();
+    });
+  }
+}
+
+function initFiltrosProjetosUI() {
+  document
+    .getElementById("btnAddFiltroProjeto")
+    ?.addEventListener("click", () => {
+      addFiltroProjetoRow();
+    });
+
+  document
+    .getElementById("btnLimparFiltrosProjetos")
+    ?.addEventListener("click", () => {
+      const wrap = document.getElementById("filtersProjetos");
+      if (wrap) wrap.innerHTML = "";
+      addFiltroProjetoRow();
+      projetosCurrentPage = 1;
+      renderTabelaProjetos();
+    });
+
+  if (!document.querySelector("#filtersProjetos .filter-item")) {
+    addFiltroProjetoRow();
+  }
+}
+
+function editarProjeto(id) {
+  const proj = projetos.find((p) => p.id === id);
+  if (!proj) return;
+
+  editProjetoId = id;
+
+  document.getElementById("proj_nome").value = proj.nome || "";
+  document.getElementById("proj_tipo").value = proj.tipo || "";
+  document.getElementById("proj_status").value = proj.status || "";
+  document.getElementById("proj_referencia").value =
+    proj.numero_referencia || "";
+  document.getElementById("proj_prazo_final").value = proj.prazo_final || "";
+  document.getElementById("proj_valor_investimento").value =
+    proj.valor_investimento || "";
+  document.getElementById("proj_prev_fechamento").value =
+    proj.prev_fechamento || "";
+  document.getElementById("proj_inicio_entregas").value =
+    proj.inicio_entregas || "";
+  document.getElementById("proj_fim_entregas").value = proj.fim_entregas || "";
+  document.getElementById("proj_obs").value = proj.obs || "";
+
+  projetoContatosTemp = (proj.contatos || []).map((c) => ({ ...c }));
+  projetoAtualizacoesTemp = (proj.atualizacoes || []).map((u) => ({ ...u }));
+
+  renderListaContatosProjeto();
+  renderListaAtualizacoesProjeto();
+
+  document
+    .getElementById("blocoAtualizacoesProjetoWrap")
+    ?.classList.remove("hidden");
+  document.getElementById("btnSalvarProjeto").textContent = "Salvar Edição";
+  document
+    .getElementById("btnCancelarEdicaoProjeto")
+    ?.classList.remove("hidden");
+
+  document
+    .getElementById("secProjetos")
+    ?.scrollIntoView({ behavior: "smooth" });
+}
+
+function cancelarEdicaoProjeto() {
+  editProjetoId = null;
+  editContatoProjetoIndex = null;
+  editAtualizacaoProjetoIndex = null;
+  projetoContatosTemp = [];
+  projetoAtualizacoesTemp = [];
+
+  document.getElementById("proj_nome").value = "";
+  document.getElementById("proj_tipo").value = "";
+  document.getElementById("proj_status").value = "";
+  document.getElementById("proj_referencia").value = "";
+  document.getElementById("proj_prazo_final").value = "";
+  document.getElementById("proj_valor_investimento").value = "";
+  document.getElementById("proj_prev_fechamento").value = "";
+  document.getElementById("proj_inicio_entregas").value = "";
+  document.getElementById("proj_fim_entregas").value = "";
+  document.getElementById("proj_obs").value = "";
+
+  cancelarEdicaoContatoProjeto();
+  cancelarEdicaoAtualizacaoProjeto();
+
+  renderListaContatosProjeto();
+  renderListaAtualizacoesProjeto();
+
+  document
+    .getElementById("blocoAtualizacoesProjetoWrap")
+    ?.classList.add("hidden");
+  document.getElementById("btnSalvarProjeto").textContent = "Salvar Projeto";
+  document.getElementById("btnCancelarEdicaoProjeto")?.classList.add("hidden");
+}
+
+function verProjeto(id) {
+  const proj = projetos.find((p) => p.id === id);
+  if (!proj) return;
+
+  historicoAtualModal = proj.historico || [];
+
+  const usuario = formatarNomeUsuario(
+    proj.atualizadoPor || proj.criadoPor || "-",
+  );
+  const qtdOfertas = registros.filter((r) => r.projetoId === proj.id).length;
+  const atrasado =
+    proj.prazo_final &&
+    new Date(proj.prazo_final) <
+      new Date(new Date().toISOString().slice(0, 10));
+
+  let html = `
+    <div class="modal-card">
+      <div class="modal-card-title">Dados principais</div>
+      <div class="modal-section"><strong>Nome do Projeto:</strong> ${proj.nome || "-"}</div>
+      <div class="modal-section"><strong>Tipo:</strong> ${proj.tipo || "-"}</div>
+      <div class="modal-section"><strong>Status:</strong> ${proj.status || "-"} ${atrasado ? '<span class="badge-atrasado">Atrasado</span>' : ""}</div>
+      <div class="modal-section"><strong>Número de Referência:</strong> ${proj.numero_referencia || "-"}</div>
+      <div class="modal-section"><strong>Prazo Final:</strong> ${formatDateBR(proj.prazo_final)}</div>
+      <div class="modal-section"><strong>Valor do investimento:</strong> ${proj.valor_investimento || "-"}</div>
+      <div class="modal-section"><strong>Prev. Fechamento:</strong> ${formatDateBR(proj.prev_fechamento)}</div>
+      <div class="modal-section"><strong>Início das entregas:</strong> ${formatDateBR(proj.inicio_entregas)}</div>
+      <div class="modal-section"><strong>Fim das entregas:</strong> ${formatDateBR(proj.fim_entregas)}</div>
+      <div class="modal-section"><strong>Obs:</strong> ${proj.obs || "-"}</div>
+      <div class="modal-section"><strong>Qtd. Ofertas:</strong> ${qtdOfertas}</div>
+      <div class="modal-section"><strong>Usuário:</strong> ${usuario}</div>
+      <div class="modal-section"><strong>Criado em:</strong> ${formatDateTimeBR(proj.criadoEm)}</div>
+      <div class="modal-section"><strong>Atualizado em:</strong> ${formatDateTimeBR(proj.atualizadoEm)}</div>
+    </div>
+  `;
+
+  html += `
+    <div class="modal-card">
+      <div class="modal-card-title">Contatos</div>
+      ${
+        (proj.contatos || []).length
+          ? proj.contatos
+              .map(
+                (ct) => `
+          <div class="modal-section">
+            <strong>${ct.nome || "-"}</strong>
+            ${ct.principal ? '<span class="modal-badge">Principal</span>' : ""}
+            <br>
+            Função: ${ct.funcao || "-"}<br>
+            Tel: ${ct.telefone || "-"}<br>
+            E-mail: ${ct.email || "-"}
+            ${
+              ct.responsavelNome
+                ? `<br>Responsável: ${primeiroNome(ct.responsavelNome)}`
+                : ""
+            }
+          </div>
+          <hr>
+        `,
+              )
+              .join("")
+          : '<div class="modal-section">Nenhum contato cadastrado.</div>'
+      }
+    </div>
+  `;
+
+  html += `
+    <div class="modal-card">
+      <div class="modal-card-title">Atualizações do Projeto</div>
+      ${
+        (proj.atualizacoes || []).length
+          ? proj.atualizacoes
+              .map(
+                (up) => `
+          <div class="modal-section">
+            <strong>${primeiroNome(up.atualizadoPor || up.criadoPor || "-")}</strong>
+            — ${formatDateTimeBR(up.atualizadoEm || up.criadoEm)}
+            <br>
+            ${(up.texto || "-").toString().replace(/\n/g, "<br>")}
+          </div>
+          <hr>
+        `,
+              )
+              .join("")
+          : '<div class="modal-section">Nenhuma atualização cadastrada.</div>'
+      }
+    </div>
+  `;
+
+  html += `
+    <div class="modal-card">
+      <div class="modal-card-title">Histórico de Atividades</div>
+      <button type="button" class="secondary" onclick='abrirHistoricoAtual("Histórico do Projeto ${escapeHtml(proj.nome || "")}")'>
+        Visualizar histórico
+      </button>
+    </div>
+  `;
+
+  abrirModal(`Projeto - ${proj.nome || ""}`, html);
+}
+
+async function excluirProjeto(id) {
+  if (!confirm("Tem certeza que deseja excluir este projeto?")) return;
+
+  try {
+    await db.collection("projetos").doc(id).delete();
+  } catch (e) {
+    console.error(e);
+    alert("Erro ao excluir projeto no Firebase.");
+  }
+
+  projetos = projetos.filter((p) => p.id !== id);
+  renderTabelaProjetos();
+  atualizarSugestoesProjetosOferta();
+}
+
+function atualizarSugestoesProjetosOferta() {
+  initAutoCompleteProjetoOferta();
+}
+
+function initAutoCompleteProjetoOferta() {
+  const input = document.getElementById("nome_projeto");
+  const box = document.getElementById("projetoAuto");
+  if (!input || !box) return;
+  if (input.dataset.projetoBound === "1") return;
+  input.dataset.projetoBound = "1";
+
+  function hide() {
+    box.classList.add("hidden");
+    box.innerHTML = "";
+  }
+
+  function showMatches(term) {
+    const t = String(term || "")
+      .trim()
+      .toLowerCase();
+    if (!t) return hide();
+
+    const matches = projetos
+      .filter((p) =>
+        String(p.nome || "")
+          .toLowerCase()
+          .includes(t),
+      )
+      .slice(0, 10);
+
+    const exact = projetos.some(
+      (p) =>
+        String(p.nome || "")
+          .trim()
+          .toLowerCase() === t,
+    );
+
+    let html = matches
+      .map(
+        (proj) => `
+          <div class="autocomplete-item" data-id="${proj.id}" data-nome="${escapeHtml(proj.nome || "")}">
+            <div class="razao">${escapeHtml(proj.nome || "-")}</div>
+            <div class="cnpj">${escapeHtml(proj.tipo || "-")} • ${escapeHtml(proj.status || "-")}</div>
+          </div>
+        `,
+      )
+      .join("");
+
+    if (!exact && t) {
+      html += `
+        <div class="autocomplete-item" data-cadastrar="1" data-nome="${escapeHtml(input.value.trim())}">
+          <div class="razao">Cadastrar projeto?</div>
+          <div class="cnpj">${escapeHtml(input.value.trim())}</div>
+        </div>
+      `;
+    }
+
+    if (!html) return hide();
+
+    box.innerHTML = html;
+    box.classList.remove("hidden");
+  }
+
+  input.addEventListener("input", () => {
+    input.dataset.projetoId = "";
+    showMatches(input.value);
+  });
+
+  box.addEventListener("mousedown", (e) => {
+    const item = e.target.closest(".autocomplete-item");
+    if (!item) return;
+    e.preventDefault();
+
+    if (item.dataset.cadastrar === "1") {
+      const nome = item.dataset.nome || input.value.trim();
+      input.value = nome;
+      input.dataset.projetoId = "";
+
+      const ir = confirm(
+        `Projeto "${nome}" não encontrado. Deseja cadastrar agora?`,
+      );
+      hide();
+
+      if (ir) {
+        irPara("projetos");
+        document.getElementById("proj_nome").value = nome;
+        document.getElementById("proj_nome").focus();
+      }
+      return;
+    }
+
+    const id = item.dataset.id;
+    const nome = item.dataset.nome || "";
+    input.value = nome;
+    input.dataset.projetoId = id || "";
+    hide();
+  });
+
+  document.addEventListener("click", (e) => {
+    if (
+      !e.target.closest("#nome_projeto") &&
+      !e.target.closest("#projetoAuto")
+    ) {
+      hide();
+    }
+  });
+
+  input.addEventListener("blur", () => {
+    const nomeDigitado = String(input.value || "").trim();
+    if (!nomeDigitado) {
+      input.dataset.projetoId = "";
+      return;
+    }
+
+    const proj = projetos.find(
+      (p) =>
+        String(p.nome || "")
+          .trim()
+          .toLowerCase() === nomeDigitado.toLowerCase(),
+    );
+
+    if (proj) {
+      input.dataset.projetoId = proj.id;
+      input.value = proj.nome;
+    } else {
+      input.dataset.projetoId = "";
+    }
+  });
+}
+
+function verContatosProjeto(id) {
+  const proj = projetos.find((p) => p.id === id);
+  if (!proj) return;
+
+  let html = `
+    <div class="modal-section">
+      <strong>${proj.nome || "-"}</strong><br>
+      Tipo: ${proj.tipo || "-"}<br>
+      Status: ${proj.status || "-"}
+    </div>
+    <hr>
+  `;
+
+  const contatos = proj.contatos || [];
+
+  if (!contatos.length) {
+    html += `<div class="modal-section">Nenhum contato cadastrado.</div>`;
+    return abrirModal("Contatos do Projeto", html);
+  }
+
+  html += contatos
+    .map(
+      (ct) => `
+        <div class="modal-section">
+          <strong>${ct.nome || "-"}</strong>
+          ${ct.principal ? '<span class="modal-badge">Principal</span>' : ""}
+          <br>
+          Função: ${ct.funcao || "-"}<br>
+          Tel: ${ct.telefone || "-"}<br>
+          E-mail: ${ct.email || "-"}
+          ${
+            ct.responsavelNome
+              ? `<br><strong>Responsável:</strong> ${primeiroNome(ct.responsavelNome)}`
+              : ""
+          }
+        </div>
+        <hr>
+      `,
+    )
+    .join("");
+
+  abrirModal("Contatos do Projeto", html);
+}
+
+function verOfertasProjeto(id) {
+  const proj = projetos.find((p) => p.id === id);
+  if (!proj) return;
+
+  const ofertasProjeto = registros.filter((r) => r.projetoId === id);
+
+  let html = `
+    <div class="modal-section">
+      <strong>Projeto:</strong> ${proj.nome || "-"}<br>
+      <strong>Quantidade de ofertas:</strong> ${ofertasProjeto.length}
+    </div>
+    <hr>
+  `;
+
+  if (!ofertasProjeto.length) {
+    html += `<div class="modal-section">Nenhuma oferta vinculada a este projeto.</div>`;
+    return abrirModal("Ofertas do Projeto", html);
+  }
+
+  html += ofertasProjeto
+    .map((reg) => {
+      const usuario = formatarNomeUsuario(
+        reg.atualizadoPor || reg.criadoPor || "-",
+      );
+      return `
+        <div class="modal-section">
+          <strong>Oferta:</strong> ${reg.oferta || "-"}<br>
+          <strong>Razão Social:</strong> ${reg.razao || "-"}<br>
+          <strong>Representada:</strong> ${reg.representadaNome || "-"}<br>
+          <strong>Status:</strong> ${reg.status || "-"}<br>
+          <strong>Tipo:</strong> ${reg.tipo_oferta || "-"}<br>
+          <strong>Usuário:</strong> ${usuario}
+        </div>
+        <hr>
+      `;
+    })
+    .join("");
+
+  abrirModal("Ofertas do Projeto", html);
+}
+
+function verOfertasCliente(id) {
+  const cli = clientes.find((c) => c.id === id);
+  if (!cli) return;
+
+  const cnpjClean = (cli.cnpj || "").replace(/\D/g, "");
+  const ofertasCliente = registros.filter(
+    (r) => (r.cnpj_cliente || "").replace(/\D/g, "") === cnpjClean,
+  );
+
+  let html = `
+    <div class="modal-section">
+      <strong>Cliente:</strong> ${cli.razao || "-"}<br>
+      <strong>Quantidade de ofertas:</strong> ${ofertasCliente.length}
+    </div>
+    <hr>
+  `;
+
+  if (!ofertasCliente.length) {
+    html += `<div class="modal-section">Nenhuma oferta vinculada a este cliente.</div>`;
+    return abrirModal("Ofertas do Cliente", html);
+  }
+
+  html += ofertasCliente
+    .map((reg) => {
+      const usuario = formatarNomeUsuario(
+        reg.atualizadoPor || reg.criadoPor || "-",
+      );
+      return `
+        <div class="modal-section">
+          <strong>Oferta:</strong> ${reg.oferta || "-"}<br>
+          <strong>Projeto:</strong> ${reg.nome_projeto || "-"}<br>
+          <strong>Representada:</strong> ${reg.representadaNome || "-"}<br>
+          <strong>Status:</strong> ${reg.status || "-"}<br>
+          <strong>Tipo:</strong> ${reg.tipo_oferta || "-"}<br>
+          <strong>Usuário:</strong> ${usuario}
+        </div>
+        <hr>
+      `;
+    })
+    .join("");
+
+  abrirModal("Ofertas do Cliente", html);
+}
+
+function verOfertasRepresentada(id) {
+  const rep = representadas.find((r) => r.id === id);
+  if (!rep) return;
+
+  const ofertasRep = registros.filter((r) => r.representadaId === id);
+
+  let html = `
+    <div class="modal-section">
+      <strong>Representada:</strong> ${rep.nome || "-"}<br>
+      <strong>Quantidade de ofertas:</strong> ${ofertasRep.length}
+    </div>
+    <hr>
+  `;
+
+  if (!ofertasRep.length) {
+    html += `<div class="modal-section">Nenhuma oferta vinculada a esta representada.</div>`;
+    return abrirModal("Ofertas da Representada", html);
+  }
+
+  html += ofertasRep
+    .map((reg) => {
+      const usuario = formatarNomeUsuario(
+        reg.atualizadoPor || reg.criadoPor || "-",
+      );
+      return `
+        <div class="modal-section">
+          <strong>Oferta:</strong> ${reg.oferta || "-"}<br>
+          <strong>Razão Social:</strong> ${reg.razao || "-"}<br>
+          <strong>Projeto:</strong> ${reg.nome_projeto || "-"}<br>
+          <strong>Tipo:</strong> ${reg.tipo_oferta || "-"}<br>
+          <strong>Status:</strong> ${reg.status || "-"}<br>
+          <strong>Usuário:</strong> ${usuario}
+        </div>
+        <hr>
+      `;
+    })
+    .join("");
+
+  abrirModal("Ofertas da Representada", html);
+}
+
+function validarContatoProjeto() {
+  const nomeEl = document.getElementById("proj_ct_nome");
+  const telEl = document.getElementById("proj_ct_tel");
+  const emailEl = document.getElementById("proj_ct_email");
+
+  limparErrosCampos();
+
+  let ok = true;
+
+  if (!String(nomeEl?.value || "").trim()) {
+    marcarErroCampo(nomeEl);
+    ok = false;
+  }
+
+  const telDigits = String(telEl?.value || "").replace(/\D/g, "");
+  if (!telDigits || telDigits.length < 10 || telDigits.length > 11) {
+    marcarErroCampo(telEl);
+    ok = false;
+  }
+
+  const email = String(emailEl?.value || "").trim();
+  const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+  if (!email || !emailRegex.test(email)) {
+    marcarErroCampo(emailEl);
+    ok = false;
+  }
+
+  if (!ok) {
+    document.querySelector(".input-erro")?.focus();
+    alert(
+      "Preencha corretamente os campos obrigatórios destacados em vermelho.",
+    );
+  }
+
+  return ok;
+}
+
+function validarTelefoneProjetoVisual() {
+  const telEl = document.getElementById("proj_ct_tel");
+  if (!telEl) return;
+
+  const valor = String(telEl.value || "").trim();
+  const digits = valor.replace(/\D/g, "");
+
+  if (!valor) {
+    telEl.classList.remove("input-erro");
+    return;
+  }
+
+  if (digits.length < 10 || digits.length > 11) {
+    marcarErroCampo(telEl);
+  } else {
+    telEl.classList.remove("input-erro");
+  }
+}
+
+function initValidacaoContatoProjetoVisual() {
+  const nomeEl = document.getElementById("proj_ct_nome");
+  const telEl = document.getElementById("proj_ct_tel");
+  const emailEl = document.getElementById("proj_ct_email");
+
+  if (nomeEl && nomeEl.dataset.valBound !== "1") {
+    nomeEl.dataset.valBound = "1";
+    nomeEl.addEventListener("input", () => {
+      if (String(nomeEl.value || "").trim()) {
+        nomeEl.classList.remove("input-erro");
+      }
+    });
+    nomeEl.addEventListener("blur", () => {
+      if (!String(nomeEl.value || "").trim()) {
+        nomeEl.classList.add("input-erro");
+      }
+    });
+  }
+
+  if (emailEl && emailEl.dataset.valBound !== "1") {
+    emailEl.dataset.valBound = "1";
+    emailEl.addEventListener("input", () => {
+      const email = String(emailEl.value || "").trim();
+      const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+
+      if (!email || !emailRegex.test(email)) {
+        emailEl.classList.add("input-erro");
+      } else {
+        emailEl.classList.remove("input-erro");
+      }
+    });
+
+    emailEl.addEventListener("blur", () => {
+      const email = String(emailEl.value || "").trim();
+      const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+
+      if (!email || !emailRegex.test(email)) {
+        emailEl.classList.add("input-erro");
+      } else {
+        emailEl.classList.remove("input-erro");
+      }
+    });
+  }
 }
