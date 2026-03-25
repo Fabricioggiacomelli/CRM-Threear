@@ -33,6 +33,22 @@ const RESPONSAVEIS_FIXOS = [
   "Silvia",
 ].sort((a, b) => a.localeCompare(b, "pt-BR", { sensitivity: "base" }));
 
+const OFERTA_SCHEMA_RESUMIDO = [
+  { key: "bu", label: "B.U" },
+  { key: "razao", label: "Razão Social" },
+  { key: "cnpj_cliente", label: "CNPJ" },
+  { key: "nome_projeto", label: "Projeto" },
+  { key: "representadaNome", label: "Representada" },
+  { key: "tipo_oferta", label: "Tipo" },
+  { key: "status", label: "Status" },
+  { key: "valor_total", label: "Valor Total" },
+  { key: "data_entrada", label: "Data Entrada", type: "date" },
+  { key: "data_envio", label: "Data Envio", type: "date" },
+  { key: "possuiPedido", label: "Pedido?", type: "yesno" },
+  { key: "possuiRevisao", label: "Revisão?", type: "yesno" },
+  { key: "atualizadoPor", label: "Usuário" },
+];
+
 window.STATUS_OPTIONS = [
   "Aguardando cliente",
   "Aguardando liberação de crédito",
@@ -1408,7 +1424,8 @@ function initFiltrosEPaginacao() {
   });
 
   btnExportExcel?.addEventListener("click", exportExcel);
-  btnExportPdf?.addEventListener("click", exportPdf);
+  document.getElementById("btnExportPdfResumo")?.addEventListener("click", exportPdfResumo);
+  document.getElementById("btnExportPdfCompleto")?.addEventListener("click", exportPdfCompleto);
 }
 
 function getTextoRegistroTodosCampos(reg) {
@@ -1915,47 +1932,130 @@ function exportPdf() {
     return;
   }
 
-  const cols = [
-    "#",
-    ...(window.OFERTA_SCHEMA || []).map((c) => c.label),
-    "Notas Fiscais",
-  ];
+  const schemaBase = window.OFERTA_SCHEMA || [];
+  const maxNFs = getMaxNotasFiscais(filtrados);
+  const schemaFinal = buildSchemaComNotas(schemaBase, maxNFs);
+
+  const cols = ["#", ...schemaFinal.map((c) => c.label)];
+  const totalCols = cols.length;
+
+  const fontSize = totalCols > 22 ? 7 : totalCols > 16 ? 8 : 9;
+  const padding = totalCols > 22 ? 2 : 3;
 
   let html = `
     <html>
       <head>
         <title>Registros de Ofertas</title>
         <style>
-          body { font-family: Arial, sans-serif; font-size: 10px; }
-          h2 { text-align: center; }
-          table { width: 100%; border-collapse: collapse; margin-top: 10px; }
-          th, td { border: 1px solid #000; padding: 3px; vertical-align: top; }
-          th { background: #eee; }
+          @page {
+            size: A4 landscape;
+            margin: 8mm;
+          }
+
+          * {
+            box-sizing: border-box;
+          }
+
+          body {
+            font-family: Arial, sans-serif;
+            font-size: ${fontSize}px;
+            margin: 0;
+            color: #000;
+          }
+
+          h2 {
+            text-align: center;
+            margin: 0 0 10px 0;
+            font-size: 14px;
+          }
+
+          .meta {
+            margin-bottom: 8px;
+            font-size: ${Math.max(fontSize - 1, 7)}px;
+          }
+
+          table {
+            width: 100%;
+            border-collapse: collapse;
+            table-layout: fixed;
+          }
+
+          th, td {
+            border: 1px solid #000;
+            padding: ${padding}px;
+            vertical-align: top;
+            word-break: break-word;
+            overflow-wrap: anywhere;
+          }
+
+          th {
+            background: #eee;
+            font-weight: bold;
+            text-align: left;
+          }
+
+          tbody tr:nth-child(even) {
+            background: #fafafa;
+          }
+
+          .col-index {
+            width: 28px;
+            text-align: center;
+          }
+
+          .nowrap {
+            white-space: nowrap;
+          }
+
+          @media print {
+            body {
+              -webkit-print-color-adjust: exact;
+              print-color-adjust: exact;
+            }
+          }
         </style>
       </head>
       <body>
         <h2>Registros de Ofertas</h2>
+        <div class="meta">Total de registros: ${filtrados.length}</div>
         <table>
-          <thead><tr>
-            ${cols.map((c) => `<th>${escapeHtml(c)}</th>`).join("")}
-          </tr></thead>
+          <thead>
+            <tr>
+              ${cols
+                .map((c, i) =>
+                  i === 0
+                    ? `<th class="col-index">${escapeHtml(c)}</th>`
+                    : `<th>${escapeHtml(c)}</th>`,
+                )
+                .join("")}
+            </tr>
+          </thead>
           <tbody>
   `;
 
   filtrados.forEach((reg, i) => {
     const tds = [];
-    tds.push(`<td>${i + 1}</td>`);
+    tds.push(`<td class="col-index">${i + 1}</td>`);
 
-    (window.OFERTA_SCHEMA || []).forEach((c) => {
-      let val = getByPath(reg, c.key);
+    schemaFinal.forEach((c) => {
+      let val;
+
+      if (c.key.startsWith("nf_")) {
+        const partes = c.key.split("_"); // nf_1_data
+        const idx = parseInt(partes[1], 10) - 1;
+        const campo = partes[2];
+
+        const notas = getNotasFiscaisPedido(reg.pedido || {});
+        val = notas[idx]?.[campo] || "";
+      } else {
+        val = getByPath(reg, c.key);
+      }
 
       if (c.type === "yesno") val = asYesNo(val);
       if (c.type === "date") val = formatDateBR(val);
+      if (c.type === "datetime") val = formatDateTimeBR(val);
 
       tds.push(`<td>${String(val ?? "").replace(/\n/g, "<br>")}</td>`);
-      tds.push(
-        `<td>${formatarNotasFiscaisTexto(reg.pedido).replace(/\|\|/g, "<br>")}</td>`,
-      );
     });
 
     html += `<tr>${tds.join("")}</tr>`;
@@ -7205,4 +7305,341 @@ function initValidacaoContatoProjetoVisual() {
       }
     });
   }
+}
+
+function gerarPdfPorSchema(titulo, schema, usarNotasFiscais = false) {
+  const filtrados = getRegistrosFiltrados();
+  if (filtrados.length === 0) {
+    alert("Nenhum registro para exportar.");
+    return;
+  }
+
+  let schemaFinal = [...schema];
+
+  if (usarNotasFiscais) {
+    const maxNFs = getMaxNotasFiscais(filtrados);
+    schemaFinal = buildSchemaComNotas(schema, maxNFs);
+  }
+
+  const cols = ["#", ...schemaFinal.map((c) => c.label)];
+  const totalCols = cols.length;
+
+  const fontSize = totalCols > 22 ? 7 : totalCols > 16 ? 8 : 9;
+  const padding = totalCols > 22 ? 2 : 3;
+  const orientation = totalCols > 12 ? "landscape" : "portrait";
+
+  let html = `
+    <html>
+      <head>
+        <title>${escapeHtml(titulo)}</title>
+        <style>
+          @page {
+            size: A4 ${orientation};
+            margin: 8mm;
+          }
+
+          * {
+            box-sizing: border-box;
+          }
+
+          body {
+            font-family: Arial, sans-serif;
+            font-size: ${fontSize}px;
+            margin: 0;
+            color: #000;
+          }
+
+          h2 {
+            text-align: center;
+            margin: 0 0 10px 0;
+            font-size: 14px;
+          }
+
+          .meta {
+            margin-bottom: 8px;
+            font-size: ${Math.max(fontSize - 1, 7)}px;
+          }
+
+          table {
+            width: 100%;
+            border-collapse: collapse;
+            table-layout: fixed;
+          }
+
+          th, td {
+            border: 1px solid #000;
+            padding: ${padding}px;
+            vertical-align: top;
+            word-break: break-word;
+            overflow-wrap: anywhere;
+          }
+
+          th {
+            background: #eee;
+            font-weight: bold;
+            text-align: left;
+          }
+
+          tbody tr:nth-child(even) {
+            background: #fafafa;
+          }
+
+          .col-index {
+            width: 28px;
+            text-align: center;
+          }
+
+          @media print {
+            body {
+              -webkit-print-color-adjust: exact;
+              print-color-adjust: exact;
+            }
+          }
+        </style>
+      </head>
+      <body>
+        <h2>${escapeHtml(titulo)}</h2>
+        <div class="meta">Total de registros: ${filtrados.length}</div>
+        <table>
+          <thead>
+            <tr>
+              ${cols
+                .map((c, i) =>
+                  i === 0
+                    ? `<th class="col-index">${escapeHtml(c)}</th>`
+                    : `<th>${escapeHtml(c)}</th>`,
+                )
+                .join("")}
+            </tr>
+          </thead>
+          <tbody>
+  `;
+
+  filtrados.forEach((reg, i) => {
+    const tds = [];
+    tds.push(`<td class="col-index">${i + 1}</td>`);
+
+    schemaFinal.forEach((c) => {
+      let val;
+
+      if (c.key.startsWith("nf_")) {
+        const partes = c.key.split("_");
+        const idx = parseInt(partes[1], 10) - 1;
+        const campo = partes[2];
+        const notas = getNotasFiscaisPedido(reg.pedido || {});
+        val = notas[idx]?.[campo] || "";
+      } else {
+        val = getByPath(reg, c.key);
+      }
+
+      if (c.key === "atualizadoPor") {
+        val = formatarNomeUsuario(val);
+      }
+
+      if (c.type === "yesno") val = asYesNo(val);
+      if (c.type === "date") val = formatDateBR(val);
+      if (c.type === "datetime") val = formatDateTimeBR(val);
+
+      tds.push(`<td>${String(val ?? "").replace(/\n/g, "<br>")}</td>`);
+    });
+
+    html += `<tr>${tds.join("")}</tr>`;
+  });
+
+  html += `
+          </tbody>
+        </table>
+      </body>
+    </html>
+  `;
+
+  const win = window.open("", "_blank");
+  win.document.write(html);
+  win.document.close();
+  win.focus();
+  win.print();
+}
+
+function exportPdfResumo() {
+  gerarPdfPorSchema("Registros de Ofertas - Resumido", OFERTA_SCHEMA_RESUMIDO, false);
+}
+
+function exportPdfCompleto() {
+  const filtrados = getRegistrosFiltrados();
+  if (filtrados.length === 0) {
+    alert("Nenhum registro para exportar.");
+    return;
+  }
+
+  const schemaBase = window.OFERTA_SCHEMA || [];
+  const maxNFs = getMaxNotasFiscais(filtrados);
+  const schemaFinal = buildSchemaComNotas(schemaBase, maxNFs);
+
+  let html = `
+    <html>
+      <head>
+        <title>Registros de Ofertas - Completo</title>
+        <style>
+          @page {
+            size: A4 portrait;
+            margin: 10mm;
+          }
+
+          * {
+            box-sizing: border-box;
+          }
+
+          body {
+            font-family: Arial, sans-serif;
+            font-size: 11px;
+            color: #000;
+            margin: 0;
+            line-height: 1.35;
+          }
+
+          h1 {
+            text-align: center;
+            font-size: 18px;
+            margin: 0 0 12px 0;
+          }
+
+          .meta-geral {
+            margin-bottom: 16px;
+            font-size: 11px;
+          }
+
+          .registro {
+            border: 1px solid #000;
+            border-radius: 6px;
+            padding: 10px;
+            margin-bottom: 14px;
+            page-break-inside: avoid;
+            break-inside: avoid;
+          }
+
+          .registro-header {
+            font-size: 14px;
+            font-weight: bold;
+            margin-bottom: 8px;
+            border-bottom: 1px solid #000;
+            padding-bottom: 4px;
+          }
+
+          .grid {
+            display: grid;
+            grid-template-columns: 220px 1fr;
+            gap: 4px 10px;
+          }
+
+          .label {
+            font-weight: bold;
+          }
+
+          .valor {
+            word-break: break-word;
+            overflow-wrap: anywhere;
+          }
+
+          .vazio {
+            color: #666;
+            font-style: italic;
+          }
+
+          .nf-bloco {
+            margin-top: 6px;
+            padding-top: 6px;
+            border-top: 1px dashed #999;
+          }
+
+          .nf-item {
+            margin-bottom: 6px;
+            padding: 6px 8px;
+            background: #f7f7f7;
+            border: 1px solid #ccc;
+            border-radius: 4px;
+          }
+
+          .quebra {
+            page-break-before: always;
+          }
+        </style>
+      </head>
+      <body>
+        <h1>Registros de Ofertas - Completo</h1>
+        <div class="meta-geral">Total de registros: ${filtrados.length}</div>
+  `;
+
+  filtrados.forEach((reg, i) => {
+    let camposHtml = "";
+
+    schemaFinal.forEach((c) => {
+      // NFs dinâmicas não entram aqui como campos simples
+      if (c.key.startsWith("nf_")) return;
+
+      let val = getByPath(reg, c.key);
+
+      if (c.key === "atualizadoPor" || c.key === "criadoPor") {
+        val = formatarNomeUsuario(val);
+      }
+
+      if (c.type === "yesno") val = asYesNo(val);
+      if (c.type === "date") val = formatDateBR(val);
+      if (c.type === "datetime") val = formatDateTimeBR(val);
+
+      const texto = String(val ?? "").trim();
+
+      camposHtml += `
+        <div class="label">${escapeHtml(c.label)}</div>
+        <div class="valor ${!texto || texto === "-" ? "vazio" : ""}">
+          ${texto ? escapeHtml(texto).replace(/\n/g, "<br>") : "-"}
+        </div>
+      `;
+    });
+
+    const notas = getNotasFiscaisPedido(reg.pedido || {});
+    let notasHtml = "";
+
+    if (notas.length) {
+      notasHtml = `
+        <div class="nf-bloco">
+          <div class="label" style="margin-bottom: 6px;">Notas Fiscais</div>
+          ${notas
+            .map(
+              (nf, idx) => `
+                <div class="nf-item">
+                  <strong>NF ${idx + 1}</strong><br>
+                  Data: ${escapeHtml(formatDateBR(nf.data || ""))}<br>
+                  Número: ${escapeHtml(nf.numero || "-")}<br>
+                  Valor: ${escapeHtml(nf.valor || "-")}
+                </div>
+              `,
+            )
+            .join("")}
+        </div>
+      `;
+    }
+
+    html += `
+      <div class="registro ${i > 0 ? "quebra" : ""}">
+        <div class="registro-header">
+          Registro #${i + 1} — Oferta ${escapeHtml(reg.oferta || "-")}
+        </div>
+        <div class="grid">
+          ${camposHtml}
+        </div>
+        ${notasHtml}
+      </div>
+    `;
+  });
+
+  html += `
+      </body>
+    </html>
+  `;
+
+  const win = window.open("", "_blank");
+  win.document.write(html);
+  win.document.close();
+  win.focus();
+  win.print();
 }
