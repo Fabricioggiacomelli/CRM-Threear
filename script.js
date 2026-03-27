@@ -98,7 +98,34 @@ window.SEGMENTO_OPTIONS = [
   "UHE, UTE e PCH",
 ];
 
-window.TIPO_PROJETO_OPTIONS = ["Solar"];
+window.TIPO_PROJETO_OPTIONS = [
+  "Aeroportos",
+  "BESS",
+  "Construção Civil",
+  "Data Center",
+  "Engenharia",
+  "EPCista",
+  "Eólico",
+  "Floating",
+  "Hidrogênio",
+  "Hospitais",
+  "Industrial",
+  "Infraestrutura",
+  "Instalador",
+  "Linha de Transmissão",
+  "Mineração e Siderurgia",
+  "OGP (Óleo, Gás e Petroquímica)",
+  "Papel & Celulose",
+  "Portos",
+  "Revendas e Distribuidores",
+  "RMT (Rede de Média Tensão)",
+  "Rodovias",
+  "Saneamento",
+  "Solar",
+  "Subestações",
+  "Transporte",
+  "UHE, UTE e PCH",
+];
 
 window.STATUS_PROJETO_OPTIONS = [
   "Anúncio Oficial",
