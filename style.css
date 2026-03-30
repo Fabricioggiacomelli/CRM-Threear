@@ -1654,3 +1654,56 @@ body.dark select.input-erro {
   border: 2px solid #ef4444 !important;
   background: rgba(239, 68, 68, 0.08) !important;
 }
+
+.import-loader-wrap {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+}
+
+.import-spinner {
+  width: 42px;
+  height: 42px;
+  border: 4px solid rgba(0, 0, 0, 0.12);
+  border-top: 4px solid #2563eb;
+  border-radius: 50%;
+  animation: girarImport 0.9s linear infinite;
+  margin: 0 auto;
+}
+
+@keyframes girarImport {
+  from { transform: rotate(0deg); }
+  to { transform: rotate(360deg); }
+}
+
+.import-progress {
+  width: 100%;
+  height: 14px;
+  background: #e5e7eb;
+  border-radius: 999px;
+  overflow: hidden;
+}
+
+.import-progress-bar {
+  height: 100%;
+  width: 0%;
+  background: linear-gradient(90deg, #2563eb, #1d4ed8);
+  transition: width 0.25s ease;
+}
+
+.import-progress-label {
+  text-align: right;
+  font-size: 13px;
+  opacity: 0.85;
+}
+
+#importResultadoResumo {
+  white-space: pre-line;
+  line-height: 1.5;
+  font-size: 14px;
+}
+
+.hidden {
+  display: none !important;
+}
+

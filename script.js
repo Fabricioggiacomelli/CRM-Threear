@@ -350,6 +350,20 @@ function esperarFirebase(timeoutMs = 8000) {
   });
 }
 
+document.addEventListener("DOMContentLoaded", async () => {
+  try {
+    if (typeof esperarFirebase === "function") {
+      await esperarFirebase();
+    }
+
+    await verificarBackupAutomatico();
+        atualizarInfoUltimoBackupAutomatico();
+
+  } catch (error) {
+    console.error("Falha ao iniciar rotina de backup automático:", error);
+  }
+});
+
 async function carregarDadosDoFirebase() {
   try {
     await Promise.all([
@@ -2154,17 +2168,24 @@ function formatDateBR(v) {
 function initBackupUI() {
   const btnBackupExport = document.getElementById("btnBackupExport");
   const btnBackupImport = document.getElementById("btnBackupImport");
+  const btnModeloImportacao = document.getElementById("btnModeloImportacao");
   const inputBackupFile = document.getElementById("inputBackupFile");
 
-  btnBackupExport?.addEventListener("click", () => {
+  if (!btnBackupExport || !btnBackupImport || !inputBackupFile) return;
+  if (btnBackupImport.dataset.bound === "1") return;
+
+  btnBackupImport.dataset.bound = "1";
+  btnBackupExport.dataset.bound = "1";
+  inputBackupFile.dataset.bound = "1";
+  if (btnModeloImportacao) btnModeloImportacao.dataset.bound = "1";
+
+  btnBackupExport.addEventListener("click", () => {
     const tipo = (
       prompt("Exportar backup em qual formato? Digite 'json' ou 'excel':") || ""
-    )
-      .trim()
-      .toLowerCase();
+    ).trim().toLowerCase();
 
     if (tipo === "json") {
-      const data = { registros, clientes, representadas };
+      const data = { registros, clientes, representadas, projetos };
       const blob = new Blob([JSON.stringify(data, null, 2)], {
         type: "application/json",
       });
@@ -2183,127 +2204,162 @@ function initBackupUI() {
     }
   });
 
-  if (btnBackupImport && inputBackupFile) {
-    btnBackupImport.addEventListener("click", () => {
-      const tipo = (
-        prompt("Importar backup de qual formato? Digite 'json' ou 'excel':") ||
-        ""
-      )
-        .trim()
-        .toLowerCase();
+  btnBackupImport.addEventListener("click", () => {
+    const tipo = (
+      prompt("Importar backup de qual formato? Digite 'json' ou 'excel':") || ""
+    ).trim().toLowerCase();
 
-      if (tipo !== "json" && tipo !== "excel") {
-        if (tipo) alert("Opção inválida. Use 'json' ou 'excel'.");
-        return;
-      }
+    if (tipo !== "json" && tipo !== "excel") {
+      if (tipo) alert("Opção inválida. Use 'json' ou 'excel'.");
+      return;
+    }
 
-      backupImportMode = tipo;
-      inputBackupFile.value = "";
-      inputBackupFile.accept = tipo === "json" ? ".json" : ".xlsx";
-      inputBackupFile.click();
-    });
+    backupImportMode = tipo;
+    inputBackupFile.value = "";
+    inputBackupFile.accept = tipo === "json" ? ".json" : ".xlsx,.xls";
+    inputBackupFile.click();
+  });
 
-    inputBackupFile.addEventListener("change", (e) => {
-      const file = e.target.files[0];
-      if (!file || !backupImportMode) return;
-
-      if (backupImportMode === "json") {
-        const reader = new FileReader();
-        reader.onload = (ev) => {
-          try {
-            const data = JSON.parse(ev.target.result);
-            registros = data.registros || [];
-            clientes = data.clientes || [];
-            representadas = data.representadas || [];
-
-            salvarRegistros();
-            salvarClientes();
-            salvarRepresentadas();
-
-            renderTabela();
-            renderTabelaClientes();
-            renderTabelaRepresentadas();
-            preencherSelectRepresentadas();
-
-            alert("Backup JSON restaurado com sucesso!");
-          } catch (err) {
-            console.error(err);
-            alert("Arquivo de backup JSON inválido.");
-          }
-        };
-        reader.readAsText(file);
-      } else if (backupImportMode === "excel") {
-        importBackupExcel(file);
-      }
-
-      backupImportMode = null;
+  if (btnModeloImportacao) {
+    btnModeloImportacao.addEventListener("click", () => {
+      baixarModeloImportacaoExcel();
     });
   }
+
+  inputBackupFile.addEventListener("change", async (e) => {
+    const file = e.target.files?.[0];
+    if (!file || !backupImportMode) return;
+
+    if (backupImportMode === "json") {
+      const reader = new FileReader();
+      reader.onload = async (ev) => {
+        try {
+          const data = JSON.parse(ev.target.result);
+
+          registros = data.registros || [];
+          clientes = data.clientes || [];
+          representadas = data.representadas || [];
+          projetos = data.projetos || [];
+
+          salvarRegistros();
+          salvarClientes();
+          salvarRepresentadas();
+          if (typeof salvarProjetos === "function") salvarProjetos();
+
+          renderTabela();
+          renderTabelaClientes();
+          renderTabelaRepresentadas();
+          if (typeof renderTabelaProjetos === "function") renderTabelaProjetos();
+          preencherSelectRepresentadas();
+
+          alert("Backup JSON restaurado com sucesso!");
+        } catch (err) {
+          console.error(err);
+          alert("Arquivo de backup JSON inválido.");
+        } finally {
+          backupImportMode = null;
+          inputBackupFile.value = "";
+        }
+      };
+      reader.readAsText(file);
+    } else if (backupImportMode === "excel") {
+      try {
+        await importBackupExcelFirebase(e);
+      } finally {
+        backupImportMode = null;
+        inputBackupFile.value = "";
+      }
+    }
+  });
 }
 
 function exportBackupExcel() {
   const wb = XLSX.utils.book_new();
 
-  const clientesSheetData = clientes.map((c) => ({
-    ID: c.id,
-    RazaoSocial: c.razao,
-    CNPJ: c.cnpj,
-    IE: c.ie,
-    Endereco: c.endereco,
-    Segmento: c.segmento,
+  const listaClientes = Array.isArray(clientes) ? clientes : [];
+  const listaRepresentadas = Array.isArray(representadas) ? representadas : [];
+  const listaRegistros = Array.isArray(registros) ? registros : [];
+  const listaProjetos = Array.isArray(projetos) ? projetos : [];
+
+  // =========================
+  // CLIENTES
+  // =========================
+  const clientesSheetData = listaClientes.map((c) => ({
+    ID: c.id || "",
+    RazaoSocial: c.razao || "",
+    CNPJ: c.cnpj || "",
+    IE: c.ie || "",
+    Endereco: c.endereco || "",
+    Segmento: c.segmento || "",
+    SAP: c.sap || c.codigo_sap || c.cli_sap || "",
     CriadoPor: c.criadoPor || "",
     AtualizadoPor: c.atualizadoPor || "",
   }));
+
   const wsClientes = XLSX.utils.json_to_sheet(
-    clientesSheetData.length
-      ? clientesSheetData
-      : [{ Mensagem: "Sem clientes" }],
+    clientesSheetData.length ? clientesSheetData : [{ Mensagem: "Sem clientes" }]
   );
   XLSX.utils.book_append_sheet(wb, wsClientes, "Clientes");
 
+  // =========================
+  // CONTATOS DE CLIENTES
+  // =========================
   const contatosSheetData = [];
-  clientes.forEach((c) => {
-    (c.contatos || []).forEach((ct) => {
+
+  listaClientes.forEach((c) => {
+    const contatosCliente = Array.isArray(c.contatos) ? c.contatos : [];
+
+    contatosCliente.forEach((ct, index) => {
       contatosSheetData.push({
-        ClienteID: c.id,
-        ClienteCNPJ: c.cnpj,
-        Nome: ct.nome,
-        Telefone: ct.telefone,
-        Email: ct.email,
-        Funcao: ct.funcao,
+        ClienteID: c.id || "",
+        ClienteRazaoSocial: c.razao || "",
+        ClienteCNPJ: c.cnpj || "",
+        ContatoIndex: index + 1,
+        Nome: ct.nome || "",
+        Telefone: ct.telefone || ct.tel || "",
+        Email: ct.email || "",
+        Funcao: ct.funcao || ct.cargo || "",
         Principal: ct.principal ? "Sim" : "Não",
         ResponsavelId: ct.responsavelId || "",
         ResponsavelNome: ct.responsavelNome || "",
+        CriadoPor: ct.criadoPor || c.criadoPor || "",
+        AtualizadoPor: ct.atualizadoPor || c.atualizadoPor || "",
       });
     });
   });
-  const wsContatos = XLSX.utils.json_to_sheet(
-    contatosSheetData.length
-      ? contatosSheetData
-      : [{ Mensagem: "Sem contatos" }],
-  );
-  XLSX.utils.book_append_sheet(wb, wsContatos, "Contatos");
 
-  const repsData = representadas.map((r) => ({
-    ID: r.id,
-    Nome: r.nome,
+  const wsContatos = XLSX.utils.json_to_sheet(
+    contatosSheetData.length ? contatosSheetData : [{ Mensagem: "Sem contatos de clientes" }]
+  );
+  XLSX.utils.book_append_sheet(wb, wsContatos, "ContatosClientes");
+
+  // =========================
+  // REPRESENTADAS
+  // =========================
+  const repsData = listaRepresentadas.map((r) => ({
+    ID: r.id || "",
+    Nome: r.nome || "",
     CriadoPor: r.criadoPor || "",
     AtualizadoPor: r.atualizadoPor || "",
   }));
+
   const wsRep = XLSX.utils.json_to_sheet(
-    repsData.length ? repsData : [{ Mensagem: "Sem representadas" }],
+    repsData.length ? repsData : [{ Mensagem: "Sem representadas" }]
   );
   XLSX.utils.book_append_sheet(wb, wsRep, "Representadas");
 
-  const ofertasData = registros.map((r) => ({
-    ID: r.id,
-    ClienteID: r.clienteId || null,
+  // =========================
+  // OFERTAS
+  // =========================
+  const ofertasData = listaRegistros.map((r) => ({
+    ID: r.id || "",
+    ClienteID: r.clienteId || "",
     ClienteCNPJ: r.cnpj_cliente || "",
     RazaoSocial: r.razao || "",
     BU: r.bu || "",
     Segmento: r.segmento || "",
     Projeto: r.nome_projeto || "",
-    RepresentadaID: r.representadaId || null,
+    RepresentadaID: r.representadaId || "",
     RepresentadaNome: r.representadaNome || "",
     Solicitante: r.solicitante || "",
     Telefone: r.telefone || "",
@@ -2315,6 +2371,7 @@ function exportBackupExcel() {
     DataEntrada: r.data_entrada || "",
     Status: r.status || "",
     DataEnvio: r.data_envio || "",
+    AtendimentoSpot: r.spot || r.atendimento_spot || "nao",
     PossuiPedido: r.possuiPedido || "nao",
     ObservacoesGerais: r.obs_geral || "",
     PossuiRevisao: r.possuiRevisao || "nao",
@@ -2328,197 +2385,1037 @@ function exportBackupExcel() {
     TipoProduto: r.pedido?.tipo_produto || "",
     ObsPedido: r.pedido?.obs || "",
     NotasFiscais: formatarNotasFiscaisTexto(r.pedido),
-    DataNF: r.pedido?.data_nf || "",
-    ValorNF: r.pedido?.valor_nf || "",
     PrazoEntregaContratual: r.pedido?.prazo_entrega_contratual || "",
-    SolicitacaoOC: r.pedido?.solicitacao_oc || "",
+    SolicitacaoOC: r.pedido?.solicitacao_oc || r.pedido?.sol_oc || "",
     RefOC: r.pedido?.ref_oc || "",
+    DataImplantacao: r.pedido?.data_implantacao || "",
     CriadoPor: r.criadoPor || "",
     AtualizadoPor: r.atualizadoPor || "",
   }));
 
   const wsOfertas = XLSX.utils.json_to_sheet(
-    ofertasData.length ? ofertasData : [{ Mensagem: "Sem ofertas" }],
+    ofertasData.length ? ofertasData : [{ Mensagem: "Sem ofertas" }]
   );
   XLSX.utils.book_append_sheet(wb, wsOfertas, "Ofertas");
+
+  // =========================
+  // PROJETOS
+  // =========================
+  const projetosData = listaProjetos.map((p) => ({
+    ID: p.id || "",
+    NomeProjeto: p.nome || p.nome_projeto || "",
+    TipoProjeto: p.tipo || p.tipo_projeto || "",
+    Status: p.status || "",
+    NumeroReferencia: p.referencia || p.numero_referencia || p.proj_referencia || "",
+    PrazoFinal: p.prazo_final || p.proj_prazo_final || "",
+    ValorInvestimento: p.valor_investimento || p.proj_valor_investimento || "",
+    PrevFechamento: p.prev_fechamento || p.proj_prev_fechamento || "",
+    InicioEntregas: p.inicio_entregas || p.proj_inicio_entregas || "",
+    FimEntregas: p.fim_entregas || p.proj_fim_entregas || "",
+    Observacoes: p.obs || p.proj_obs || "",
+    CriadoPor: p.criadoPor || "",
+    AtualizadoPor: p.atualizadoPor || "",
+  }));
+
+  const wsProjetos = XLSX.utils.json_to_sheet(
+    projetosData.length ? projetosData : [{ Mensagem: "Sem projetos" }]
+  );
+  XLSX.utils.book_append_sheet(wb, wsProjetos, "Projetos");
+
+  // =========================
+  // ATUALIZAÇÕES DE PROJETOS
+  // =========================
+  const atualizacoesProjetosData = [];
+
+  listaProjetos.forEach((p) => {
+    const atualizacoes =
+      Array.isArray(p.atualizacoes)
+        ? p.atualizacoes
+        : Array.isArray(p.updates)
+        ? p.updates
+        : Array.isArray(p.historico)
+        ? p.historico
+        : [];
+
+    atualizacoes.forEach((at, index) => {
+      if (typeof at === "string") {
+        atualizacoesProjetosData.push({
+          ProjetoID: p.id || "",
+          ProjetoNome: p.nome || p.nome_projeto || "",
+          ProjetoReferencia: p.referencia || p.numero_referencia || p.proj_referencia || "",
+          AtualizacaoIndex: index + 1,
+          Texto: at,
+          Data: "",
+          CriadoPor: p.criadoPor || "",
+          AtualizadoPor: p.atualizadoPor || "",
+        });
+      } else {
+        atualizacoesProjetosData.push({
+          ProjetoID: p.id || "",
+          ProjetoNome: p.nome || p.nome_projeto || "",
+          ProjetoReferencia: p.referencia || p.numero_referencia || p.proj_referencia || "",
+          AtualizacaoIndex: index + 1,
+          Texto: at.texto || at.descricao || at.update || "",
+          Data: at.data || at.criadoEm || at.updatedAt || "",
+          CriadoPor: at.criadoPor || p.criadoPor || "",
+          AtualizadoPor: at.atualizadoPor || p.atualizadoPor || "",
+        });
+      }
+    });
+  });
+
+  const wsAtualizacoesProjetos = XLSX.utils.json_to_sheet(
+    atualizacoesProjetosData.length
+      ? atualizacoesProjetosData
+      : [{ Mensagem: "Sem atualizações de projetos" }]
+  );
+  XLSX.utils.book_append_sheet(wb, wsAtualizacoesProjetos, "AtualizacoesProjetos");
+
+  // =========================
+  // CONTATOS DE PROJETOS
+  // =========================
+  const contatosProjetosData = [];
+
+  listaProjetos.forEach((p) => {
+    const contatosProjeto =
+      Array.isArray(p.contatos)
+        ? p.contatos
+        : Array.isArray(p.contatosProjeto)
+        ? p.contatosProjeto
+        : [];
+
+    contatosProjeto.forEach((ct, index) => {
+      contatosProjetosData.push({
+        ProjetoID: p.id || "",
+        ProjetoNome: p.nome || p.nome_projeto || "",
+        ProjetoReferencia: p.referencia || p.numero_referencia || p.proj_referencia || "",
+        ContatoIndex: index + 1,
+        Nome: ct.nome || "",
+        Telefone: ct.telefone || ct.tel || "",
+        Email: ct.email || "",
+        Funcao: ct.funcao || ct.cargo || "",
+        Principal: ct.principal ? "Sim" : "Não",
+        ResponsavelId: ct.responsavelId || "",
+        ResponsavelNome: ct.responsavelNome || "",
+        CriadoPor: ct.criadoPor || p.criadoPor || "",
+        AtualizadoPor: ct.atualizadoPor || p.atualizadoPor || "",
+      });
+    });
+  });
+
+  const wsContatosProjetos = XLSX.utils.json_to_sheet(
+    contatosProjetosData.length
+      ? contatosProjetosData
+      : [{ Mensagem: "Sem contatos de projetos" }]
+  );
+  XLSX.utils.book_append_sheet(wb, wsContatosProjetos, "ContatosProjetos");
+
+  // =========================
+  // AJUSTE DE LARGURA DAS COLUNAS
+  // =========================
+  function autoFitColumns(ws, data) {
+    const colWidths = [];
+    if (!data.length) return;
+
+    const headers = Object.keys(data[0]);
+
+    headers.forEach((header, colIndex) => {
+      let maxLength = String(header).length;
+
+      data.forEach((row) => {
+        const cellValue = row[header] == null ? "" : String(row[header]);
+        if (cellValue.length > maxLength) {
+          maxLength = cellValue.length;
+        }
+      });
+
+      colWidths[colIndex] = { wch: Math.min(maxLength + 2, 40) };
+    });
+
+    ws["!cols"] = colWidths;
+  }
+
+  autoFitColumns(wsClientes, clientesSheetData.length ? clientesSheetData : [{ Mensagem: "Sem clientes" }]);
+  autoFitColumns(wsContatos, contatosSheetData.length ? contatosSheetData : [{ Mensagem: "Sem contatos de clientes" }]);
+  autoFitColumns(wsRep, repsData.length ? repsData : [{ Mensagem: "Sem representadas" }]);
+  autoFitColumns(wsOfertas, ofertasData.length ? ofertasData : [{ Mensagem: "Sem ofertas" }]);
+  autoFitColumns(wsProjetos, projetosData.length ? projetosData : [{ Mensagem: "Sem projetos" }]);
+  autoFitColumns(wsAtualizacoesProjetos, atualizacoesProjetosData.length ? atualizacoesProjetosData : [{ Mensagem: "Sem atualizações de projetos" }]);
+  autoFitColumns(wsContatosProjetos, contatosProjetosData.length ? contatosProjetosData : [{ Mensagem: "Sem contatos de projetos" }]);
+
+console.log("Clientes:", listaClientes);
+console.log("Contatos de clientes:", contatosSheetData);
+console.log("Projetos:", listaProjetos);
+console.log("Contatos de projetos:", contatosProjetosData);
+console.log("Ofertas:", ofertasData);
 
   XLSX.writeFile(wb, "backup_crm.xlsx");
 }
 
-function importBackupExcel(file) {
+function abrirModalImportacao() {
+  document.getElementById("modalImportacao")?.classList.remove("hidden");
+}
+
+function fecharModalImportacao() {
+  document.getElementById("modalImportacao")?.classList.add("hidden");
+}
+
+function iniciarStatusImportacao(titulo = "Importação") {
+  const modal = document.getElementById("modalImportacao");
+  const tituloEl = document.getElementById("modalImportacaoTitulo");
+  const loaderWrap = document.getElementById("importLoaderWrap");
+  const resultadoWrap = document.getElementById("importResultadoWrap");
+  const statusTexto = document.getElementById("importStatusTexto");
+  const progressBar = document.getElementById("importProgressBar");
+  const progressLabel = document.getElementById("importProgressLabel");
+
+  if (tituloEl) tituloEl.textContent = titulo;
+  if (loaderWrap) loaderWrap.classList.remove("hidden");
+  if (resultadoWrap) resultadoWrap.classList.add("hidden");
+  if (statusTexto) statusTexto.textContent = "Importando arquivo...";
+  if (progressBar) progressBar.style.width = "0%";
+  if (progressLabel) progressLabel.textContent = "0%";
+  if (modal) modal.classList.remove("hidden");
+}
+
+function atualizarStatusImportacao(percentual, texto = "Importando arquivo...") {
+  const progressBar = document.getElementById("importProgressBar");
+  const progressLabel = document.getElementById("importProgressLabel");
+  const statusTexto = document.getElementById("importStatusTexto");
+
+  const valor = Math.max(0, Math.min(100, Number(percentual) || 0));
+  if (progressBar) progressBar.style.width = `${valor}%`;
+  if (progressLabel) progressLabel.textContent = `${valor}%`;
+  if (statusTexto) statusTexto.textContent = texto;
+}
+
+function mostrarResultadoImportacao(titulo, mensagem, tipo = "sucesso", erros = []) {
+  const modal = document.getElementById("modalImportacao");
+  const tituloEl = document.getElementById("modalImportacaoTitulo");
+  const loaderWrap = document.getElementById("importLoaderWrap");
+  const resultadoWrap = document.getElementById("importResultadoWrap");
+  const resumo = document.getElementById("importResultadoResumo");
+  const btnRelatorio = document.getElementById("btnBaixarRelatorioImportacao");
+
+  if (tituloEl) {
+    tituloEl.textContent = titulo;
+    tituloEl.style.color = tipo === "erro" ? "#dc2626" : "#16a34a";
+  }
+
+  if (loaderWrap) loaderWrap.classList.add("hidden");
+  if (resultadoWrap) resultadoWrap.classList.remove("hidden");
+  if (resumo) resumo.textContent = mensagem;
+  if (modal) modal.classList.remove("hidden");
+
+  if (btnRelatorio) {
+    if (Array.isArray(erros) && erros.length) {
+      btnRelatorio.classList.remove("hidden");
+      btnRelatorio.onclick = () => baixarRelatorioErrosImportacao(erros);
+    } else {
+      btnRelatorio.classList.add("hidden");
+      btnRelatorio.onclick = null;
+    }
+  }
+}
+
+function baixarRelatorioErrosImportacao(erros) {
+  const linhas = [
+    "Relatório de erros da importação",
+    `Gerado em: ${new Date().toLocaleString("pt-BR")}`,
+    "",
+    ...erros.map((erro, i) => `${i + 1}. ${erro}`)
+  ];
+
+  const blob = new Blob([linhas.join("\n")], { type: "text/plain;charset=utf-8" });
+  const url = URL.createObjectURL(blob);
+
+  const a = document.createElement("a");
+  a.href = url;
+  a.download = "relatorio_erros_importacao.txt";
+  document.body.appendChild(a);
+  a.click();
+  document.body.removeChild(a);
+
+  URL.revokeObjectURL(url);
+}
+
+function importBackupExcelFirebase(event) {
+  const file = event?.target?.files?.[0];
+  if (!file) return;
+
+  const nomeArquivo = file.name.toLowerCase();
+  if (!nomeArquivo.endsWith(".xlsx") && !nomeArquivo.endsWith(".xls")) {
+    mostrarResultadoImportacao(
+      "Arquivo inválido",
+      "Selecione um arquivo Excel válido (.xlsx ou .xls).",
+      "erro",
+      ["O arquivo selecionado não é uma planilha Excel válida."]
+    );
+    event.target.value = "";
+    return;
+  }
+
+  iniciarStatusImportacao("Importando planilha");
+  atualizarStatusImportacao(2, "Preparando Firebase...");
+
   const reader = new FileReader();
-  reader.onload = function (e) {
+
+  reader.onload = async function (e) {
     try {
+      if (!window.db) {
+        throw new Error("Firestore não está disponível.");
+      }
+
+      atualizarStatusImportacao(6, "Lendo arquivo Excel...");
+
       const data = new Uint8Array(e.target.result);
       const wb = XLSX.read(data, { type: "array" });
 
-      registros = [];
-      clientes = [];
-      representadas = [];
+      const sheetToJson = (name) =>
+        wb.Sheets[name]
+          ? XLSX.utils.sheet_to_json(wb.Sheets[name], { defval: "" })
+          : [];
 
-      const shClientes = wb.Sheets["Clientes"];
-      if (shClientes) {
-        const dados = XLSX.utils.sheet_to_json(shClientes);
-        clientes = dados
-          .filter((row) => row.RazaoSocial || row.CNPJ)
-          .map((row) => ({
-            id: row.ID || gerarId(),
-            razao: row.RazaoSocial || "",
-            cnpj: row.CNPJ || "",
-            ie: row.IE || "",
-            endereco: row.Endereco || "",
-            segmento: row.Segmento || "",
-            contatos: [],
-            criadoPor: row.CriadoPor || "",
-            atualizadoPor: row.AtualizadoPor || row.CriadoPor || "",
-          }));
+      const clientesPlan = sheetToJson("Clientes");
+      const contatosClientesPlan = sheetToJson("ContatosClientes");
+      const representadasPlan = sheetToJson("Representadas");
+      const ofertasPlan = sheetToJson("Ofertas");
+      const projetosPlan = sheetToJson("Projetos");
+      const contatosProjetosPlan = sheetToJson("ContatosProjetos");
+      const atualizacoesProjetosPlan = sheetToJson("AtualizacoesProjetos");
+
+      const totalLinhas =
+        clientesPlan.length +
+        contatosClientesPlan.length +
+        representadasPlan.length +
+        ofertasPlan.length +
+        projetosPlan.length +
+        contatosProjetosPlan.length +
+        atualizacoesProjetosPlan.length;
+
+      if (totalLinhas === 0) {
+        mostrarResultadoImportacao(
+          "Planilha vazia",
+          "Nenhuma linha válida foi encontrada nas abas esperadas.",
+          "erro",
+          ["A planilha não possui dados nas abas do modelo."]
+        );
+        event.target.value = "";
+        return;
       }
 
-      const shRep = wb.Sheets["Representadas"];
-      if (shRep) {
-        const dadosRep = XLSX.utils.sheet_to_json(shRep);
-        representadas = dadosRep
-          .filter((row) => row.Nome)
-          .map((row) => ({
-            id: row.ID || gerarId(),
-            nome: row.Nome || "",
-            criadoPor: row.CriadoPor || "",
-            atualizadoPor: row.AtualizadoPor || row.CriadoPor || "",
-          }));
+      atualizarStatusImportacao(12, "Carregando dados atuais do Firebase...");
+
+      const [
+        snapClientes,
+        snapRepresentadas,
+        snapOfertas,
+        snapProjetos,
+      ] = await Promise.all([
+        db.collection("clientes").get(),
+        db.collection("representadas").get(),
+        db.collection("ofertas").get(),
+        db.collection("projetos").get(),
+      ]);
+
+      const clientesExistentes = snapClientes.docs.map((doc) => ({ id: doc.id, ...doc.data() }));
+      const representadasExistentes = snapRepresentadas.docs.map((doc) => ({ id: doc.id, ...doc.data() }));
+      const ofertasExistentes = snapOfertas.docs.map((doc) => ({ id: doc.id, ...doc.data() }));
+      const projetosExistentes = snapProjetos.docs.map((doc) => ({ id: doc.id, ...doc.data() }));
+
+      const clientesPorCnpj = new Map(
+        clientesExistentes.map((c) => [normalizarCNPJ(c.cnpj), c])
+      );
+
+      const representadasPorNome = new Map(
+        representadasExistentes.map((r) => [normalizarTexto(r.nome).toLowerCase(), r])
+      );
+
+      const projetosPorChave = new Map(
+        projetosExistentes.map((p) => [
+          chaveProjetoImport(
+            p.nome || p.nome_projeto,
+            p.numero_referencia || p.referencia || p.proj_referencia
+          ),
+          p
+        ])
+      );
+
+      const ofertasPorChave = new Map(
+        ofertasExistentes.map((o) => [
+          chaveOfertaImport(o.oferta, o.cnpj_cliente),
+          o
+        ])
+      );
+
+      const currentUser =
+        typeof getCurrentUserName === "function"
+          ? getCurrentUserName()
+          : "Importação";
+      const nowIso = new Date().toISOString();
+
+      const relatorio = {
+        clientes: { importados: 0, ignorados: 0, falhas: 0 },
+        representadas: { importados: 0, ignorados: 0, falhas: 0 },
+        ofertas: { importados: 0, ignorados: 0, falhas: 0 },
+        projetos: { importados: 0, ignorados: 0, falhas: 0 },
+        contatosClientes: { importados: 0, ignorados: 0, falhas: 0 },
+        contatosProjetos: { importados: 0, ignorados: 0, falhas: 0 },
+        atualizacoesProjetos: { importados: 0, ignorados: 0, falhas: 0 },
+        erros: []
+      };
+
+      let linhasProcessadas = 0;
+
+      function atualizarProgressoReal(texto) {
+        const percentualBase = 15;
+        const percentualMaximo = 92;
+
+        let percentual = percentualBase;
+        if (totalLinhas > 0) {
+          percentual =
+            percentualBase +
+            Math.round((linhasProcessadas / totalLinhas) * (percentualMaximo - percentualBase));
+        }
+
+        atualizarStatusImportacao(percentual, texto);
       }
 
-      const shContatos = wb.Sheets["Contatos"];
-      if (shContatos) {
-        const dadosC = XLSX.utils.sheet_to_json(shContatos);
-        dadosC.forEach((row) => {
-          const cid = row.ClienteID;
-          const cnpj = row.ClienteCNPJ ? String(row.ClienteCNPJ) : "";
+      // =========================================
+      // IMPORTAÇÃO DE CLIENTES
+      // =========================================
+      const clientesNovosMap = new Map();
 
-          let cliente = null;
-          if (cid) cliente = clientes.find((c) => c.id == cid);
-          if (!cliente && cnpj) {
-            const clean = cnpj.replace(/\D/g, "");
-            cliente = clientes.find(
-              (c) => (c.cnpj || "").replace(/\D/g, "") === clean,
-            );
-          }
-          if (!cliente) return;
+      clientesPlan.forEach((row, i) => {
+        linhasProcessadas++;
+        atualizarProgressoReal(`Validando clientes (${linhasProcessadas}/${totalLinhas})...`);
 
-          if (!cliente.contatos) cliente.contatos = [];
-          cliente.contatos.push({
-            nome: row.Nome || "",
-            telefone: row.Telefone || "",
-            email: row.Email || "",
-            funcao: row.Funcao || "",
-            principal: String(row.Principal || "").toLowerCase() === "sim",
-            responsavelId: row.ResponsavelId || "",
-            responsavelNome: row.ResponsavelNome || "",
-          });
+        const linha = i + 2;
+        const erros = validarObrigatoriosLinha(
+          row,
+          ["RazaoSocial", "CNPJ", "Segmento"],
+          `Clientes linha ${linha}`
+        );
+
+        const cnpjNormalizado = normalizarCNPJ(row.CNPJ);
+        if (!cnpjNormalizado) {
+          erros.push(`Clientes linha ${linha}: CNPJ inválido`);
+        }
+
+        if (erros.length) {
+          relatorio.clientes.falhas++;
+          relatorio.erros.push(...erros);
+          return;
+        }
+
+        if (clientesPorCnpj.has(cnpjNormalizado) || clientesNovosMap.has(cnpjNormalizado)) {
+          relatorio.clientes.ignorados++;
+          return;
+        }
+
+        const id = row.ID || gerarIdSeguroImportacao();
+
+        clientesNovosMap.set(cnpjNormalizado, {
+          id,
+          razao: normalizarTexto(row.RazaoSocial),
+          cnpj: normalizarTexto(row.CNPJ),
+          ie: normalizarTexto(row.IE),
+          endereco: normalizarTexto(row.Endereco),
+          segmento: normalizarTexto(row.Segmento),
+          sap: normalizarTexto(row.SAP),
+          contatos: [],
+          criadoPor: currentUser,
+          atualizadoPor: currentUser,
+          criadoEm: nowIso,
+          atualizadoEm: nowIso,
+          historico: typeof criarEventoHistorico === "function"
+            ? [
+                criarEventoHistorico({
+                  usuario: currentUser,
+                  acao: "Criou",
+                  campo: "cliente",
+                  de: "",
+                  para: normalizarTexto(row.RazaoSocial) || "novo cliente",
+                }),
+              ]
+            : [],
         });
+      });
+
+      // CONTATOS DE CLIENTES PARA NOVOS E EXISTENTES
+      contatosClientesPlan.forEach((row, i) => {
+        linhasProcessadas++;
+        atualizarProgressoReal(`Processando contatos de clientes (${linhasProcessadas}/${totalLinhas})...`);
+
+        const linha = i + 2;
+        const erros = validarObrigatoriosLinha(
+          row,
+          ["ClienteCNPJ", "Nome", "Telefone", "Email"],
+          `ContatosClientes linha ${linha}`
+        );
+
+        const clienteCnpj = normalizarCNPJ(row.ClienteCNPJ);
+        if (!clienteCnpj) {
+          erros.push(`ContatosClientes linha ${linha}: ClienteCNPJ inválido`);
+        }
+
+        if (erros.length) {
+          relatorio.contatosClientes.falhas++;
+          relatorio.erros.push(...erros);
+          return;
+        }
+
+        const contato = {
+          nome: normalizarTexto(row.Nome),
+          telefone: normalizarTexto(row.Telefone),
+          email: normalizarEmail(row.Email),
+          funcao: normalizarTexto(row.Funcao),
+          principal: normalizarTexto(row.Principal).toLowerCase() === "sim",
+          responsavelId: normalizarTexto(row.ResponsavelId),
+          responsavelNome: normalizarTexto(row.ResponsavelNome),
+          criadoEm: nowIso,
+          atualizadoEm: nowIso,
+          criadoPor: currentUser,
+          atualizadoPor: currentUser,
+        };
+
+        const clienteNovo = clientesNovosMap.get(clienteCnpj);
+        if (clienteNovo) {
+          const existeContato = (clienteNovo.contatos || []).some(
+            (ct) =>
+              normalizarTexto(ct.nome).toLowerCase() === normalizarTexto(contato.nome).toLowerCase() &&
+              normalizarEmail(ct.email) === normalizarEmail(contato.email)
+          );
+
+          if (existeContato) {
+            relatorio.contatosClientes.ignorados++;
+            return;
+          }
+
+          if (contato.principal) {
+            clienteNovo.contatos = clienteNovo.contatos.map((c) => ({ ...c, principal: false }));
+          }
+          clienteNovo.contatos.push(contato);
+          relatorio.contatosClientes.importados++;
+          return;
+        }
+
+        const clienteExistente = clientesPorCnpj.get(clienteCnpj);
+        if (!clienteExistente) {
+          relatorio.contatosClientes.falhas++;
+          relatorio.erros.push(`ContatosClientes linha ${linha}: cliente não encontrado pelo CNPJ`);
+          return;
+        }
+
+        if (!Array.isArray(clienteExistente.contatos)) clienteExistente.contatos = [];
+
+        const existeContato = clienteExistente.contatos.some(
+          (ct) =>
+            normalizarTexto(ct.nome).toLowerCase() === normalizarTexto(contato.nome).toLowerCase() &&
+            normalizarEmail(ct.email) === normalizarEmail(contato.email)
+        );
+
+        if (existeContato) {
+          relatorio.contatosClientes.ignorados++;
+          return;
+        }
+
+        if (contato.principal) {
+          clienteExistente.contatos = clienteExistente.contatos.map((c) => ({ ...c, principal: false }));
+        }
+
+        clienteExistente.contatos.push(contato);
+        clienteExistente.atualizadoPor = currentUser;
+        clienteExistente.atualizadoEm = nowIso;
+        clienteExistente.__precisaSalvar = true;
+        relatorio.contatosClientes.importados++;
+      });
+
+      // GARANTIR CONTATO PRINCIPAL NOS CLIENTES NOVOS
+      clientesNovosMap.forEach((cliente) => {
+        if (cliente.contatos.length > 0 && !cliente.contatos.some((c) => c.principal)) {
+          cliente.contatos[0].principal = true;
+        }
+      });
+
+      atualizarStatusImportacao(40, "Salvando clientes no Firebase...");
+
+      for (const cliente of clientesNovosMap.values()) {
+        await db.collection("clientes").doc(cliente.id).set(cliente);
+        clientesPorCnpj.set(normalizarCNPJ(cliente.cnpj), cliente);
+        relatorio.clientes.importados++;
       }
 
-      const shOfertas = wb.Sheets["Ofertas"];
-      if (shOfertas) {
-        const dadosOf = XLSX.utils.sheet_to_json(shOfertas);
-        registros = dadosOf
-          .filter((row) => row.NumeroOferta || row.RazaoSocial)
-          .map((row) => {
-            const pedidoExiste =
-              row.NumeroPedido ||
-              row.ValorPedido ||
-              row.RefProjetoPedido ||
-              row.TipoProduto ||
-              row.CondicaoPagamento ||
-              row.ObsPedido ||
-              row.DataNF ||
-              row.ValorNF ||
-              row.PrazoEntregaContratual ||
-              row.SolicitacaoOC ||
-              row.RefOC;
-
-            const pedido = pedidoExiste
-              ? {
-                  numero_pedido: row.NumeroPedido || "",
-                  valor_pedido: row.ValorPedido || "",
-                  data_po: row.DataPO || "",
-                  cond_pagamento: row.CondicaoPagamento || "",
-                  ref_projeto: row.RefProjetoPedido || "",
-                  tipo_produto: row.TipoProduto || "",
-                  obs: row.ObsPedido || "",
-                  data_nf: row.DataNF || "",
-                  valor_nf: row.ValorNF || "",
-                  prazo_entrega_contratual: row.PrazoEntregaContratual || "",
-                  solicitacao_oc:
-                    (row.SolicitacaoOC || "").toString().toLowerCase() || "",
-                  ref_oc: row.RefOC || "",
-                }
-              : null;
-
-            const possuiRevisao = (row.PossuiRevisao || "nao")
-              .toString()
-              .toLowerCase();
-            const revisao =
-              possuiRevisao === "sim" ||
-              row.RevisaoOfertaAnterior ||
-              row.RevisaoMudou
-                ? {
-                    numero_oferta_anterior: row.RevisaoOfertaAnterior || "",
-                    mudou: row.RevisaoMudou || "",
-                  }
-                : null;
-
-            const possuiPedido = (
-              row.PossuiPedido || (pedidoExiste ? "sim" : "nao")
-            )
-              .toString()
-              .toLowerCase();
-
-            return {
-              id: row.ID || gerarId(),
-              clienteId: row.ClienteID || null,
-              cnpj_cliente: row.ClienteCNPJ || "",
-              razao: row.RazaoSocial || "",
-              bu: row.BU || "",
-              segmento: row.Segmento || "",
-              nome_projeto: row.Projeto || "",
-              representadaId: row.RepresentadaID || null,
-              representadaNome: row.RepresentadaNome || "",
-              solicitante: row.Solicitante || "",
-              telefone: row.Telefone || "",
-              email: row.Email || "",
-              oferta: row.NumeroOferta || "",
-              tipo_oferta: row.TipoNegocio || "",
-              valor_total: row.ValorTotal || "",
-              oportunidade: row.Oportunidade || "",
-              data_entrada: row.DataEntrada || "",
-              status: row.Status || "",
-              data_envio: row.DataEnvio || "",
-              obs_geral: row.ObservacoesGerais || "",
-              possuiPedido,
-              pedido: possuiPedido === "sim" ? pedido : null,
-              possuiRevisao,
-              revisao,
-              criadoPor: row.CriadoPor || "",
-              atualizadoPor: row.AtualizadoPor || row.CriadoPor || "",
-            };
-          });
+      for (const cliente of clientesExistentes) {
+        if (cliente.__precisaSalvar) {
+          const copia = { ...cliente };
+          delete copia.__precisaSalvar;
+          await db.collection("clientes").doc(cliente.id).set(copia);
+        }
       }
 
-      salvarRegistros();
-      salvarClientes();
-      salvarRepresentadas();
+      // =========================================
+      // REPRESENTADAS
+      // =========================================
+      representadasPlan.forEach((row, i) => {
+        linhasProcessadas++;
+        atualizarProgressoReal(`Validando representadas (${linhasProcessadas}/${totalLinhas})...`);
 
-      renderTabela();
-      renderTabelaClientes();
-      renderTabelaRepresentadas();
-      preencherSelectRepresentadas();
+        const linha = i + 2;
+        const erros = validarObrigatoriosLinha(
+          row,
+          ["Nome"],
+          `Representadas linha ${linha}`
+        );
 
-      alert("Backup Excel importado com sucesso!");
-    } catch (err) {
-      console.error(err);
-      alert("Erro ao importar Excel. Verifique o modelo da planilha.");
+        if (erros.length) {
+          relatorio.representadas.falhas++;
+          relatorio.erros.push(...erros);
+          return;
+        }
+
+        const nomeKey = normalizarTexto(row.Nome).toLowerCase();
+        if (representadasPorNome.has(nomeKey)) {
+          relatorio.representadas.ignoradas++;
+          return;
+        }
+
+        const id = row.ID || gerarIdSeguroImportacao();
+        const representada = {
+          id,
+          nome: normalizarTexto(row.Nome),
+          criadoPor: currentUser,
+          atualizadoPor: currentUser,
+          criadoEm: nowIso,
+          atualizadoEm: nowIso,
+        };
+
+        representadasPorNome.set(nomeKey, representada);
+        representada.__nova = true;
+      });
+
+      atualizarStatusImportacao(52, "Salvando representadas no Firebase...");
+
+      for (const representada of representadasPorNome.values()) {
+        if (representada.__nova) {
+          const copia = { ...representada };
+          delete copia.__nova;
+          await db.collection("representadas").doc(copia.id).set(copia);
+          relatorio.representadas.importados++;
+        }
+      }
+
+      // =========================================
+      // PROJETOS
+      // =========================================
+      const projetosNovosMap = new Map();
+
+      projetosPlan.forEach((row, i) => {
+        linhasProcessadas++;
+        atualizarProgressoReal(`Validando projetos (${linhasProcessadas}/${totalLinhas})...`);
+
+        const linha = i + 2;
+        const erros = validarObrigatoriosLinha(
+          row,
+          ["NomeProjeto", "TipoProjeto", "Status"],
+          `Projetos linha ${linha}`
+        );
+
+        if (erros.length) {
+          relatorio.projetos.falhas++;
+          relatorio.erros.push(...erros);
+          return;
+        }
+
+        const chave = chaveProjetoImport(row.NomeProjeto, row.NumeroReferencia);
+
+        if (projetosPorChave.has(chave) || projetosNovosMap.has(chave)) {
+          relatorio.projetos.ignorados++;
+          return;
+        }
+
+        const id = row.ID || gerarIdSeguroImportacao();
+
+        projetosNovosMap.set(chave, {
+          id,
+          nome: normalizarTexto(row.NomeProjeto),
+          tipo: normalizarTexto(row.TipoProjeto),
+          status: normalizarTexto(row.Status),
+          numero_referencia: normalizarTexto(row.NumeroReferencia),
+          prazo_final: normalizarTexto(row.PrazoFinal),
+          valor_investimento: normalizarTexto(row.ValorInvestimento),
+          prev_fechamento: normalizarTexto(row.PrevFechamento),
+          inicio_entregas: normalizarTexto(row.InicioEntregas),
+          fim_entregas: normalizarTexto(row.FimEntregas),
+          obs: normalizarTexto(row.Observacoes),
+          contatos: [],
+          atualizacoes: [],
+          criadoPor: currentUser,
+          atualizadoPor: currentUser,
+          criadoEm: nowIso,
+          atualizadoEm: nowIso,
+          historico: typeof criarEventoHistorico === "function"
+            ? [
+                criarEventoHistorico({
+                  usuario: currentUser,
+                  acao: "Criou",
+                  campo: "projeto",
+                  de: "",
+                  para: normalizarTexto(row.NomeProjeto) || "novo projeto",
+                }),
+              ]
+            : [],
+        });
+      });
+
+      // CONTATOS DE PROJETOS
+      contatosProjetosPlan.forEach((row, i) => {
+        linhasProcessadas++;
+        atualizarProgressoReal(`Processando contatos de projetos (${linhasProcessadas}/${totalLinhas})...`);
+
+        const linha = i + 2;
+        const erros = validarObrigatoriosLinha(
+          row,
+          ["ProjetoNome", "Nome", "Telefone", "Email"],
+          `ContatosProjetos linha ${linha}`
+        );
+
+        if (erros.length) {
+          relatorio.contatosProjetos.falhas++;
+          relatorio.erros.push(...erros);
+          return;
+        }
+
+        const chave = chaveProjetoImport(row.ProjetoNome, row.ProjetoReferencia);
+
+        const contato = {
+          nome: normalizarTexto(row.Nome),
+          telefone: normalizarTexto(row.Telefone),
+          email: normalizarEmail(row.Email),
+          funcao: normalizarTexto(row.Funcao),
+          principal: normalizarTexto(row.Principal).toLowerCase() === "sim",
+          responsavelId: normalizarTexto(row.ResponsavelId),
+          responsavelNome: normalizarTexto(row.ResponsavelNome),
+          criadoEm: nowIso,
+          atualizadoEm: nowIso,
+          criadoPor: currentUser,
+          atualizadoPor: currentUser,
+        };
+
+        const projetoNovo = projetosNovosMap.get(chave);
+        if (projetoNovo) {
+          const existeContato = (projetoNovo.contatos || []).some(
+            (ct) =>
+              normalizarTexto(ct.nome).toLowerCase() === normalizarTexto(contato.nome).toLowerCase() &&
+              normalizarEmail(ct.email) === normalizarEmail(contato.email)
+          );
+
+          if (existeContato) {
+            relatorio.contatosProjetos.ignorados++;
+            return;
+          }
+
+          if (contato.principal) {
+            projetoNovo.contatos = projetoNovo.contatos.map((c) => ({ ...c, principal: false }));
+          }
+          projetoNovo.contatos.push(contato);
+          relatorio.contatosProjetos.importados++;
+          return;
+        }
+
+        const projetoExistente = projetosPorChave.get(chave);
+        if (!projetoExistente) {
+          relatorio.contatosProjetos.falhas++;
+          relatorio.erros.push(`ContatosProjetos linha ${linha}: projeto não encontrado`);
+          return;
+        }
+
+        if (!Array.isArray(projetoExistente.contatos)) projetoExistente.contatos = [];
+
+        const existeContato = projetoExistente.contatos.some(
+          (ct) =>
+            normalizarTexto(ct.nome).toLowerCase() === normalizarTexto(contato.nome).toLowerCase() &&
+            normalizarEmail(ct.email) === normalizarEmail(contato.email)
+        );
+
+        if (existeContato) {
+          relatorio.contatosProjetos.ignorados++;
+          return;
+        }
+
+        if (contato.principal) {
+          projetoExistente.contatos = projetoExistente.contatos.map((c) => ({ ...c, principal: false }));
+        }
+
+        projetoExistente.contatos.push(contato);
+        projetoExistente.atualizadoPor = currentUser;
+        projetoExistente.atualizadoEm = nowIso;
+        projetoExistente.__precisaSalvar = true;
+        relatorio.contatosProjetos.importados++;
+      });
+
+      // ATUALIZAÇÕES DE PROJETOS
+      atualizacoesProjetosPlan.forEach((row, i) => {
+        linhasProcessadas++;
+        atualizarProgressoReal(`Processando atualizações de projetos (${linhasProcessadas}/${totalLinhas})...`);
+
+        const linha = i + 2;
+        const erros = validarObrigatoriosLinha(
+          row,
+          ["ProjetoNome", "Texto"],
+          `AtualizacoesProjetos linha ${linha}`
+        );
+
+        if (erros.length) {
+          relatorio.atualizacoesProjetos.falhas++;
+          relatorio.erros.push(...erros);
+          return;
+        }
+
+        const chave = chaveProjetoImport(row.ProjetoNome, row.ProjetoReferencia);
+
+        const atualizacao = {
+          texto: normalizarTexto(row.Texto),
+          data: normalizarTexto(row.Data),
+          criadoPor: currentUser,
+          atualizadoPor: currentUser,
+          criadoEm: nowIso,
+          atualizadoEm: nowIso,
+        };
+
+        const projetoNovo = projetosNovosMap.get(chave);
+        if (projetoNovo) {
+          const existeAtualizacao = (projetoNovo.atualizacoes || []).some(
+            (at) =>
+              normalizarTexto(at.texto).toLowerCase() === normalizarTexto(atualizacao.texto).toLowerCase() &&
+              normalizarTexto(at.data) === normalizarTexto(atualizacao.data)
+          );
+
+          if (existeAtualizacao) {
+            relatorio.atualizacoesProjetos.ignorados++;
+            return;
+          }
+
+          projetoNovo.atualizacoes.push(atualizacao);
+          relatorio.atualizacoesProjetos.importados++;
+          return;
+        }
+
+        const projetoExistente = projetosPorChave.get(chave);
+        if (!projetoExistente) {
+          relatorio.atualizacoesProjetos.falhas++;
+          relatorio.erros.push(`AtualizacoesProjetos linha ${linha}: projeto não encontrado`);
+          return;
+        }
+
+        if (!Array.isArray(projetoExistente.atualizacoes)) projetoExistente.atualizacoes = [];
+
+        const existeAtualizacao = projetoExistente.atualizacoes.some(
+          (at) =>
+            normalizarTexto(at.texto).toLowerCase() === normalizarTexto(atualizacao.texto).toLowerCase() &&
+            normalizarTexto(at.data) === normalizarTexto(atualizacao.data)
+        );
+
+        if (existeAtualizacao) {
+          relatorio.atualizacoesProjetos.ignorados++;
+          return;
+        }
+
+        projetoExistente.atualizacoes.push(atualizacao);
+        projetoExistente.atualizadoPor = currentUser;
+        projetoExistente.atualizadoEm = nowIso;
+        projetoExistente.__precisaSalvar = true;
+        relatorio.atualizacoesProjetos.importados++;
+      });
+
+      atualizarStatusImportacao(68, "Salvando projetos no Firebase...");
+
+      for (const projeto of projetosNovosMap.values()) {
+        await db.collection("projetos").doc(projeto.id).set(projeto);
+        projetosPorChave.set(
+          chaveProjetoImport(projeto.nome, projeto.numero_referencia),
+          projeto
+        );
+        relatorio.projetos.importados++;
+      }
+
+      for (const projeto of projetosExistentes) {
+        if (projeto.__precisaSalvar) {
+          const copia = { ...projeto };
+          delete copia.__precisaSalvar;
+          await db.collection("projetos").doc(projeto.id).set(copia);
+        }
+      }
+
+      // =========================================
+      // OFERTAS
+      // =========================================
+      atualizarStatusImportacao(76, "Validando ofertas...");
+
+      for (let i = 0; i < ofertasPlan.length; i++) {
+        const row = ofertasPlan[i];
+        linhasProcessadas++;
+        atualizarProgressoReal(`Importando ofertas (${linhasProcessadas}/${totalLinhas})...`);
+
+        const linha = i + 2;
+        const erros = validarObrigatoriosLinha(
+          row,
+          ["BU", "RazaoSocial", "Solicitante", "Telefone", "Email", "RepresentadaNome", "ValorTotal", "Status", "TipoNegocio"],
+          `Ofertas linha ${linha}`
+        );
+
+        if (!normalizarTexto(row.NumeroOferta)) {
+          erros.push(`Ofertas linha ${linha}: campo obrigatório "NumeroOferta" não preenchido`);
+        }
+
+        if (deveExigirSegmentoImportacao(row.BU) && !normalizarTexto(row.Segmento)) {
+          erros.push(`Ofertas linha ${linha}: campo obrigatório "Segmento" não preenchido para a B.U informada`);
+        }
+
+        if (erros.length) {
+          relatorio.ofertas.falhas++;
+          relatorio.erros.push(...erros);
+          continue;
+        }
+
+        const chave = chaveOfertaImport(row.NumeroOferta, row.ClienteCNPJ);
+        if (ofertasPorChave.has(chave)) {
+          relatorio.ofertas.ignorados++;
+          continue;
+        }
+
+        const clienteRelacionado = clientesPorCnpj.get(normalizarCNPJ(row.ClienteCNPJ));
+        const representadaRelacionada = representadasPorNome.get(normalizarTexto(row.RepresentadaNome).toLowerCase());
+
+        const id = row.ID || gerarIdSeguroImportacao();
+
+        const oferta = {
+          id,
+          bu: normalizarTexto(row.BU),
+          segmento: normalizarTexto(row.Segmento),
+          razao: normalizarTexto(row.RazaoSocial),
+          cnpj_cliente: normalizarTexto(row.ClienteCNPJ),
+          clienteId: clienteRelacionado?.id || normalizarTexto(row.ClienteID) || null,
+          solicitante: normalizarTexto(row.Solicitante),
+          telefone: normalizarTexto(row.Telefone),
+          email: normalizarEmail(row.Email),
+          oferta: normalizarTexto(row.NumeroOferta),
+          nome_projeto: normalizarTexto(row.Projeto),
+          projetoId: null,
+          representadaId: representadaRelacionada?.id || normalizarTexto(row.RepresentadaID) || null,
+          representadaNome: normalizarTexto(row.RepresentadaNome),
+          unidade: normalizarTexto(row.Unidade),
+          valor_total: normalizarTexto(row.ValorTotal),
+          ref_cliente: normalizarTexto(row.RefCliente),
+          oportunidade: normalizarTexto(row.Oportunidade),
+          data_entrada: normalizarTexto(row.DataEntrada),
+          status: normalizarTexto(row.Status),
+          data_envio: normalizarTexto(row.DataEnvio),
+          possuiPedido: normalizarTexto(row.PossuiPedido || "nao"),
+          possuiRevisao: normalizarTexto(row.PossuiRevisao || "nao"),
+          atendimentoSpot: normalizarTexto(row.AtendimentoSpot || "nao"),
+          tipo_oferta: normalizarTexto(row.TipoNegocio),
+          obs_geral: normalizarTexto(row.ObservacoesGerais),
+          pedido: normalizarTexto(row.PossuiPedido || "nao") === "sim"
+            ? {
+                numero_pedido: normalizarTexto(row.NumeroPedido),
+                data_po: normalizarTexto(row.DataPO),
+                valor_pedido: normalizarTexto(row.ValorPedido),
+                cond_pagamento: normalizarTexto(row.CondicaoPagamento),
+                ref_projeto: normalizarTexto(row.RefProjetoPedido),
+                tipo_produto: normalizarTexto(row.TipoProduto),
+                obs: normalizarTexto(row.ObsPedido),
+                data_nf: "",
+                numero_nf: "",
+                valor_nf: "",
+                notas_fiscais: [],
+                prazo_entrega_contratual: normalizarTexto(row.PrazoEntregaContratual),
+                solicitacao_oc: normalizarTexto(row.SolicitacaoOC),
+                ref_oc: normalizarTexto(row.RefOC),
+                data_implantacao: normalizarTexto(row.DataImplantacao),
+              }
+            : null,
+          revisao: normalizarTexto(row.PossuiRevisao || "nao") === "sim"
+            ? {
+                numero_oferta_anterior: normalizarTexto(row.RevisaoOfertaAnterior),
+                mudou: normalizarTexto(row.RevisaoMudou),
+              }
+            : null,
+          criadoPor: currentUser,
+          atualizadoPor: currentUser,
+          criadoEm: nowIso,
+          atualizadoEm: nowIso,
+          historico: typeof criarEventoHistorico === "function"
+            ? [
+                criarEventoHistorico({
+                  usuario: currentUser,
+                  acao: "Criou",
+                  campo: "registro",
+                  de: "",
+                  para: normalizarTexto(row.NumeroOferta) || "nova oferta",
+                }),
+              ]
+            : [],
+        };
+
+        await db.collection("ofertas").doc(id).set(oferta);
+        ofertasPorChave.set(chave, oferta);
+        relatorio.ofertas.importados++;
+      }
+
+      atualizarStatusImportacao(95, "Recarregando dados do Firebase...");
+
+      if (typeof carregarDadosDoFirebase === "function") {
+        await carregarDadosDoFirebase();
+      } else {
+        if (typeof carregarClientesFirebase === "function") await carregarClientesFirebase();
+        if (typeof carregarRepresentadasFirebase === "function") await carregarRepresentadasFirebase();
+        if (typeof carregarRegistrosFirebase === "function") await carregarRegistrosFirebase();
+        if (typeof carregarProjetosFirebase === "function") await carregarProjetosFirebase();
+      }
+
+      if (typeof preencherSelectRepresentadas === "function") preencherSelectRepresentadas();
+      if (typeof preencherSelectResponsaveisContato === "function") preencherSelectResponsaveisContato();
+      if (typeof preencherSelectResponsaveisProjeto === "function") preencherSelectResponsaveisProjeto();
+      if (typeof renderTabela === "function") renderTabela();
+      if (typeof renderTabelaClientes === "function") renderTabelaClientes();
+      if (typeof renderTabelaRepresentadas === "function") renderTabelaRepresentadas();
+      if (typeof renderTabelaProjetos === "function") renderTabelaProjetos();
+
+      atualizarStatusImportacao(100, "Importação concluída.");
+
+      const mensagem = montarMensagemRelatorioImportacao(relatorio);
+
+      mostrarResultadoImportacao(
+        "Importação concluída",
+        mensagem,
+        "sucesso",
+        relatorio.erros
+      );
+    } catch (error) {
+      console.error("Erro ao importar via Firebase:", error);
+
+      mostrarResultadoImportacao(
+        "Falha na importação",
+        "Falha ao importar a planilha no Firebase.",
+        "erro",
+        [error?.message || "Erro inesperado durante a importação."]
+      );
+    } finally {
+      event.target.value = "";
     }
   };
+
+  reader.onerror = function () {
+    mostrarResultadoImportacao(
+      "Falha na leitura",
+      "Não foi possível ler o arquivo selecionado.",
+      "erro",
+      ["O navegador não conseguiu ler o arquivo Excel."]
+    );
+    event.target.value = "";
+  };
+
   reader.readAsArrayBuffer(file);
 }
 
@@ -3876,6 +4773,10 @@ function irPara(tela) {
   if (tela === "representadas")
     document
       .getElementById("secRepresentadas")
+      ?.scrollIntoView({ behavior: "smooth" });
+  if(tela === "backup")
+    document
+      .getElementById("secBackup")
       ?.scrollIntoView({ behavior: "smooth" });
   if (tela === "aprovacao")
     document
@@ -7669,4 +8570,441 @@ function exportPdfCompleto() {
   win.document.close();
   win.focus();
   win.print();
+}
+
+function baixarModeloImportacaoExcel() {
+  const wb = XLSX.utils.book_new();
+
+  const clientesModelo = [
+    {
+      ID: "",
+      RazaoSocial: "Empresa Exemplo Ltda",
+      CNPJ: "12.345.678/0001-99",
+      IE: "123456789",
+      Endereco: "Rua Exemplo, 123",
+      Segmento: "Industrial",
+      SAP: "SAP001",
+      CriadoPor: "",
+      AtualizadoPor: "",
+    }
+  ];
+
+  const contatosClientesModelo = [
+    {
+      ClienteID: "",
+      ClienteRazaoSocial: "Empresa Exemplo Ltda",
+      ClienteCNPJ: "12.345.678/0001-99",
+      ContatoIndex: 1,
+      Nome: "João da Silva",
+      Telefone: "(11) 99999-9999",
+      Email: "joao@empresa.com",
+      Funcao: "Comprador",
+      Principal: "Sim",
+      ResponsavelId: "",
+      ResponsavelNome: "",
+      CriadoPor: "",
+      AtualizadoPor: "",
+    }
+  ];
+
+  const representadasModelo = [
+    {
+      ID: "",
+      Nome: "Representada Exemplo",
+      CriadoPor: "",
+      AtualizadoPor: "",
+    }
+  ];
+
+  const ofertasModelo = [
+    {
+      ID: "",
+      ClienteID: "",
+      ClienteCNPJ: "12.345.678/0001-99",
+      RazaoSocial: "Empresa Exemplo Ltda",
+      BU: "OEM",
+      Segmento: "Industrial",
+      Projeto: "Projeto Exemplo",
+      RepresentadaID: "",
+      RepresentadaNome: "Representada Exemplo",
+      Solicitante: "Maria",
+      Telefone: "(11) 98888-7777",
+      Email: "maria@empresa.com",
+      NumeroOferta: "OF-2026-001",
+      TipoNegocio: "orcamento",
+      ValorTotal: "150000",
+      Oportunidade: "",
+      DataEntrada: "2026-03-28",
+      Status: "Em andamento",
+      DataEnvio: "2026-03-29",
+      AtendimentoSpot: "nao",
+      PossuiPedido: "nao",
+      ObservacoesGerais: "",
+      PossuiRevisao: "nao",
+      RevisaoOfertaAnterior: "",
+      RevisaoMudou: "",
+      NumeroPedido: "",
+      ValorPedido: "",
+      DataPO: "",
+      CondicaoPagamento: "",
+      RefProjetoPedido: "",
+      TipoProduto: "",
+      ObsPedido: "",
+      NotasFiscais: "",
+      PrazoEntregaContratual: "",
+      SolicitacaoOC: "",
+      RefOC: "",
+      DataImplantacao: "",
+      CriadoPor: "",
+      AtualizadoPor: "",
+    }
+  ];
+
+  const projetosModelo = [
+    {
+      ID: "",
+      NomeProjeto: "Projeto Exemplo",
+      TipoProjeto: "Expansão",
+      Status: "Em andamento",
+      NumeroReferencia: "REF-001",
+      PrazoFinal: "2026-12-31",
+      ValorInvestimento: "500000",
+      PrevFechamento: "2026-08-30",
+      InicioEntregas: "",
+      FimEntregas: "",
+      Observacoes: "",
+      CriadoPor: "",
+      AtualizadoPor: "",
+    }
+  ];
+
+  const contatosProjetosModelo = [
+    {
+      ProjetoID: "",
+      ProjetoNome: "Projeto Exemplo",
+      ProjetoReferencia: "REF-001",
+      ContatoIndex: 1,
+      Nome: "Carlos Souza",
+      Telefone: "(11) 97777-7777",
+      Email: "carlos@empresa.com",
+      Funcao: "Engenheiro",
+      Principal: "Sim",
+      ResponsavelId: "",
+      ResponsavelNome: "",
+      CriadoPor: "",
+      AtualizadoPor: "",
+    }
+  ];
+
+  const atualizacoesProjetosModelo = [
+    {
+      ProjetoID: "",
+      ProjetoNome: "Projeto Exemplo",
+      ProjetoReferencia: "REF-001",
+      AtualizacaoIndex: 1,
+      Texto: "Projeto iniciado com alinhamento inicial.",
+      Data: "2026-03-28",
+      CriadoPor: "",
+      AtualizadoPor: "",
+    }
+  ];
+
+  XLSX.utils.book_append_sheet(wb, XLSX.utils.json_to_sheet(clientesModelo), "Clientes");
+  XLSX.utils.book_append_sheet(wb, XLSX.utils.json_to_sheet(contatosClientesModelo), "ContatosClientes");
+  XLSX.utils.book_append_sheet(wb, XLSX.utils.json_to_sheet(representadasModelo), "Representadas");
+  XLSX.utils.book_append_sheet(wb, XLSX.utils.json_to_sheet(ofertasModelo), "Ofertas");
+  XLSX.utils.book_append_sheet(wb, XLSX.utils.json_to_sheet(projetosModelo), "Projetos");
+  XLSX.utils.book_append_sheet(wb, XLSX.utils.json_to_sheet(contatosProjetosModelo), "ContatosProjetos");
+  XLSX.utils.book_append_sheet(wb, XLSX.utils.json_to_sheet(atualizacoesProjetosModelo), "AtualizacoesProjetos");
+
+  XLSX.writeFile(wb, "modelo_importacao_crm.xlsx");
+}
+
+function normalizarTexto(v) {
+  return String(v ?? "").trim();
+}
+
+function normalizarEmail(v) {
+  return String(v ?? "").trim().toLowerCase();
+}
+
+function normalizarCNPJ(v) {
+  return String(v ?? "").replace(/\D/g, "");
+}
+
+function gerarIdSeguroImportacao() {
+  if (typeof gerarId === "function") return gerarId();
+  if (window.crypto && typeof window.crypto.randomUUID === "function") {
+    return window.crypto.randomUUID();
+  }
+  return "id_" + Date.now() + "_" + Math.random().toString(36).slice(2, 10);
+}
+
+function validarObrigatoriosLinha(obj, obrigatorios, contexto) {
+  const erros = [];
+
+  obrigatorios.forEach((campo) => {
+    if (!normalizarTexto(obj[campo])) {
+      erros.push(`${contexto}: campo obrigatório "${campo}" não preenchido`);
+    }
+  });
+
+  return erros;
+}
+
+function chaveProjetoImport(nome, referencia) {
+  return `${normalizarTexto(nome).toLowerCase()}|${normalizarTexto(referencia).toLowerCase()}`;
+}
+
+function chaveOfertaImport(numeroOferta, clienteCnpj) {
+  return `${normalizarTexto(numeroOferta).toLowerCase()}|${normalizarCNPJ(clienteCnpj)}`;
+}
+
+function deveExigirSegmentoImportacao(bu) {
+  if (!normalizarTexto(bu)) return false;
+  if (typeof window.buTemSegmento === "function") {
+    return !!window.buTemSegmento(normalizarTexto(bu));
+  }
+  return false;
+}
+
+function montarMensagemRelatorioImportacao(relatorio) {
+  return `
+Importação concluída.
+
+Clientes: ${relatorio.clientes.importados} importados, ${relatorio.clientes.ignorados} ignorados, ${relatorio.clientes.falhas} falhas
+Representadas: ${relatorio.representadas.importados} importadas, ${relatorio.representadas.ignorados} ignoradas, ${relatorio.representadas.falhas} falhas
+Projetos: ${relatorio.projetos.importados} importados, ${relatorio.projetos.ignorados} ignorados, ${relatorio.projetos.falhas} falhas
+Ofertas: ${relatorio.ofertas.importados} importadas, ${relatorio.ofertas.ignorados} ignoradas, ${relatorio.ofertas.falhas} falhas
+ContatosClientes: ${relatorio.contatosClientes.importados} importados, ${relatorio.contatosClientes.ignorados} ignorados, ${relatorio.contatosClientes.falhas} falhas
+ContatosProjetos: ${relatorio.contatosProjetos.importados} importados, ${relatorio.contatosProjetos.ignorados} ignorados, ${relatorio.contatosProjetos.falhas} falhas
+AtualizacoesProjetos: ${relatorio.atualizacoesProjetos.importados} importadas, ${relatorio.atualizacoesProjetos.ignorados} ignoradas, ${relatorio.atualizacoesProjetos.falhas} falhas
+
+${relatorio.erros.length ? "Erros:\n- " + relatorio.erros.join("\n- ") : "Nenhum erro encontrado."}
+  `.trim();
+}
+
+function obterTimestampBackupAutomatico() {
+  return localStorage.getItem("ultimoBackupAutomaticoEm") || "";
+}
+
+function salvarTimestampBackupAutomatico(valor) {
+  localStorage.setItem("ultimoBackupAutomaticoEm", valor);
+}
+
+function deveExecutarBackupAutomatico() {
+  const ultimo = obterTimestampBackupAutomatico();
+  if (!ultimo) return true;
+
+  const ultimoMs = new Date(ultimo).getTime();
+  const agoraMs = Date.now();
+
+  if (Number.isNaN(ultimoMs)) return true;
+
+  const intervalo24h = 24 * 60 * 60 * 1000;
+  return agoraMs - ultimoMs >= intervalo24h;
+}
+
+async function criarBackupAutomaticoFirebase() {
+  if (!window.db) {
+    throw new Error("Firestore não está disponível.");
+  }
+
+  const agora = new Date();
+  const timestamp = agora.toISOString();
+
+  const currentUser =
+    typeof getCurrentUserName === "function"
+      ? getCurrentUserName()
+      : "Sistema";
+
+  const [snapClientes, snapRepresentadas, snapProjetos, snapOfertas] =
+    await Promise.all([
+      db.collection("clientes").get(),
+      db.collection("representadas").get(),
+      db.collection("projetos").get(),
+      db.collection("ofertas").get(),
+    ]);
+
+  const clientesBackup = snapClientes.docs.map((doc) => ({
+    id: doc.id,
+    ...doc.data(),
+  }));
+
+  const representadasBackup = snapRepresentadas.docs.map((doc) => ({
+    id: doc.id,
+    ...doc.data(),
+  }));
+
+  const projetosBackup = snapProjetos.docs.map((doc) => ({
+    id: doc.id,
+    ...doc.data(),
+  }));
+
+  const ofertasBackup = snapOfertas.docs.map((doc) => ({
+    id: doc.id,
+    ...doc.data(),
+  }));
+
+  const backupId = `backup_${agora.getFullYear()}-${String(
+    agora.getMonth() + 1
+  ).padStart(2, "0")}-${String(agora.getDate()).padStart(2, "0")}_${String(
+    agora.getHours()
+  ).padStart(2, "0")}-${String(agora.getMinutes()).padStart(2, "0")}-${String(
+    agora.getSeconds()
+  ).padStart(2, "0")}`;
+
+  const backupRef = db.collection("backups").doc(backupId);
+
+  const grupos = {
+    clientes: clientesBackup,
+    representadas: representadasBackup,
+    projetos: projetosBackup,
+    ofertas: ofertasBackup,
+  };
+
+  const resumo = {
+    clientes: clientesBackup.length,
+    representadas: representadasBackup.length,
+    projetos: projetosBackup.length,
+    ofertas: ofertasBackup.length,
+  };
+
+  await backupRef.set({
+    id: backupId,
+    tipo: "automatico",
+    criadoEm: timestamp,
+    criadoPor: currentUser,
+    resumo,
+  });
+
+  for (const [nomeColecao, items] of Object.entries(grupos)) {
+    const lotes = dividirEmLotes(items, 100);
+
+    await backupRef.collection("colecoes").doc(nomeColecao).set({
+      total: items.length,
+      totalLotes: lotes.length,
+      atualizadoEm: timestamp,
+    });
+
+    for (let i = 0; i < lotes.length; i++) {
+      await backupRef
+        .collection("colecoes")
+        .doc(nomeColecao)
+        .collection("lotes")
+        .doc(`parte_${String(i + 1).padStart(3, "0")}`)
+        .set({
+          indice: i + 1,
+          totalLotes: lotes.length,
+          items: lotes[i],
+          atualizadoEm: timestamp,
+        });
+    }
+  }
+
+  salvarTimestampBackupAutomatico(timestamp);
+  atualizarInfoUltimoBackupAutomatico();
+
+  await manterApenasUltimos7BackupsAutomaticos();
+
+  console.log("Backup automático salvo com sucesso:", backupId);
+  return { id: backupId, resumo };
+}
+
+async function verificarBackupAutomatico() {
+  try {
+    if (!deveExecutarBackupAutomatico()) {
+      console.log("Backup automático ainda não necessário.");
+      return;
+    }
+
+    console.log("Iniciando backup automático...");
+    await criarBackupAutomaticoFirebase();
+  } catch (error) {
+    console.error("Erro ao executar backup automático:", error);
+  }
+}
+
+function atualizarInfoUltimoBackupAutomatico() {
+  const el = document.getElementById("ultimoBackupAutoInfo");
+  if (!el) return;
+
+  const ultimo = obterTimestampBackupAutomatico();
+
+  if (!ultimo) {
+    el.textContent = "Último backup automático: ainda não executado.";
+    return;
+  }
+
+  const data = new Date(ultimo);
+  el.textContent = `Último backup automático: ${data.toLocaleString("pt-BR")}`;
+}
+
+function dividirEmLotes(array, tamanhoLote = 100) {
+  const lotes = [];
+  for (let i = 0; i < array.length; i += tamanhoLote) {
+    lotes.push(array.slice(i, i + tamanhoLote));
+  }
+  return lotes;
+}
+
+async function apagarBackupCompletoFirebase(backupId) {
+  const backupRef = db.collection("backups").doc(backupId);
+
+  const colecoesSnap = await backupRef.collection("colecoes").get();
+
+  for (const colecaoDoc of colecoesSnap.docs) {
+    const lotesSnap = await backupRef
+      .collection("colecoes")
+      .doc(colecaoDoc.id)
+      .collection("lotes")
+      .get();
+
+    for (const loteDoc of lotesSnap.docs) {
+      await loteDoc.ref.delete();
+    }
+
+    await colecaoDoc.ref.delete();
+  }
+
+  await backupRef.delete();
+}
+
+async function manterApenasUltimos7BackupsAutomaticos() {
+  const snap = await db
+    .collection("backups")
+    .orderBy("criadoEm", "desc")
+    .get();
+
+  const backups = snap.docs.map((doc) => ({
+    id: doc.id,
+    ...doc.data(),
+  }));
+
+  console.log("Total de backups encontrados:", backups.length);
+  console.log(
+    "Lista de backups:",
+    backups.map((b) => ({
+      id: b.id,
+      criadoEm: b.criadoEm,
+      tipo: b.tipo
+    }))
+  );
+
+  if (backups.length <= 7) {
+    console.log("Até 7 backups. Nada para apagar.");
+    return;
+  }
+
+  const excedentes = backups.slice(7);
+
+  console.log(
+    "Backups que serão apagados:",
+    excedentes.map((b) => b.id)
+  );
+
+  for (const backup of excedentes) {
+    await apagarBackupCompletoFirebase(backup.id);
+    console.log("Backup apagado:", backup.id);
+  }
 }

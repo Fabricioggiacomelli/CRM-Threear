@@ -63,6 +63,37 @@
     </div>
   </div>
 
+<div id="modalImportacao" class="modal hidden">
+  <div class="modal-content" style="max-width: 640px;">
+    <div class="modal-header">
+      <h3 id="modalImportacaoTitulo">Importação</h3>
+      <button type="button" class="modal-close" onclick="fecharModalImportacao()">✕</button>
+    </div>
+
+    <div class="modal-body">
+      <div id="importLoaderWrap" class="import-loader-wrap hidden">
+        <div class="import-spinner"></div>
+        <p id="importStatusTexto">Importando arquivo...</p>
+
+        <div class="import-progress">
+          <div id="importProgressBar" class="import-progress-bar" style="width: 0%;"></div>
+        </div>
+
+        <div id="importProgressLabel" class="import-progress-label">0%</div>
+      </div>
+
+      <div id="importResultadoWrap" class="hidden">
+        <div id="importResultadoResumo"></div>
+      </div>
+    </div>
+
+    <div class="modal-footer" style="display:flex; justify-content:flex-end; gap:10px; padding:16px 20px; border-top:1px solid rgba(255,255,255,.08);">
+      <button id="btnBaixarRelatorioImportacao" type="button" class="secondary hidden">Baixar relatório de erros</button>
+      <button id="btnFecharModalImportacao" type="button" class="secondary" onclick="fecharModalImportacao()">Fechar</button>
+    </div>
+  </div>
+</div>
+
   <div class="mobile-toggle" onclick="toggleSidebar()">☰</div>
 
   <aside class="sidebar collapsed" id="sidebar">
@@ -96,6 +127,11 @@
         <span class="icon">🏭</span>
         <span class="label">Representadas</span>
       </button>
+
+<button type="button" class="menu-item" onclick="irPara('backup')">
+  <span class="icon">💾</span>
+  <span class="label">Backup</span>
+</button>
 
       <button type="button" class="menu-item hidden" id="menuAprovacao" onclick="irPara('aprovacao')">
         <span class="icon">✅</span>
@@ -421,10 +457,6 @@
           <button id="btnExportExcel" class="secondary" type="button">Exportar Registros (Excel)</button>
           <button id="btnExportPdfResumo" class="secondary" type="button">Gerar PDF Resumido</button>
           <button id="btnExportPdfCompleto" class="secondary" type="button">Gerar PDF Completo</button>
-
-          <button id="btnBackupExport" class="secondary" type="button">Backup - Exportar</button>
-          <button id="btnBackupImport" class="secondary" type="button">Backup - Importar</button>
-          <input type="file" id="inputBackupFile" style="display:none;">
         </div>
 
         <div class="table-scroll">
@@ -581,6 +613,7 @@
         </div>
 
       </section>
+
       <section id="secProjetos">
         <h3>Cadastro de Projetos</h3>
 
@@ -716,7 +749,7 @@
       </section>
 
       <section id="secRepresentadas">
-        <h3>Cadastro de Representadas</h3>
+        <h3>Cadastro de Representadas teste</h3>
 
         <label for="rep_nome">Nome da Representada</label>
         <input type="text" id="rep_nome">
@@ -765,6 +798,26 @@
 
       </section>
 
+      <section id="secBackup">
+  <h3>Backup</h3>
+  <p class="subtitle">
+    Exporte um backup dos dados do sistema ou importe um arquivo de backup.
+  </p>
+
+  <div class="form-card">
+    <h4>Gerenciamento de Backup</h4>
+    <p>
+      Utilize as opções abaixo para salvar uma cópia dos dados ou restaurar um backup existente.
+    </p>
+<p id="ultimoBackupAutoInfo" class="subtitle"></p>
+    <div class="actions-row" style="margin-top: 16px;">
+      <button id="btnBackupExport" class="secondary" type="button">Exportar</button>
+      <button id="btnBackupImport" class="secondary" type="button">Importar</button>
+      <button id="btnModeloImportacao" class="secondary" type="button">Modelo Importar</button>
+      <input type="file" id="inputBackupFile" accept=".xlsx, .xls" style="display:none;">
+    </div>
+  </div>
+      </section>
 
       <section id="secAprovacaoUsuarios" class="hidden">
         <h3>Aprovar Usuários</h3>
