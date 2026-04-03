@@ -267,7 +267,7 @@ body.dark .menu-item:hover {
     transform 0.25s ease;
 }
 
-.sidebar.collapsed + .main-content {
+.sidebar.collapsed+.main-content {
   margin-left: 110px;
   width: calc(100% - 110px);
 }
@@ -1359,7 +1359,7 @@ body.dark .historico-para {
   box-shadow: none;
 }
 
-#actionsMenu button + button {
+#actionsMenu button+button {
   margin-top: 8px;
 }
 
@@ -1672,8 +1672,13 @@ body.dark select.input-erro {
 }
 
 @keyframes girarImport {
-  from { transform: rotate(0deg); }
-  to { transform: rotate(360deg); }
+  from {
+    transform: rotate(0deg);
+  }
+
+  to {
+    transform: rotate(360deg);
+  }
 }
 
 .import-progress {
@@ -1705,5 +1710,16 @@ body.dark select.input-erro {
 
 .hidden {
   display: none !important;
+}
+
+.resumo-inline {
+  display: flex;
+  gap: 16px;
+  flex-wrap: wrap;
+}
+
+td, th {
+  text-align: center;
+  vertical-align: middle;
 }
 

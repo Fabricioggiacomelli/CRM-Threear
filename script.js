@@ -16,6 +16,42 @@ function isAdminEmail(email) {
   return ADMIN_EMAILS.includes(emailNormalizado);
 }
 
+function isAdmin() {
+  const email = window.auth?.currentUser?.email || "";
+  return isAdminEmail(email);
+}
+
+function getUserEmailAtual() {
+  return window.auth?.currentUser?.email || "";
+}
+
+function getUserNomeAtual() {
+  return (
+    getCurrentUserName() ||
+    window.auth?.currentUser?.displayName ||
+    getUserEmailAtual() ||
+    "Usuário"
+  );
+}
+
+function normalizarDataFirestore(valor) {
+  if (!valor) return null;
+  if (typeof valor.toDate === "function") return valor.toDate();
+  if (valor instanceof Date) return valor;
+  return null;
+}
+
+function formatarDataHoraBR(data) {
+  if (!data) return "-";
+  return data.toLocaleString("pt-BR");
+}
+
+function diasDesdeData(data) {
+  if (!data) return 0;
+  const diff = Date.now() - data.getTime();
+  return Math.floor(diff / (1000 * 60 * 60 * 24));
+}
+
 const RESPONSAVEIS_FIXOS = [
   "Anderson",
   "Araújo",
@@ -171,6 +207,29 @@ let representadasPageSize = 5;
 let clientesCurrentPage = 1;
 let clientesPageSize = 5;
 let backupImportMode = null;
+let itensLixeira = [];
+let itensLixeiraFiltrados = [];
+let paginaLixeiraAtual = 1;
+let ITENS_POR_PAGINA_LIXEIRA = 5;
+
+async function abrirLixeira() {
+  await carregarLixeira();
+
+  const btn = document.getElementById("btnLimparLixeira");
+  if (btn) {
+    btn.style.display = isAdmin() ? "inline-block" : "none";
+  }
+
+  const input = document.getElementById("pageSizeLixeira");
+  if (input) {
+    input.value = ITENS_POR_PAGINA_LIXEIRA;
+  }
+}
+
+async function carregarLixeira() {
+  itensLixeira = await buscarItensLixeira();
+  aplicarFiltrosLixeira();
+}
 
 function getApiBase() {
   const p = new URLSearchParams(location.search);
@@ -357,10 +416,22 @@ document.addEventListener("DOMContentLoaded", async () => {
     }
 
     await verificarBackupAutomatico();
-        atualizarInfoUltimoBackupAutomatico();
+    atualizarInfoUltimoBackupAutomatico();
 
   } catch (error) {
     console.error("Falha ao iniciar rotina de backup automático:", error);
+  }
+});
+
+document.addEventListener("DOMContentLoaded", async () => {
+  try {
+    if (typeof esperarFirebase === "function") {
+      await esperarFirebase();
+    }
+
+    await limparLixeiraExpirada();
+  } catch (error) {
+    console.error("Falha ao iniciar rotina da lixeira:", error);
   }
 });
 
@@ -382,7 +453,7 @@ async function carregarDadosDoFirebase() {
     renderTabelaRepresentadas();
     renderTabelaProjetos();
     initAutoCompleteCnpjSimples();
-    initAutoCompleteProjetoOferta(); // <- AQUI TAMBÉM
+    initAutoCompleteProjetoOferta();
   } catch (err) {
     console.error("carregarDadosDoFirebase falhou:", err);
     throw err;
@@ -391,7 +462,9 @@ async function carregarDadosDoFirebase() {
 
 async function carregarClientesFirebase() {
   const snap = await db.collection("clientes").get();
-  clientes = snap.docs.map((doc) => ({ id: doc.id, ...doc.data() }));
+  clientes = snap.docs
+    .map((doc) => ({ id: doc.id, ...doc.data() }))
+    .filter((c) => !c.deletado);
 }
 
 async function carregarUsuariosFirebase() {
@@ -407,17 +480,23 @@ async function carregarUsuariosFirebase() {
 
 async function carregarRepresentadasFirebase() {
   const snap = await db.collection("representadas").get();
-  representadas = snap.docs.map((doc) => ({ id: doc.id, ...doc.data() }));
+  representadas = snap.docs
+    .map((doc) => ({ id: doc.id, ...doc.data() }))
+    .filter((r) => !r.deletado);
 }
 
 async function carregarRegistrosFirebase() {
   const snap = await db.collection("ofertas").get();
-  registros = snap.docs.map((doc) => ({ id: doc.id, ...doc.data() }));
+  registros = snap.docs
+    .map((doc) => ({ id: doc.id, ...doc.data() }))
+    .filter((r) => !r.deletado);
 }
 
 async function carregarProjetosFirebase() {
   const snap = await db.collection("projetos").get();
-  projetos = snap.docs.map((doc) => ({ id: doc.id, ...doc.data() }));
+  projetos = snap.docs
+    .map((doc) => ({ id: doc.id, ...doc.data() }))
+    .filter((p) => !p.deletado);
 }
 
 function mostrarLogin() {
@@ -658,8 +737,8 @@ async function iniciarFluxoTOTP(user) {
 
     setTotpStatus(
       "❌ Erro no 2FA: " +
-        (e?.message || e) +
-        " (verifique se o backend está ligado)",
+      (e?.message || e) +
+      " (verifique se o backend está ligado)",
     );
 
     const msg = document.getElementById("totp_qr_msg");
@@ -1719,9 +1798,8 @@ function renderTabela() {
 
       const tr = document.createElement("tr");
       tr.innerHTML = `
-<td>${
-        ordemRegistros === "asc" ? start + index + 1 : total - (start + index)
-      }</td>
+<td>${ordemRegistros === "asc" ? start + index + 1 : total - (start + index)
+        }</td>
         <td>${reg.bu || ""}</td>
         <td>${reg.razao || ""}</td>
         <td>${reg.cnpj_cliente || ""}</td>
@@ -1870,18 +1948,40 @@ function editarRegistro(id) {
 }
 
 async function excluirRegistro(id) {
-  if (!confirm("Tem certeza que deseja excluir este registro?")) return;
+  const registro = registros.find((r) => r.id === id);
+  if (!registro) return;
+
+  const nomeExibicao =
+    `${registro.oferta || "Sem nº"} - ${registro.razao || "Sem razão social"}`;
+
+  if (
+    !confirm(
+      "Tem certeza que deseja mover este registro para a lixeira?\n\nVocê poderá restaurá-lo em até 7 dias."
+    )
+  ) return;
 
   try {
-    await db.collection("ofertas").doc(id).delete();
+    await moverParaLixeira({
+      colecao: "ofertas",
+      id,
+      tipo: "registro",
+      nomeExibicao,
+    });
+
+    registros = registros.filter((r) => r.id !== id);
+    renderTabela();
+
+mostrarToastDesfazer({
+  mensagem: "Registro movido para a lixeira.",
+  onUndo: async () => {
+    await restaurarDaLixeira("ofertas", id);
+    await recarregarDadosPrincipais();
+  },
+});
   } catch (e) {
     console.error(e);
-    alert("Erro ao excluir do Firebase (ofertas).");
+    alert("Erro ao mover registro para a lixeira.");
   }
-
-  registros = registros.filter((r) => r.id !== id);
-  salvarRegistros();
-  renderTabela();
 }
 
 function exportExcel() {
@@ -2063,12 +2163,12 @@ function exportPdf() {
           <thead>
             <tr>
               ${cols
-                .map((c, i) =>
-                  i === 0
-                    ? `<th class="col-index">${escapeHtml(c)}</th>`
-                    : `<th>${escapeHtml(c)}</th>`,
-                )
-                .join("")}
+      .map((c, i) =>
+        i === 0
+          ? `<th class="col-index">${escapeHtml(c)}</th>`
+          : `<th>${escapeHtml(c)}</th>`,
+      )
+      .join("")}
             </tr>
           </thead>
           <tbody>
@@ -2432,10 +2532,10 @@ function exportBackupExcel() {
       Array.isArray(p.atualizacoes)
         ? p.atualizacoes
         : Array.isArray(p.updates)
-        ? p.updates
-        : Array.isArray(p.historico)
-        ? p.historico
-        : [];
+          ? p.updates
+          : Array.isArray(p.historico)
+            ? p.historico
+            : [];
 
     atualizacoes.forEach((at, index) => {
       if (typeof at === "string") {
@@ -2481,8 +2581,8 @@ function exportBackupExcel() {
       Array.isArray(p.contatos)
         ? p.contatos
         : Array.isArray(p.contatosProjeto)
-        ? p.contatosProjeto
-        : [];
+          ? p.contatosProjeto
+          : [];
 
     contatosProjeto.forEach((ct, index) => {
       contatosProjetosData.push({
@@ -2543,11 +2643,11 @@ function exportBackupExcel() {
   autoFitColumns(wsAtualizacoesProjetos, atualizacoesProjetosData.length ? atualizacoesProjetosData : [{ Mensagem: "Sem atualizações de projetos" }]);
   autoFitColumns(wsContatosProjetos, contatosProjetosData.length ? contatosProjetosData : [{ Mensagem: "Sem contatos de projetos" }]);
 
-console.log("Clientes:", listaClientes);
-console.log("Contatos de clientes:", contatosSheetData);
-console.log("Projetos:", listaProjetos);
-console.log("Contatos de projetos:", contatosProjetosData);
-console.log("Ofertas:", ofertasData);
+  console.log("Clientes:", listaClientes);
+  console.log("Contatos de clientes:", contatosSheetData);
+  console.log("Projetos:", listaProjetos);
+  console.log("Contatos de projetos:", contatosProjetosData);
+  console.log("Ofertas:", ofertasData);
 
   XLSX.writeFile(wb, "backup_crm.xlsx");
 }
@@ -2830,14 +2930,14 @@ function importBackupExcelFirebase(event) {
           atualizadoEm: nowIso,
           historico: typeof criarEventoHistorico === "function"
             ? [
-                criarEventoHistorico({
-                  usuario: currentUser,
-                  acao: "Criou",
-                  campo: "cliente",
-                  de: "",
-                  para: normalizarTexto(row.RazaoSocial) || "novo cliente",
-                }),
-              ]
+              criarEventoHistorico({
+                usuario: currentUser,
+                acao: "Criou",
+                campo: "cliente",
+                de: "",
+                para: normalizarTexto(row.RazaoSocial) || "novo cliente",
+              }),
+            ]
             : [],
         });
       });
@@ -3056,14 +3156,14 @@ function importBackupExcelFirebase(event) {
           atualizadoEm: nowIso,
           historico: typeof criarEventoHistorico === "function"
             ? [
-                criarEventoHistorico({
-                  usuario: currentUser,
-                  acao: "Criou",
-                  campo: "projeto",
-                  de: "",
-                  para: normalizarTexto(row.NomeProjeto) || "novo projeto",
-                }),
-              ]
+              criarEventoHistorico({
+                usuario: currentUser,
+                acao: "Criou",
+                campo: "projeto",
+                de: "",
+                para: normalizarTexto(row.NomeProjeto) || "novo projeto",
+              }),
+            ]
             : [],
         });
       });
@@ -3318,28 +3418,28 @@ function importBackupExcelFirebase(event) {
           obs_geral: normalizarTexto(row.ObservacoesGerais),
           pedido: normalizarTexto(row.PossuiPedido || "nao") === "sim"
             ? {
-                numero_pedido: normalizarTexto(row.NumeroPedido),
-                data_po: normalizarTexto(row.DataPO),
-                valor_pedido: normalizarTexto(row.ValorPedido),
-                cond_pagamento: normalizarTexto(row.CondicaoPagamento),
-                ref_projeto: normalizarTexto(row.RefProjetoPedido),
-                tipo_produto: normalizarTexto(row.TipoProduto),
-                obs: normalizarTexto(row.ObsPedido),
-                data_nf: "",
-                numero_nf: "",
-                valor_nf: "",
-                notas_fiscais: [],
-                prazo_entrega_contratual: normalizarTexto(row.PrazoEntregaContratual),
-                solicitacao_oc: normalizarTexto(row.SolicitacaoOC),
-                ref_oc: normalizarTexto(row.RefOC),
-                data_implantacao: normalizarTexto(row.DataImplantacao),
-              }
+              numero_pedido: normalizarTexto(row.NumeroPedido),
+              data_po: normalizarTexto(row.DataPO),
+              valor_pedido: normalizarTexto(row.ValorPedido),
+              cond_pagamento: normalizarTexto(row.CondicaoPagamento),
+              ref_projeto: normalizarTexto(row.RefProjetoPedido),
+              tipo_produto: normalizarTexto(row.TipoProduto),
+              obs: normalizarTexto(row.ObsPedido),
+              data_nf: "",
+              numero_nf: "",
+              valor_nf: "",
+              notas_fiscais: [],
+              prazo_entrega_contratual: normalizarTexto(row.PrazoEntregaContratual),
+              solicitacao_oc: normalizarTexto(row.SolicitacaoOC),
+              ref_oc: normalizarTexto(row.RefOC),
+              data_implantacao: normalizarTexto(row.DataImplantacao),
+            }
             : null,
           revisao: normalizarTexto(row.PossuiRevisao || "nao") === "sim"
             ? {
-                numero_oferta_anterior: normalizarTexto(row.RevisaoOfertaAnterior),
-                mudou: normalizarTexto(row.RevisaoMudou),
-              }
+              numero_oferta_anterior: normalizarTexto(row.RevisaoOfertaAnterior),
+              mudou: normalizarTexto(row.RevisaoMudou),
+            }
             : null,
           criadoPor: currentUser,
           atualizadoPor: currentUser,
@@ -3347,14 +3447,14 @@ function importBackupExcelFirebase(event) {
           atualizadoEm: nowIso,
           historico: typeof criarEventoHistorico === "function"
             ? [
-                criarEventoHistorico({
-                  usuario: currentUser,
-                  acao: "Criou",
-                  campo: "registro",
-                  de: "",
-                  para: normalizarTexto(row.NumeroOferta) || "nova oferta",
-                }),
-              ]
+              criarEventoHistorico({
+                usuario: currentUser,
+                acao: "Criou",
+                campo: "registro",
+                de: "",
+                para: normalizarTexto(row.NumeroOferta) || "nova oferta",
+              }),
+            ]
             : [],
         };
 
@@ -3633,7 +3733,7 @@ function initClientesUI() {
       endereco,
       segmento,
       sap,
-      contatos: contatosTemp.slice(),
+      contatos: obterItensTemporariosAtivos(contatosTemp).map((ct) => ({ ...ct })),
     };
 
     try {
@@ -3756,41 +3856,30 @@ function renderListaContatos() {
   const lista = document.getElementById("listaContatos");
   if (!lista) return;
 
-  lista.innerHTML = "";
-  if (contatosTemp.length === 0) {
-    lista.innerHTML = "<p>Nenhum contato adicionado.</p>";
-    return;
-  }
+  const contatosAtivos = obterItensTemporariosAtivos(contatosTemp);
 
-  contatosTemp.forEach((ct, index) => {
+  lista.innerHTML = "";
+
+  contatosAtivos.forEach((ct, index) => {
     const div = document.createElement("div");
-    div.className = "contato-item";
     div.innerHTML = `
-      <strong>${ct.nome}</strong>
-      ${ct.principal ? '<span class="tag-principal">(Principal)</span>' : ""}
-      <br>
-      ${ct.funcao || ""}
-      <br>
-      Tel: ${ct.telefone || ""} • E-mail: ${ct.email || ""}
-      ${
-        ct.responsavelNome
-          ? `<br><strong>Responsável:</strong> ${primeiroNome(
-              ct.responsavelNome,
-            )}`
-          : ""
-      }
-      <br>
-      <button class="btn-sm" onclick="editarContato(${index})">Editar</button>
-      <button class="btn-sm btn-danger" onclick="excluirContato(${index})">Excluir</button>
-      <hr>
+      <span>${ct.nome || ""} - ${ct.email || ""}</span>
+      <button type="button" onclick="editarContato(${index})">Editar</button>
+      <button type="button" onclick="excluirContato(${index})">Excluir</button>
     `;
     lista.appendChild(div);
   });
+
+  renderMiniLixeiraContatos();
 }
 
 function editarContato(index) {
-  const ct = contatosTemp[index];
+  const ativos = obterItensTemporariosAtivos(contatosTemp);
+  const ct = ativos[index];
   if (!ct) return;
+
+  const indiceReal = contatosTemp.indexOf(ct);
+  if (indiceReal < 0) return;
 
   document.getElementById("ct_nome").value = ct.nome || "";
   document.getElementById("ct_tel").value = ct.telefone || "";
@@ -3799,22 +3888,24 @@ function editarContato(index) {
   document.getElementById("ct_principal").checked = !!ct.principal;
   document.getElementById("ct_responsavel").value = ct.responsavelId || "";
 
-  editContatoIndex = index;
+  editContatoIndex = indiceReal;
   document.getElementById("btnAddContato").textContent = "Salvar Edição";
-  document
-    .getElementById("btnCancelarEdicaoContato")
-    ?.classList.remove("hidden");
+  document.getElementById("btnCancelarEdicaoContato")?.classList.remove("hidden");
 }
 
 function excluirContato(index) {
-  const ct = contatosTemp[index];
+  const ativos = obterItensTemporariosAtivos(contatosTemp);
+  const ct = ativos[index];
   if (!ct) return;
 
-  if (!confirm("Tem certeza que deseja excluir este contato?")) return;
+  const indiceReal = contatosTemp.indexOf(ct);
+  if (indiceReal < 0) return;
+
+  if (!confirm("Tem certeza que deseja mover este contato para a mini lixeira?")) return;
 
   const currentUser = getCurrentUserName();
 
-  contatosTemp.splice(index, 1);
+  marcarItemTemporarioComoRemovido(contatosTemp, indiceReal, "contato");
 
   contatosTemp.historicoRemocoes = contatosTemp.historicoRemocoes || [];
   contatosTemp.historicoRemocoes.push(
@@ -3830,6 +3921,7 @@ function excluirContato(index) {
   editContatoIndex = null;
   document.getElementById("btnAddContato").textContent = "Adicionar Contato";
   renderListaContatos();
+  renderMiniLixeiraContatos();
 }
 
 function renderTabelaClientes() {
@@ -3878,11 +3970,10 @@ function renderTabelaClientes() {
       ).length;
 
       tr.innerHTML = `
-<td>${
-        ordemClientes === "asc"
+<td>${ordemClientes === "asc"
           ? start + index + 1
           : listaOrdenada.length - (start + index)
-      }</td>
+        }</td>
         <td>${cli.razao || ""}</td>
         <td>${cli.cnpj || ""}</td>
         <td>${cli.segmento || ""}</td>
@@ -3947,6 +4038,7 @@ function editarCliente(id) {
 
   document.getElementById("btnAddContato").textContent = "Adicionar Contato";
   renderListaContatos();
+  renderMiniLixeiraContatos();
 
   const btnSalvarCliente = document.getElementById("btnSalvarCliente");
   if (btnSalvarCliente) btnSalvarCliente.textContent = "Salvar Edição";
@@ -3958,18 +4050,40 @@ function editarCliente(id) {
 }
 
 async function excluirCliente(id) {
-  if (!confirm("Tem certeza que deseja excluir este cliente?")) return;
+  const cliente = clientes.find((c) => c.id === id);
+  if (!cliente) return;
+
+  const nomeExibicao = cliente.razao || cliente.nome || "Cliente";
+
+  if (
+    !confirm(
+      "Tem certeza que deseja mover este cliente para a lixeira?\n\nVocê poderá restaurá-lo em até 7 dias."
+    )
+  ) return;
 
   try {
-    await db.collection("clientes").doc(id).delete();
+    await moverParaLixeira({
+      colecao: "clientes",
+      id,
+      tipo: "cliente",
+      nomeExibicao,
+    });
+
+    clientes = clientes.filter((c) => c.id !== id);
+    salvarClientes?.();
+    renderTabelaClientes?.();
+
+mostrarToastDesfazer({
+  mensagem: "Cliente movido para a lixeira.",
+  onUndo: async () => {
+    await restaurarDaLixeira("clientes", id);
+    await recarregarDadosPrincipais();
+  },
+});
   } catch (e) {
     console.error(e);
-    alert("Erro ao excluir cliente no Firebase.");
+    alert("Erro ao mover cliente para a lixeira.");
   }
-
-  clientes = clientes.filter((c) => c.id !== id);
-  salvarClientes();
-  renderTabelaClientes();
 }
 
 function abrirPainelCliente(id) {
@@ -3997,12 +4111,11 @@ function abrirPainelCliente(id) {
       ${ct.funcao || ""}
       <br>
       Tel: ${ct.telefone || ""} • E-mail: ${ct.email || ""}
-      ${
-        ct.responsavelNome
-          ? `<br><strong>Responsável:</strong> ${primeiroNome(
-              ct.responsavelNome,
-            )}`
-          : ""
+      ${ct.responsavelNome
+        ? `<br><strong>Responsável:</strong> ${primeiroNome(
+          ct.responsavelNome,
+        )}`
+        : ""
       }
       <hr>
     `;
@@ -4231,11 +4344,10 @@ function renderTabelaRepresentadas() {
 
     const tr = document.createElement("tr");
     tr.innerHTML = `
-<td>${
-      ordemRepresentadas === "asc"
+<td>${ordemRepresentadas === "asc"
         ? start + index + 1
         : listaOrdenada.length - (start + index)
-    }</td>
+      }</td>
       <td>${rep.nome}</td>
       <td class="col-center">${qtdOfertas}</td>
       <td>${usuario}</td>
@@ -4293,29 +4405,42 @@ function editarRepresentada(id) {
 }
 
 async function excluirRepresentada(id) {
-  if (!confirm("Tem certeza que deseja excluir esta representada?")) return;
+  const representada = representadas.find((r) => r.id === id);
+  if (!representada) return;
+
+  const nomeExibicao =
+    representada.nome || representada.razao || "Representada";
+
+  if (
+    !confirm(
+      "Tem certeza que deseja mover esta representada para a lixeira?\n\nVocê poderá restaurá-la em até 7 dias."
+    )
+  ) return;
 
   try {
-    await db.collection("representadas").doc(id).delete();
+    await moverParaLixeira({
+      colecao: "representadas",
+      id,
+      tipo: "representada",
+      nomeExibicao,
+    });
+
+    representadas = representadas.filter((r) => r.id !== id);
+    salvarRepresentadas?.();
+    renderTabelaRepresentadas?.();
+    preencherSelectRepresentadas?.();
+
+mostrarToastDesfazer({
+  mensagem: "Representada movida para a lixeira.",
+  onUndo: async () => {
+    await restaurarDaLixeira("representadas", id);
+    await recarregarDadosPrincipais();
+  },
+});
   } catch (e) {
     console.error(e);
-    alert("Erro ao excluir representada no Firebase.");
+    alert("Erro ao mover representada para a lixeira.");
   }
-
-  representadas = representadas.filter((r) => r.id !== id);
-  salvarRepresentadas();
-
-  registros.forEach((reg) => {
-    if (reg.representadaId === id) {
-      reg.representadaId = null;
-      reg.representadaNome = "";
-    }
-  });
-  salvarRegistros();
-
-  renderTabela();
-  renderTabelaRepresentadas();
-  preencherSelectRepresentadas();
 }
 
 function verOferta(id) {
@@ -4365,13 +4490,12 @@ function verOferta(id) {
         <div class="modal-card-title">Projeto & Representada</div>
         <div class="modal-section"><strong>Projeto:</strong> ${reg.nome_projeto || "-"}</div>
         <div class="modal-section"><strong>Representada:</strong> ${reg.representadaNome || "-"}</div>
-        ${
-          String(reg.representadaNome || "")
-            .toLowerCase()
-            .includes("mantex") && reg.unidade
-            ? `<div class="modal-section"><strong>Unidade:</strong> ${reg.unidade}</div>`
-            : ""
-        }
+        ${String(reg.representadaNome || "")
+      .toLowerCase()
+      .includes("mantex") && reg.unidade
+      ? `<div class="modal-section"><strong>Unidade:</strong> ${reg.unidade}</div>`
+      : ""
+    }
       </div>
     </div>
 
@@ -4513,13 +4637,12 @@ function verCliente(id) {
           Função: ${ct.funcao || "-"}<br>
           Tel: ${ct.telefone || "-"}<br>
           E-mail: ${ct.email || "-"}
-          ${
-            ct.responsavelNome
-              ? `<br><br>
+          ${ct.responsavelNome
+          ? `<br><br>
               <hr>
               <strong>Responsável:</strong> ${primeiroNome(ct.responsavelNome)}`
-              : ""
-          }
+          : ""
+        }
           <br>
 Criado em: ${formatDateTimeBR(ct.criadoEm)}<br>
 Atualizado em: ${formatDateTimeBR(ct.atualizadoEm)}
@@ -4754,34 +4877,49 @@ function salvarRepresentadas() {
 }
 
 function irPara(tela) {
-  if (tela === "cadastro")
-    document
-      .getElementById("secCadastro")
-      ?.scrollIntoView({ behavior: "smooth" });
-  if (tela === "registros")
-    document
-      .getElementById("secRegistros")
-      ?.scrollIntoView({ behavior: "smooth" });
-  if (tela === "clientes")
-    document
-      .getElementById("secClientes")
-      ?.scrollIntoView({ behavior: "smooth" });
-  if (tela === "projetos")
-    document
-      .getElementById("secProjetos")
-      ?.scrollIntoView({ behavior: "smooth" });
-  if (tela === "representadas")
-    document
-      .getElementById("secRepresentadas")
-      ?.scrollIntoView({ behavior: "smooth" });
-  if(tela === "backup")
-    document
-      .getElementById("secBackup")
-      ?.scrollIntoView({ behavior: "smooth" });
-  if (tela === "aprovacao")
-    document
-      .getElementById("secAprovacaoUsuarios")
-      .scrollIntoView({ behavior: "smooth" });
+  if (tela === "cadastro") {
+    document.getElementById("secCadastro")?.scrollIntoView({ behavior: "smooth" });
+    return;
+  }
+
+  if (tela === "registros") {
+    document.getElementById("secRegistros")?.scrollIntoView({ behavior: "smooth" });
+    return;
+  }
+
+  if (tela === "clientes") {
+    document.getElementById("secClientes")?.scrollIntoView({ behavior: "smooth" });
+    return;
+  }
+
+  if (tela === "projetos") {
+    document.getElementById("secProjetos")?.scrollIntoView({ behavior: "smooth" });
+    return;
+  }
+
+  if (tela === "representadas") {
+    document.getElementById("secRepresentadas")?.scrollIntoView({ behavior: "smooth" });
+    return;
+  }
+
+  if (tela === "backup") {
+    document.getElementById("secBackup")?.scrollIntoView({ behavior: "smooth" });
+    return;
+  }
+
+  if (tela === "lixeira") {
+    const sec = document.getElementById("secaoLixeira");
+    if (sec) {
+      sec.classList.remove("hidden");
+      sec.scrollIntoView({ behavior: "smooth" });
+    }
+    abrirLixeira();
+    return;
+  }
+
+  if (tela === "aprovacao") {
+    document.getElementById("secAprovacaoUsuarios")?.scrollIntoView({ behavior: "smooth" });
+  }
 }
 
 function preencherSelectResponsaveisContato() {
@@ -5138,12 +5276,10 @@ async function carregarUsuariosPendentes() {
         <td>${u.ativo === false ? "Inativo" : "Pendente"}</td>
         <td>${u.criadoEm || u.atualizadoEm || "-"}</td>
         <td>
-          <button class="btn-sm" type="button" onclick="aprovarUsuario('${
-            u.id
-          }')">Aprovar</button>
-          <button class="btn-sm btn-danger" type="button" onclick="bloquearUsuario('${
-            u.id
-          }')">Bloquear</button>
+          <button class="btn-sm" type="button" onclick="aprovarUsuario('${u.id
+        }')">Aprovar</button>
+          <button class="btn-sm btn-danger" type="button" onclick="bloquearUsuario('${u.id
+        }')">Bloquear</button>
         </td>
       `;
       tbody.appendChild(tr);
@@ -5228,15 +5364,13 @@ async function carregarUsuariosExistentes(filtroTexto = "") {
         <td>${statusTxt}</td>
         <td>${escapeHtml(criado)}</td>
         <td style="display:flex; gap:8px; flex-wrap:wrap;">
-          <button class="btn-sm" type="button" onclick="toggleAtivoUsuario('${
-            u.id
-          }', ${u.ativo ? "false" : "true"})">
+          <button class="btn-sm" type="button" onclick="toggleAtivoUsuario('${u.id
+        }', ${u.ativo ? "false" : "true"})">
             ${u.ativo ? "Desativar" : "Ativar"}
           </button>
 
-          <button class="btn-sm btn-danger" type="button" onclick="excluirUsuarioFirestore('${
-            u.id
-          }')">
+          <button class="btn-sm btn-danger" type="button" onclick="excluirUsuarioFirestore('${u.id
+        }')">
             Excluir (Firestore)
           </button>
         </td>
@@ -5427,6 +5561,7 @@ function cancelarEdicaoCliente() {
   document.getElementById("btnCancelarEdicaoCliente")?.classList.add("hidden");
 
   renderListaContatos();
+  renderMiniLixeiraContatos();
 }
 
 function cancelarEdicaoRepresentada() {
@@ -5487,13 +5622,12 @@ function verContatosCliente(id) {
       <br>Tel: ${ct.telefone || "-"}
       <br>E-mail: ${ct.email || "-"}
 
-      ${
-        ct.responsavelNome
+      ${ct.responsavelNome
           ? `<br><strong>Responsável:</strong> ${primeiroNome(
-              ct.responsavelNome,
-            )}`
+            ct.responsavelNome,
+          )}`
           : ""
-      }
+        }
 
       <br><br>
       <hr>
@@ -5723,11 +5857,11 @@ function renderFiltroRegistroValor(row, field = "todos", term = "") {
   <select class="multiTerm">
     <option value="">Selecione</option>
     ${options
-      .map(
-        (opt) =>
-          `<option value="${opt}" ${String(opt).toLowerCase() === String(term).toLowerCase() ? "selected" : ""}>${opt}</option>`,
-      )
-      .join("")}
+        .map(
+          (opt) =>
+            `<option value="${opt}" ${String(opt).toLowerCase() === String(term).toLowerCase() ? "selected" : ""}>${opt}</option>`,
+        )
+        .join("")}
     <option value="vazio" ${String(term).toLowerCase() === "vazio" ? "selected" : ""}>Vazio</option>
   </select>
 `;
@@ -5812,7 +5946,7 @@ function renderActiveFilterTags() {
     tag.onclick = () => {
       document
         .querySelectorAll("#filtersRegistros .filter-item")
-        [index]?.remove();
+      [index]?.remove();
       renderTabelaDebounced();
       renderActiveFilterTags();
     };
@@ -5970,11 +6104,11 @@ function renderClienteTermInput(
       <select class="multiTerm">
         <option value="">Selecione</option>
         ${options
-          .map(
-            (opt) =>
-              `<option value="${opt}" ${opt === selectedValue ? "selected" : ""}>${opt}</option>`,
-          )
-          .join("")}
+        .map(
+          (opt) =>
+            `<option value="${opt}" ${opt === selectedValue ? "selected" : ""}>${opt}</option>`,
+        )
+        .join("")}
 
       </select>
     `;
@@ -6754,8 +6888,8 @@ function formatarNotasFiscaisHtml(pedido = {}) {
     <div class="modal-section">
       <strong>Notas Fiscais:</strong><br><br>
       ${notas
-        .map(
-          (nf, i) => `
+      .map(
+        (nf, i) => `
             <div style="margin-bottom:10px;">
               <strong>NF ${i + 1}</strong><br>
               Data: ${formatDateBR(nf.data)}<br>
@@ -6763,8 +6897,8 @@ function formatarNotasFiscaisHtml(pedido = {}) {
               Valor: ${nf.valor || "-"}
             </div>
           `,
-        )
-        .join("")}
+      )
+      .join("")}
     </div>
   `;
 }
@@ -6800,15 +6934,14 @@ function preencherNotasFiscaisUI(pedido = {}) {
 
     div.innerHTML = `
       ${!isPrimeira ? '<hr class="nf-divider">' : ""}
-      ${
-        !isPrimeira
-          ? `
+      ${!isPrimeira
+        ? `
         <div class="nf-header-row">
           <strong class="nf-title">NF ${indice}</strong>
           <button type="button" class="btn-sm btn-danger btn-remover-nf">Remover</button>
         </div>
       `
-          : ""
+        : ""
       }
 
       <label for="${isPrimeira ? "data_nf" : `data_nf_${indice}`}">
@@ -7090,10 +7223,9 @@ function renderListaContatosProjeto() {
       ${ct.funcao || ""}
       <br>
       Tel: ${ct.telefone || ""} • E-mail: ${ct.email || ""}
-      ${
-        ct.responsavelNome
-          ? `<br><strong>Responsável:</strong> ${primeiroNome(ct.responsavelNome)}`
-          : ""
+      ${ct.responsavelNome
+        ? `<br><strong>Responsável:</strong> ${primeiroNome(ct.responsavelNome)}`
+        : ""
       }
       <br>
       <button class="btn-sm" onclick="editarContatoProjeto(${index})">Editar</button>
@@ -7105,34 +7237,42 @@ function renderListaContatosProjeto() {
 }
 
 function editarContatoProjeto(index) {
-  const ct = projetoContatosTemp[index];
+  const ativos = obterItensTemporariosAtivos(projetoContatosTemp);
+  const ct = ativos[index];
   if (!ct) return;
+
+  const indiceReal = projetoContatosTemp.indexOf(ct);
+  if (indiceReal < 0) return;
 
   document.getElementById("proj_ct_nome").value = ct.nome || "";
   document.getElementById("proj_ct_tel").value = ct.telefone || "";
   document.getElementById("proj_ct_email").value = ct.email || "";
   document.getElementById("proj_ct_funcao").value = ct.funcao || "";
-  document.getElementById("proj_ct_responsavel").value = ct.responsavelId || "";
   document.getElementById("proj_ct_principal").checked = !!ct.principal;
+  document.getElementById("proj_ct_responsavel").value = ct.responsavelId || "";
 
-  editContatoProjetoIndex = index;
+  editContatoProjetoIndex = indiceReal;
   document.getElementById("btnAddContatoProjeto").textContent = "Salvar Edição";
-  document
-    .getElementById("btnCancelarEdicaoContatoProjeto")
-    ?.classList.remove("hidden");
+  document.getElementById("btnCancelarEdicaoContatoProjeto")?.classList.remove("hidden");
 }
 
 function excluirContatoProjeto(index) {
-  const ct = projetoContatosTemp[index];
+  const ativos = obterItensTemporariosAtivos(projetoContatosTemp);
+  const ct = ativos[index];
   if (!ct) return;
-  if (!confirm("Tem certeza que deseja excluir este contato do projeto?"))
-    return;
+
+  const indiceReal = projetoContatosTemp.indexOf(ct);
+  if (indiceReal < 0) return;
+
+  if (!confirm("Tem certeza que deseja mover este contato do projeto para a mini lixeira?")) return;
 
   const currentUser = getCurrentUserName();
-  projetoContatosTemp.splice(index, 1);
+
+  marcarItemTemporarioComoRemovido(projetoContatosTemp, indiceReal, "contato do projeto");
 
   projetoContatosTemp.historicoRemocoes =
     projetoContatosTemp.historicoRemocoes || [];
+
   projetoContatosTemp.historicoRemocoes.push(
     criarEventoHistorico({
       usuario: currentUser,
@@ -7144,9 +7284,10 @@ function excluirContatoProjeto(index) {
   );
 
   editContatoProjetoIndex = null;
-  document.getElementById("btnAddContatoProjeto").textContent =
-    "Adicionar Contato";
+  document.getElementById("btnAddContatoProjeto").textContent = "Adicionar Contato";
+
   renderListaContatosProjeto();
+  renderMiniLixeiraContatosProjeto();
 }
 
 function cancelarEdicaoContatoProjeto() {
@@ -7215,50 +7356,60 @@ function renderListaAtualizacoesProjeto() {
   const lista = document.getElementById("listaAtualizacoesProjeto");
   if (!lista) return;
 
+  const atualizacoesAtivas = obterItensTemporariosAtivos(projetoAtualizacoesTemp);
+
   lista.innerHTML = "";
 
-  if (!projetoAtualizacoesTemp.length) {
-    lista.innerHTML = "<p>Nenhuma atualização adicionada.</p>";
-    return;
-  }
+  atualizacoesAtivas.forEach((item, index) => {
+    const texto = item.texto || item.descricao || item.status || "Atualização";
 
-  projetoAtualizacoesTemp.forEach((up, index) => {
     const div = document.createElement("div");
-    div.className = "atualizacao-item";
     div.innerHTML = `
-      <div class="atualizacao-topo">
-        <span><strong>${primeiroNome(up.atualizadoPor || up.criadoPor || "-")}</strong></span>
-        <span>${formatDateTimeBR(up.atualizadoEm || up.criadoEm)}</span>
-      </div>
-      <div class="atualizacao-texto">${escapeHtml(up.texto || "")}</div>
-      <br>
-      <button class="btn-sm" onclick="editarAtualizacaoProjeto(${index})">Editar</button>
-      <button class="btn-sm btn-danger" onclick="excluirAtualizacaoProjeto(${index})">Excluir</button>
+      <span>${texto}</span>
+      <button type="button" onclick="editarAtualizacaoProjeto(${index})">Editar</button>
+      <button type="button" onclick="excluirAtualizacaoProjeto(${index})">Excluir</button>
     `;
     lista.appendChild(div);
   });
+
+  renderMiniLixeiraAtualizacoesProjeto();
 }
 
 function editarAtualizacaoProjeto(index) {
-  const up = projetoAtualizacoesTemp[index];
-  if (!up) return;
+  const ativas = obterItensTemporariosAtivos(projetoAtualizacoesTemp);
+  const item = ativas[index];
+  if (!item) return;
 
-  document.getElementById("proj_update_texto").value = up.texto || "";
-  editAtualizacaoProjetoIndex = index;
+  const indiceReal = projetoAtualizacoesTemp.indexOf(item);
+  if (indiceReal < 0) return;
+
+  document.getElementById("proj_update_texto").value =
+    item.texto || item.descricao || "";
+
+  editAtualizacaoProjetoIndex = indiceReal;
   document.getElementById("btnAddAtualizacaoProjeto").textContent =
     "Salvar Edição";
-  document
-    .getElementById("btnCancelarEdicaoAtualizacaoProjeto")
-    ?.classList.remove("hidden");
+  document.getElementById("btnCancelarEdicaoAtualizacaoProjeto")?.classList.remove("hidden");
 }
 
 function excluirAtualizacaoProjeto(index) {
-  if (!confirm("Tem certeza que deseja excluir esta atualização?")) return;
-  projetoAtualizacoesTemp.splice(index, 1);
+  const ativas = obterItensTemporariosAtivos(projetoAtualizacoesTemp);
+  const item = ativas[index];
+  if (!item) return;
+
+  const indiceReal = projetoAtualizacoesTemp.indexOf(item);
+  if (indiceReal < 0) return;
+
+  if (!confirm("Tem certeza que deseja mover esta atualização para a mini lixeira?")) return;
+
+  marcarItemTemporarioComoRemovido(projetoAtualizacoesTemp, indiceReal, "atualização");
+
   editAtualizacaoProjetoIndex = null;
   document.getElementById("btnAddAtualizacaoProjeto").textContent =
     "Adicionar Atualização";
+
   renderListaAtualizacoesProjeto();
+  renderMiniLixeiraAtualizacoesProjeto();
 }
 
 function cancelarEdicaoAtualizacaoProjeto() {
@@ -7324,8 +7475,8 @@ function initSalvarProjetoUI() {
       inicio_entregas: inicioEl.value,
       fim_entregas: fimEl.value,
       obs: obsEl.value.trim(),
-      contatos: projetoContatosTemp.slice(),
-      atualizacoes: projetoAtualizacoesTemp.slice(),
+      contatos: obterItensTemporariosAtivos(projetoContatosTemp).map((ct) => ({ ...ct })),
+      atualizacoes: obterItensTemporariosAtivos(projetoAtualizacoesTemp).map((at) => ({ ...at })),
     };
 
     try {
@@ -7501,7 +7652,7 @@ function renderTabelaProjetos() {
       const atrasado =
         proj.prazo_final &&
         new Date(proj.prazo_final) <
-          new Date(new Date().toISOString().slice(0, 10));
+        new Date(new Date().toISOString().slice(0, 10));
 
       const tr = document.createElement("tr");
       tr.innerHTML = `
@@ -7602,11 +7753,11 @@ function renderProjetoTermInput(
       <select class="multiTerm">
         <option value="">Selecione</option>
         ${options
-          .map(
-            (opt) =>
-              `<option value="${opt}" ${opt === selectedValue ? "selected" : ""}>${opt}</option>`,
-          )
-          .join("")}
+        .map(
+          (opt) =>
+            `<option value="${opt}" ${opt === selectedValue ? "selected" : ""}>${opt}</option>`,
+        )
+        .join("")}
       </select>
     `;
 
@@ -7673,7 +7824,10 @@ function editarProjeto(id) {
   projetoAtualizacoesTemp = (proj.atualizacoes || []).map((u) => ({ ...u }));
 
   renderListaContatosProjeto();
+  renderMiniLixeiraContatosProjeto();
+
   renderListaAtualizacoesProjeto();
+  renderMiniLixeiraAtualizacoesProjeto();
 
   document
     .getElementById("blocoAtualizacoesProjetoWrap")
@@ -7732,7 +7886,7 @@ function verProjeto(id) {
   const atrasado =
     proj.prazo_final &&
     new Date(proj.prazo_final) <
-      new Date(new Date().toISOString().slice(0, 10));
+    new Date(new Date().toISOString().slice(0, 10));
 
   let html = `
     <div class="modal-card">
@@ -7757,11 +7911,10 @@ function verProjeto(id) {
   html += `
     <div class="modal-card">
       <div class="modal-card-title">Contatos</div>
-      ${
-        (proj.contatos || []).length
-          ? proj.contatos
-              .map(
-                (ct) => `
+      ${(proj.contatos || []).length
+      ? proj.contatos
+        .map(
+          (ct) => `
           <div class="modal-section">
             <strong>${ct.nome || "-"}</strong>
             ${ct.principal ? '<span class="modal-badge">Principal</span>' : ""}
@@ -7769,29 +7922,27 @@ function verProjeto(id) {
             Função: ${ct.funcao || "-"}<br>
             Tel: ${ct.telefone || "-"}<br>
             E-mail: ${ct.email || "-"}
-            ${
-              ct.responsavelNome
-                ? `<br>Responsável: ${primeiroNome(ct.responsavelNome)}`
-                : ""
+            ${ct.responsavelNome
+              ? `<br>Responsável: ${primeiroNome(ct.responsavelNome)}`
+              : ""
             }
           </div>
           <hr>
         `,
-              )
-              .join("")
-          : '<div class="modal-section">Nenhum contato cadastrado.</div>'
-      }
+        )
+        .join("")
+      : '<div class="modal-section">Nenhum contato cadastrado.</div>'
+    }
     </div>
   `;
 
   html += `
     <div class="modal-card">
       <div class="modal-card-title">Atualizações do Projeto</div>
-      ${
-        (proj.atualizacoes || []).length
-          ? proj.atualizacoes
-              .map(
-                (up) => `
+      ${(proj.atualizacoes || []).length
+      ? proj.atualizacoes
+        .map(
+          (up) => `
           <div class="modal-section">
             <strong>${primeiroNome(up.atualizadoPor || up.criadoPor || "-")}</strong>
             — ${formatDateTimeBR(up.atualizadoEm || up.criadoEm)}
@@ -7800,10 +7951,10 @@ function verProjeto(id) {
           </div>
           <hr>
         `,
-              )
-              .join("")
-          : '<div class="modal-section">Nenhuma atualização cadastrada.</div>'
-      }
+        )
+        .join("")
+      : '<div class="modal-section">Nenhuma atualização cadastrada.</div>'
+    }
     </div>
   `;
 
@@ -7820,18 +7971,40 @@ function verProjeto(id) {
 }
 
 async function excluirProjeto(id) {
-  if (!confirm("Tem certeza que deseja excluir este projeto?")) return;
+  const projeto = projetos.find((p) => p.id === id);
+  if (!projeto) return;
+
+  const nomeExibicao = projeto.nome || projeto.titulo || "Projeto";
+
+  if (
+    !confirm(
+      "Tem certeza que deseja mover este projeto para a lixeira?\n\nVocê poderá restaurá-lo em até 7 dias."
+    )
+  ) return;
 
   try {
-    await db.collection("projetos").doc(id).delete();
+    await moverParaLixeira({
+      colecao: "projetos",
+      id,
+      tipo: "projeto",
+      nomeExibicao,
+    });
+
+    projetos = projetos.filter((p) => p.id !== id);
+    renderTabelaProjetos?.();
+    atualizarSugestoesProjetosOferta?.();
+
+mostrarToastDesfazer({
+  mensagem: "Projeto movido para a lixeira.",
+  onUndo: async () => {
+    await restaurarDaLixeira("projetos", id);
+    await recarregarDadosPrincipais();
+  },
+});
   } catch (e) {
     console.error(e);
-    alert("Erro ao excluir projeto no Firebase.");
+    alert("Erro ao mover projeto para a lixeira.");
   }
-
-  projetos = projetos.filter((p) => p.id !== id);
-  renderTabelaProjetos();
-  atualizarSugestoesProjetosOferta();
 }
 
 function atualizarSugestoesProjetosOferta() {
@@ -7994,11 +8167,10 @@ function verContatosProjeto(id) {
           Função: ${ct.funcao || "-"}<br>
           Tel: ${ct.telefone || "-"}<br>
           E-mail: ${ct.email || "-"}
-          ${
-            ct.responsavelNome
-              ? `<br><strong>Responsável:</strong> ${primeiroNome(ct.responsavelNome)}`
-              : ""
-          }
+          ${ct.responsavelNome
+          ? `<br><strong>Responsável:</strong> ${primeiroNome(ct.responsavelNome)}`
+          : ""
+        }
         </div>
         <hr>
       `,
@@ -8332,12 +8504,12 @@ function gerarPdfPorSchema(titulo, schema, usarNotasFiscais = false) {
           <thead>
             <tr>
               ${cols
-                .map((c, i) =>
-                  i === 0
-                    ? `<th class="col-index">${escapeHtml(c)}</th>`
-                    : `<th>${escapeHtml(c)}</th>`,
-                )
-                .join("")}
+      .map((c, i) =>
+        i === 0
+          ? `<th class="col-index">${escapeHtml(c)}</th>`
+          : `<th>${escapeHtml(c)}</th>`,
+      )
+      .join("")}
             </tr>
           </thead>
           <tbody>
@@ -8532,8 +8704,8 @@ function exportPdfCompleto() {
         <div class="nf-bloco">
           <div class="label" style="margin-bottom: 6px;">Notas Fiscais</div>
           ${notas
-            .map(
-              (nf, idx) => `
+          .map(
+            (nf, idx) => `
                 <div class="nf-item">
                   <strong>NF ${idx + 1}</strong><br>
                   Data: ${escapeHtml(formatDateBR(nf.data || ""))}<br>
@@ -8541,8 +8713,8 @@ function exportPdfCompleto() {
                   Valor: ${escapeHtml(nf.valor || "-")}
                 </div>
               `,
-            )
-            .join("")}
+          )
+          .join("")}
         </div>
       `;
     }
@@ -9008,3 +9180,553 @@ async function manterApenasUltimos7BackupsAutomaticos() {
     console.log("Backup apagado:", backup.id);
   }
 }
+
+async function moverParaLixeira({ colecao, id, tipo, nomeExibicao = "" }) {
+  await db.collection(colecao).doc(id).update({
+    deletado: true,
+    deletadoEm: firebase.firestore.FieldValue.serverTimestamp(),
+    deletadoPor: getUserNomeAtual(),
+    deletadoPorEmail: getUserEmailAtual(),
+    tipoLixeira: tipo,
+    nomeLixeira: nomeExibicao || "",
+  });
+}
+
+async function restaurarDaLixeira(colecao, id) {
+  await db.collection(colecao).doc(id).update({
+    deletado: false,
+    deletadoEm: null,
+    deletadoPor: "",
+    deletadoPorEmail: "",
+    tipoLixeira: "",
+    nomeLixeira: "",
+  });
+}
+
+async function excluirDefinitivamente(colecao, id) {
+  if (!isAdmin()) {
+    alert("Apenas administradores podem excluir definitivamente.");
+    return;
+  }
+
+  await db.collection(colecao).doc(id).delete();
+}
+
+function mostrarToastDesfazer({ mensagem, onUndo }) {
+  const antigo = document.getElementById("toastLixeira");
+  if (antigo) antigo.remove();
+
+  const toast = document.createElement("div");
+  toast.id = "toastLixeira";
+  toast.innerHTML = `
+    <span>${mensagem}</span>
+    <button id="btnUndoLixeira" type="button">DESFAZER</button>
+  `;
+
+  toast.style.cssText = `
+    position: fixed;
+    right: 20px;
+    bottom: 20px;
+    z-index: 99999;
+    background: #111827;
+    color: #fff;
+    padding: 14px 16px;
+    border-radius: 12px;
+    display: flex;
+    gap: 12px;
+    align-items: center;
+    box-shadow: 0 10px 30px rgba(0,0,0,.25);
+    font-size: 14px;
+  `;
+
+  document.body.appendChild(toast);
+
+  const btn = document.getElementById("btnUndoLixeira");
+  if (btn) {
+    btn.onclick = async () => {
+      try {
+        btn.disabled = true;
+        await onUndo();
+        toast.remove();
+      } catch (e) {
+        console.error("Erro no DESFAZER:", e);
+        alert("Erro ao desfazer exclusão.");
+      } finally {
+        btn.disabled = false;
+      }
+    };
+  }
+
+  setTimeout(() => {
+    if (document.body.contains(toast)) toast.remove();
+  }, 8000);
+}
+
+async function buscarItensLixeira() {
+  const colecoes = [
+    { nome: "ofertas", tipoPadrao: "registro" },
+    { nome: "clientes", tipoPadrao: "cliente" },
+    { nome: "representadas", tipoPadrao: "representada" },
+    { nome: "projetos", tipoPadrao: "projeto" },
+  ];
+
+  let itens = [];
+
+  for (const col of colecoes) {
+    const snap = await db
+      .collection(col.nome)
+      .where("deletado", "==", true)
+      .get();
+
+    const docs = snap.docs.map((d) => ({
+      id: d.id,
+      colecao: col.nome,
+      ...d.data(),
+      tipoLixeira: d.data().tipoLixeira || col.tipoPadrao,
+    }));
+
+    itens.push(...docs);
+  }
+
+  return itens.sort((a, b) => {
+    const da = normalizarDataFirestore(a.deletadoEm)?.getTime?.() || 0;
+    const dbb = normalizarDataFirestore(b.deletadoEm)?.getTime?.() || 0;
+    return dbb - da;
+  });
+}
+
+function renderResumoLixeira(itens) {
+  const resumo = {
+    registro: 0, 
+    cliente: 0, 
+    representada: 0, 
+    projeto: 0,
+  };
+
+  itens.forEach((item) => {
+    if (resumo[item.tipoLixeira] != null) {
+      resumo[item.tipoLixeira]++;
+    }
+  });
+
+  const el = document.getElementById("resumoLixeira");
+  if (!el) return;
+
+el.innerHTML = `
+  <div class="resumo-inline">
+    <span><strong>Total:</strong> ${itens.length}</span>
+    <span><strong>Registros:</strong> ${resumo.registro}</span>
+    <span><strong>Clientes:</strong> ${resumo.cliente}</span>
+    <span><strong>Representadas:</strong> ${resumo.representada}</span>
+    <span><strong>Projetos:</strong> ${resumo.projeto}</span>
+  </div>
+`;
+}
+
+function alternarDataPersonalizadaLixeira() {
+  const valor = document.getElementById("filtroDataLixeira")?.value || "";
+  const wrapInicio = document.getElementById("wrapDataInicioLixeira");
+  const wrapFim = document.getElementById("wrapDataFimLixeira");
+
+  const exibir = valor === "personalizado";
+
+  if (wrapInicio) wrapInicio.style.display = exibir ? "flex" : "none";
+  if (wrapFim) wrapFim.style.display = exibir ? "flex" : "none";
+}
+
+function aplicarFiltrosLixeira() {
+  const tipo = (document.getElementById("filtroTipoLixeira")?.value || "").toLowerCase();
+  const usuario = (document.getElementById("filtroUsuarioLixeira")?.value || "").toLowerCase();
+  const busca = (document.getElementById("buscaLixeira")?.value || "").toLowerCase();
+  const filtroData = document.getElementById("filtroDataLixeira")?.value || "";
+  const dataInicio = document.getElementById("filtroDataInicioLixeira")?.value || "";
+  const dataFim = document.getElementById("filtroDataFimLixeira")?.value || "";
+
+  itensLixeiraFiltrados = itensLixeira.filter((item) => {
+    const nome = String(item.nomeLixeira || "").toLowerCase();
+    const tipoItem = String(item.tipoLixeira || "").toLowerCase();
+    const user = String(item.deletadoPor || item.deletadoPorEmail || "").toLowerCase();
+    const data = normalizarDataFirestore(item.deletadoEm);
+
+    if (tipo && tipoItem !== tipo) return false;
+    if (usuario && !user.includes(usuario)) return false;
+
+    if (busca) {
+      const textoBusca = [
+        item.nomeLixeira || "",
+        item.deletadoPor || "",
+        item.deletadoPorEmail || "",
+        item.tipoLixeira || "",
+      ].join(" ").toLowerCase();
+
+      if (!textoBusca.includes(busca)) return false;
+    }
+
+    if (filtroData && data) {
+      const hoje = new Date();
+      const inicioHoje = new Date(hoje.getFullYear(), hoje.getMonth(), hoje.getDate());
+
+      if (filtroData === "hoje") {
+        if (data < inicioHoje) return false;
+      } else if (["1", "3", "7"].includes(filtroData)) {
+        const dias = Number(filtroData);
+        const limite = new Date(Date.now() - dias * 24 * 60 * 60 * 1000);
+        if (data < limite) return false;
+      } else if (filtroData === "personalizado") {
+        if (dataInicio) {
+          const dtIni = new Date(dataInicio + "T00:00:00");
+          if (data < dtIni) return false;
+        }
+        if (dataFim) {
+          const dtFim = new Date(dataFim + "T23:59:59");
+          if (data > dtFim) return false;
+        }
+      }
+    }
+
+    return true;
+  });
+
+  paginaLixeiraAtual = 1;
+  renderResumoLixeira(itensLixeiraFiltrados);
+  renderTabelaLixeira();
+}
+
+function renderTabelaLixeira() {
+  const tbody = document.getElementById("tbodyLixeira");
+  const pageInfo = document.getElementById("pageInfoLixeira");
+  const btnPrev = document.getElementById("btnPrevLixeira");
+  const btnNext = document.getElementById("btnNextLixeira");
+
+  if (!tbody) return;
+
+  tbody.innerHTML = "";
+
+  const total = itensLixeiraFiltrados.length;
+  const totalPaginas = Math.max(1, Math.ceil(total / ITENS_POR_PAGINA_LIXEIRA));
+
+  if (paginaLixeiraAtual > totalPaginas) {
+    paginaLixeiraAtual = totalPaginas;
+  }
+
+  const inicio = (paginaLixeiraAtual - 1) * ITENS_POR_PAGINA_LIXEIRA;
+  const fim = inicio + ITENS_POR_PAGINA_LIXEIRA;
+  const itensPagina = itensLixeiraFiltrados.slice(inicio, fim);
+
+  if (!itensPagina.length) {
+    tbody.innerHTML = `<tr><td colspan="6">Nenhum item encontrado.</td></tr>`;
+  } else {
+    itensPagina.forEach((item) => {
+      const dataExc = normalizarDataFirestore(item.deletadoEm);
+      const diasPassados = diasDesdeData(dataExc);
+      const diasRestantes = Math.max(0, 7 - diasPassados);
+
+      const tr = document.createElement("tr");
+      tr.innerHTML = `
+        <td>${item.nomeLixeira || "-"}</td>
+        <td>${item.tipoLixeira || "-"}</td>
+        <td>${item.deletadoPor || item.deletadoPorEmail || "-"}</td>
+        <td>${formatarDataHoraBR(dataExc)}</td>
+        <td>${diasRestantes}</td>
+        <td style="text-align:center;">
+          <button type="button" class="btn-sm" onclick="restaurarItemLixeira('${item.colecao}', '${item.id}')">
+            Restaurar
+          </button>
+          ${
+            isAdmin()
+              ? `<button type="button" class="btn-sm btn-danger" onclick="excluirItemDefinitivo('${item.colecao}', '${item.id}')">
+                   Excluir definitivo
+                 </button>`
+              : ""
+          }
+        </td>
+      `;
+      tbody.appendChild(tr);
+    });
+  }
+
+  if (pageInfo) {
+    pageInfo.textContent = `Página ${paginaLixeiraAtual} de ${totalPaginas}`;
+  }
+
+  if (btnPrev) btnPrev.disabled = paginaLixeiraAtual <= 1;
+  if (btnNext) btnNext.disabled = paginaLixeiraAtual >= totalPaginas;
+}
+
+function trocarPaginaLixeira(pagina) {
+  paginaLixeiraAtual = pagina;
+  renderTabelaLixeira();
+}
+
+async function restaurarItemLixeira(colecao, id) {
+  try {
+    await restaurarDaLixeira(colecao, id);
+    await carregarLixeira();
+
+    await carregarClientesFirebase?.();
+    await carregarRepresentadasFirebase?.();
+    await carregarRegistrosFirebase?.();
+    await carregarProjetosFirebase?.();
+
+    renderTabela?.();
+    renderTabelaClientes?.();
+    renderTabelaRepresentadas?.();
+    renderTabelaProjetos?.();
+    preencherSelectRepresentadas?.();
+  } catch (e) {
+    console.error(e);
+    alert("Erro ao restaurar item.");
+  }
+}
+
+async function excluirItemDefinitivo(colecao, id) {
+  if (!isAdmin()) {
+    alert("Apenas administradores podem excluir definitivamente.");
+    return;
+  }
+
+  if (!confirm("Tem certeza que deseja excluir definitivamente este item?")) return;
+
+  try {
+    await excluirDefinitivamente(colecao, id);
+    await carregarLixeira();
+  } catch (e) {
+    console.error(e);
+    alert("Erro ao excluir definitivamente.");
+  }
+}
+
+async function limparLixeiraManual() {
+  if (!isAdmin()) {
+    alert("Apenas administradores podem limpar a lixeira.");
+    return;
+  }
+
+  if (!confirm("Tem certeza que deseja excluir definitivamente todos os itens da lixeira?")) return;
+
+  try {
+    const itens = await buscarItensLixeira();
+
+    for (const item of itens) {
+      await db.collection(item.colecao).doc(item.id).delete();
+    }
+
+    await carregarLixeira();
+    alert("Lixeira limpa com sucesso.");
+  } catch (e) {
+    console.error(e);
+    alert("Erro ao limpar lixeira.");
+  }
+}
+
+async function limparLixeiraExpirada() {
+  const agora = Date.now();
+  const seteDiasMs = 7 * 24 * 60 * 60 * 1000;
+  const colecoes = ["ofertas", "clientes", "representadas", "projetos"];
+
+  for (const colecao of colecoes) {
+    const snap = await db.collection(colecao).where("deletado", "==", true).get();
+
+    for (const docSnap of snap.docs) {
+      const dados = docSnap.data();
+      const deletadoEm = normalizarDataFirestore(dados.deletadoEm);
+      if (!deletadoEm) continue;
+
+      if (agora - deletadoEm.getTime() >= seteDiasMs) {
+        await db.collection(colecao).doc(docSnap.id).delete();
+      }
+    }
+  }
+}
+
+function marcarItemTemporarioComoRemovido(lista, index, tipo = "item") {
+  const item = lista[index];
+  if (!item) return;
+
+  item._removido = true;
+  item._removidoEm = new Date().toISOString();
+  item._removidoPor = getUserNomeAtual();
+  item._tipoRemovido = tipo;
+}
+
+function restaurarItemTemporario(lista, index) {
+  const item = lista[index];
+  if (!item) return;
+
+  item._removido = false;
+  item._removidoEm = null;
+  item._removidoPor = null;
+  item._tipoRemovido = null;
+}
+
+function obterItensTemporariosAtivos(lista) {
+  return (lista || []).filter((item) => !item?._removido);
+}
+
+function obterItensTemporariosRemovidos(lista) {
+  return (lista || []).filter((item) => item?._removido);
+}
+
+function renderMiniLixeiraContatos() {
+  const el = document.getElementById("miniLixeiraContatos");
+  if (!el) return;
+
+  const removidos = obterItensTemporariosRemovidos(contatosTemp);
+
+  if (!removidos.length) {
+    el.innerHTML = "";
+    return;
+  }
+
+  el.innerHTML = `
+    <h4>Mini lixeira de contatos (${removidos.length})</h4>
+    ${removidos.map((ct) => {
+    const indiceReal = contatosTemp.indexOf(ct);
+    return `
+        <div class="item-mini-lixeira">
+          <span>${ct.nome || ""} - ${ct.email || ""}</span>
+          <button type="button" onclick="restaurarContatoMiniLixeira(${indiceReal})">Restaurar</button>
+        </div>
+      `;
+  }).join("")}
+  `;
+}
+
+function restaurarContatoMiniLixeira(index) {
+  restaurarItemTemporario(contatosTemp, index);
+  renderListaContatos();
+  renderMiniLixeiraContatos();
+}
+
+function renderMiniLixeiraContatosProjeto() {
+  const el = document.getElementById("miniLixeiraContatosProjeto");
+  if (!el) return;
+
+  const removidos = obterItensTemporariosRemovidos(projetoContatosTemp);
+
+  if (!removidos.length) {
+    el.innerHTML = "";
+    return;
+  }
+
+  el.innerHTML = `
+    <h4>Mini lixeira de contatos do projeto (${removidos.length})</h4>
+    ${removidos.map((ct) => {
+    const indiceReal = projetoContatosTemp.indexOf(ct);
+    return `
+        <div class="item-mini-lixeira">
+          <span>${ct.nome || ""} - ${ct.email || ""}</span>
+          <button type="button" onclick="restaurarContatoProjetoMiniLixeira(${indiceReal})">Restaurar</button>
+        </div>
+      `;
+  }).join("")}
+  `;
+}
+
+function restaurarContatoProjetoMiniLixeira(index) {
+  restaurarItemTemporario(projetoContatosTemp, index);
+  renderListaContatosProjeto();
+  renderMiniLixeiraContatosProjeto();
+}
+
+function renderListaContatosProjeto() {
+  const lista = document.getElementById("listaContatosProjeto");
+  if (!lista) return;
+
+  const contatosAtivos = obterItensTemporariosAtivos(projetoContatosTemp);
+
+  lista.innerHTML = "";
+
+  contatosAtivos.forEach((ct, index) => {
+    const div = document.createElement("div");
+    div.innerHTML = `
+      <span>${ct.nome || ""} - ${ct.email || ""}</span>
+      <button type="button" onclick="editarContatoProjeto(${index})">Editar</button>
+      <button type="button" onclick="excluirContatoProjeto(${index})">Excluir</button>
+    `;
+    lista.appendChild(div);
+  });
+
+  renderMiniLixeiraContatosProjeto();
+}
+
+function renderMiniLixeiraAtualizacoesProjeto() {
+  const el = document.getElementById("miniLixeiraAtualizacoesProjeto");
+  if (!el) return;
+
+  const removidos = obterItensTemporariosRemovidos(projetoAtualizacoesTemp);
+
+  if (!removidos.length) {
+    el.innerHTML = "";
+    return;
+  }
+
+  el.innerHTML = `
+    <h4>Mini lixeira de atualizações (${removidos.length})</h4>
+    ${removidos.map((item) => {
+    const indiceReal = projetoAtualizacoesTemp.indexOf(item);
+    return `
+        <div class="item-mini-lixeira">
+          <span>${item.titulo || item.status || item.descricao || item.texto || "Atualização"}</span>
+          <button type="button" onclick="restaurarAtualizacaoProjetoMiniLixeira(${indiceReal})">Restaurar</button>
+        </div>
+      `;
+  }).join("")}
+  `;
+}
+
+function restaurarAtualizacaoProjetoMiniLixeira(index) {
+  restaurarItemTemporario(projetoAtualizacoesTemp, index);
+  renderListaAtualizacoesProjeto();
+  renderMiniLixeiraAtualizacoesProjeto();
+}
+
+function aplicarPageSizeLixeira() {
+  const input = document.getElementById("pageSizeLixeira");
+  if (!input) return;
+
+  const valor = parseInt(input.value, 10);
+
+  if (isNaN(valor) || valor < 1) {
+    input.value = ITENS_POR_PAGINA_LIXEIRA;
+    return;
+  }
+
+  ITENS_POR_PAGINA_LIXEIRA = Math.min(Math.max(valor, 1), 200);
+  localStorage.setItem("pageSizeLixeira", String(ITENS_POR_PAGINA_LIXEIRA));
+  paginaLixeiraAtual = 1;
+  renderTabelaLixeira();
+}
+
+function irParaPaginaLixeira() {
+  const input = document.getElementById("gotoPageLixeira");
+  if (!input) return;
+
+  const valor = parseInt(input.value, 10);
+  if (!valor || valor < 1) return;
+
+  const totalPaginas = Math.max(
+    1,
+    Math.ceil(itensLixeiraFiltrados.length / ITENS_POR_PAGINA_LIXEIRA)
+  );
+
+  paginaLixeiraAtual = Math.min(valor, totalPaginas);
+  renderTabelaLixeira();
+  input.value = "";
+}
+
+async function recarregarDadosPrincipais() {
+  await Promise.all([
+    carregarRegistrosFirebase(),
+    carregarClientesFirebase(),
+    carregarRepresentadasFirebase(),
+    carregarProjetosFirebase(),
+  ]);
+
+  renderTabela?.();
+  renderTabelaClientes?.();
+  renderTabelaRepresentadas?.();
+  renderTabelaProjetos?.();
+  preencherSelectRepresentadas?.();
+}
+

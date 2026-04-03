@@ -63,36 +63,39 @@
     </div>
   </div>
 
-<div id="modalImportacao" class="modal hidden">
-  <div class="modal-content" style="max-width: 640px;">
-    <div class="modal-header">
-      <h3 id="modalImportacaoTitulo">Importação</h3>
-      <button type="button" class="modal-close" onclick="fecharModalImportacao()">✕</button>
-    </div>
+  <div id="modalImportacao" class="modal hidden">
+    <div class="modal-content" style="max-width: 640px;">
+      <div class="modal-header">
+        <h3 id="modalImportacaoTitulo">Importação</h3>
+        <button type="button" class="modal-close" onclick="fecharModalImportacao()">✕</button>
+      </div>
 
-    <div class="modal-body">
-      <div id="importLoaderWrap" class="import-loader-wrap hidden">
-        <div class="import-spinner"></div>
-        <p id="importStatusTexto">Importando arquivo...</p>
+      <div class="modal-body">
+        <div id="importLoaderWrap" class="import-loader-wrap hidden">
+          <div class="import-spinner"></div>
+          <p id="importStatusTexto">Importando arquivo...</p>
 
-        <div class="import-progress">
-          <div id="importProgressBar" class="import-progress-bar" style="width: 0%;"></div>
+          <div class="import-progress">
+            <div id="importProgressBar" class="import-progress-bar" style="width: 0%;"></div>
+          </div>
+
+          <div id="importProgressLabel" class="import-progress-label">0%</div>
         </div>
 
-        <div id="importProgressLabel" class="import-progress-label">0%</div>
+        <div id="importResultadoWrap" class="hidden">
+          <div id="importResultadoResumo"></div>
+        </div>
       </div>
 
-      <div id="importResultadoWrap" class="hidden">
-        <div id="importResultadoResumo"></div>
+      <div class="modal-footer"
+        style="display:flex; justify-content:flex-end; gap:10px; padding:16px 20px; border-top:1px solid rgba(255,255,255,.08);">
+        <button id="btnBaixarRelatorioImportacao" type="button" class="secondary hidden">Baixar relatório de
+          erros</button>
+        <button id="btnFecharModalImportacao" type="button" class="secondary"
+          onclick="fecharModalImportacao()">Fechar</button>
       </div>
-    </div>
-
-    <div class="modal-footer" style="display:flex; justify-content:flex-end; gap:10px; padding:16px 20px; border-top:1px solid rgba(255,255,255,.08);">
-      <button id="btnBaixarRelatorioImportacao" type="button" class="secondary hidden">Baixar relatório de erros</button>
-      <button id="btnFecharModalImportacao" type="button" class="secondary" onclick="fecharModalImportacao()">Fechar</button>
     </div>
   </div>
-</div>
 
   <div class="mobile-toggle" onclick="toggleSidebar()">☰</div>
 
@@ -128,10 +131,15 @@
         <span class="label">Representadas</span>
       </button>
 
-<button type="button" class="menu-item" onclick="irPara('backup')">
-  <span class="icon">💾</span>
-  <span class="label">Backup</span>
-</button>
+      <button type="button" class="menu-item" onclick="irPara('backup')">
+        <span class="icon">💾</span>
+        <span class="label">Backup</span>
+      </button>
+
+      <button type="button" class="menu-item" onclick="irPara('lixeira')">
+        <span class="icon">🗑️</span>
+        <span class="label">Lixeira</span>
+      </button>
 
       <button type="button" class="menu-item hidden" id="menuAprovacao" onclick="irPara('aprovacao')">
         <span class="icon">✅</span>
@@ -554,6 +562,7 @@
               Cancelar edição
             </button>
             <div id="listaContatos" class="contatos-lista"></div>
+            <div id="miniLixeiraContatos" class="mini-lixeira"></div>
           </div>
         </div>
 
@@ -681,7 +690,7 @@
             </button>
 
             <div id="listaContatosProjeto" class="contatos-lista"></div>
-
+            <div id="miniLixeiraContatosProjeto" class="mini-lixeira"></div>
             <div id="blocoAtualizacoesProjetoWrap" class="hidden" style="margin-top: 16px;">
               <h4>Atualizações do Projeto</h4>
 
@@ -694,6 +703,7 @@
               </button>
 
               <div id="listaAtualizacoesProjeto" class="contatos-lista"></div>
+              <div id="miniLixeiraAtualizacoesProjeto" class="mini-lixeira"></div>
             </div>
           </div>
         </div>
@@ -749,7 +759,7 @@
       </section>
 
       <section id="secRepresentadas">
-        <h3>Cadastro de Representadas teste</h3>
+        <h3>Cadastro de Representadas</h3>
 
         <label for="rep_nome">Nome da Representada</label>
         <input type="text" id="rep_nome">
@@ -799,24 +809,123 @@
       </section>
 
       <section id="secBackup">
-  <h3>Backup</h3>
-  <p class="subtitle">
-    Exporte um backup dos dados do sistema ou importe um arquivo de backup.
-  </p>
+        <h3>Backup</h3>
+        <p class="subtitle">
+          Exporte um backup dos dados do sistema ou importe um arquivo de backup.
+        </p>
 
-  <div class="form-card">
-    <h4>Gerenciamento de Backup</h4>
-    <p>
-      Utilize as opções abaixo para salvar uma cópia dos dados ou restaurar um backup existente.
-    </p>
-<p id="ultimoBackupAutoInfo" class="subtitle"></p>
-    <div class="actions-row" style="margin-top: 16px;">
-      <button id="btnBackupExport" class="secondary" type="button">Exportar</button>
-      <button id="btnBackupImport" class="secondary" type="button">Importar</button>
-      <button id="btnModeloImportacao" class="secondary" type="button">Modelo Importar</button>
-      <input type="file" id="inputBackupFile" accept=".xlsx, .xls" style="display:none;">
-    </div>
-  </div>
+        <div class="form-card">
+          <h4>Gerenciamento de Backup</h4>
+          <p>
+            Utilize as opções abaixo para salvar uma cópia dos dados ou restaurar um backup existente.
+          </p>
+          <p id="ultimoBackupAutoInfo" class="subtitle"></p>
+          <div class="actions-row" style="margin-top: 16px;">
+            <button id="btnBackupExport" class="secondary" type="button">Exportar</button>
+            <button id="btnBackupImport" class="secondary" type="button">Importar</button>
+            <button id="btnModeloImportacao" class="secondary" type="button">Modelo Importar</button>
+            <input type="file" id="inputBackupFile" accept=".xlsx, .xls" style="display:none;">
+          </div>
+        </div>
+      </section>
+
+      <section id="secaoLixeira" >
+        <h3>Lixeira</h3>
+        <p class="subtitle">
+          Itens excluídos podem ser restaurados em até 7 dias. Após esse prazo, são removidos automaticamente.
+        </p>
+
+        <div id="resumoLixeira" class="subtitle" style="margin-bottom: 8px;"></div>
+
+        <div class="filters">
+          <select id="filtroTipoLixeira" onchange="aplicarFiltrosLixeira()">
+            <option value="">Tudo</option>
+            <option value="registro">Registros</option>
+            <option value="cliente">Clientes</option>
+            <option value="representada">Representadas</option>
+            <option value="projeto">Projetos</option>
+          </select>
+
+          <input type="text" id="filtroUsuarioLixeira" placeholder="Filtrar por usuário"
+            oninput="aplicarFiltrosLixeira()" />
+
+          <select id="filtroDataLixeira" onchange="alternarDataPersonalizadaLixeira(); aplicarFiltrosLixeira();">
+            <option value="">Qualquer data</option>
+            <option value="hoje">Hoje</option>
+            <option value="1">Último 1 dia</option>
+            <option value="3">Últimos 3 dias</option>
+            <option value="7">Últimos 7 dias</option>
+            <option value="personalizado">Personalizado</option>
+          </select>
+
+          <input type="text" id="buscaLixeira" placeholder="Buscar..." oninput="aplicarFiltrosLixeira()" />
+        </div>
+
+        <div class="filters-row" style="margin-top: 10px;">
+          <div class="field" id="wrapDataInicioLixeira" style="display:none;">
+            <label for="filtroDataInicioLixeira">Data inicial:</label>
+            <input type="date" id="filtroDataInicioLixeira" onchange="aplicarFiltrosLixeira()" />
+          </div>
+
+          <div class="field" id="wrapDataFimLixeira" style="display:none;">
+            <label for="filtroDataFimLixeira">Data final:</label>
+            <input type="date" id="filtroDataFimLixeira" onchange="aplicarFiltrosLixeira()" />
+          </div>
+        </div>
+
+        <div class="actions-row">
+          <button type="button" class="secondary" onclick="carregarLixeira()">
+            Atualizar Lista
+          </button>
+
+          <button type="button" class="secondary" id="btnLimparLixeira" onclick="limparLixeiraManual()"
+            style="display:none;">
+            Limpar Lixeira
+          </button>
+        </div>
+
+        <div class="table-scroll">
+          <table id="tabelaLixeira">
+            <thead>
+              <tr>
+                <th>Nome</th>
+                <th>Tipo</th>
+                <th>Excluído por</th>
+                <th>Data</th>
+                <th>Dias Restantes</th>
+                <th>Ações</th>
+              </tr>
+            </thead>
+            <tbody id="tbodyLixeira"></tbody>
+          </table>
+        </div>
+
+        <div class="paginacao">
+          <button id="btnPrevLixeira" class="secondary" type="button"
+            onclick="trocarPaginaLixeira(Math.max(1, paginaLixeiraAtual - 1))">
+            Anterior
+          </button>
+
+          <span id="pageInfoLixeira">Página 1 de 1</span>
+
+          <button id="btnNextLixeira" class="secondary" type="button"
+            onclick="trocarPaginaLixeira(paginaLixeiraAtual + 1)">
+            Próxima
+          </button>
+        </div>
+
+        <div class="page-size-row">
+          <label for="pageSizeLixeira">Itens por página:</label>
+          <input id="pageSizeLixeira" type="text" min="1" max="200" value="5" onblur="aplicarPageSizeLixeira()"
+            onkeydown="if(event.key==='Enter') aplicarPageSizeLixeira()" />
+        </div>
+
+        <div class="goto-page-row">
+          <label for="gotoPageLixeira">Ir para a página:</label>
+          <input type="text" id="gotoPageLixeira" min="1" inputmode="numeric"
+            onblur="if(this.value.trim()!=='') irParaPaginaLixeira()"
+            onkeydown="if(event.key==='Enter') irParaPaginaLixeira()" />
+        </div>
       </section>
 
       <section id="secAprovacaoUsuarios" class="hidden">
