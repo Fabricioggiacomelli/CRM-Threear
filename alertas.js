@@ -1,0 +1,1281 @@
+window.alertasCache = window.alertasCache || [];
+window.alertasCacheAnterior = window.alertasCacheAnterior || 0;
+window.alertasIdsAnteriores = window.alertasIdsAnteriores || new Set();
+window.alertasPrimeiraCargaFeita = window.alertasPrimeiraCargaFeita || false;
+window.alertasLoopHandle = window.alertasLoopHandle || null;
+
+window.alertasUI = {
+  aba: "todos"
+};
+
+// true = tempos curtos para teste
+const DEBUG_ALERTAS = false;
+
+// =========================
+// BASE
+// =========================
+
+function getAlertasRef() {
+  return window.db.collection("alertas");
+}
+
+function normalizarEmailAlerta(valor) {
+  return String(valor || "").trim().toLowerCase();
+}
+
+function agoraISOAlerta() {
+  return new Date().toISOString();
+}
+
+function diferencaDiasAlerta(dataIso) {
+  if (!dataIso) return null;
+
+  const hoje = new Date();
+  hoje.setHours(0, 0, 0, 0);
+
+  const alvo = new Date(dataIso);
+  if (isNaN(alvo.getTime())) return null;
+  alvo.setHours(0, 0, 0, 0);
+
+  return Math.floor((alvo.getTime() - hoje.getTime()) / 86400000);
+}
+
+function diferencaHorasDesdeAlerta(dataIso) {
+  if (!dataIso) return null;
+  const d = new Date(dataIso);
+  if (isNaN(d.getTime())) return null;
+  return (Date.now() - d.getTime()) / 3600000;
+}
+
+function montarChaveAlerta({ tipo, entidade, entidadeId, referencia = "" }) {
+  return [tipo, entidade, entidadeId, referencia].join("_");
+}
+
+function getUsuarioAcaoAlertas() {
+  return (
+    window.usuarioLogadoCRM?.nome ||
+    window.auth?.currentUser?.email ||
+    "Usuário"
+  );
+}
+
+function getEmailLogadoAlertas() {
+  return normalizarEmailAlerta(window.auth?.currentUser?.email || "");
+}
+
+function usuarioEhAdminAlertas() {
+  if (typeof usuarioEhAdmin === "function") return !!usuarioEhAdmin();
+  return false;
+}
+
+function usuarioEhSupervisorAlertas() {
+  if (typeof usuarioEhSupervisor === "function") return !!usuarioEhSupervisor();
+  return false;
+}
+
+function usuarioPodeGerenciarDiretoAlerta(alerta) {
+  if (usuarioEhAdminAlertas()) return true;
+
+  if (usuarioEhSupervisorAlertas()) {
+    const email = normalizarEmailAlerta(alerta?.responsavelEmail);
+    if (typeof usuarioPodeVerResponsavel === "function") {
+      return usuarioPodeVerResponsavel(email);
+    }
+    return true;
+  }
+
+  return false;
+}
+
+function usuarioPodeAprovarPendencia(alerta) {
+  return usuarioPodeGerenciarDiretoAlerta(alerta);
+}
+
+function getLimiteHorasFollowUp(tipo) {
+  const tipoNorm = String(tipo || "").trim().toLowerCase();
+
+  if (DEBUG_ALERTAS) {
+    if (tipoNorm === "compra") return 0.01;
+    if (tipoNorm === "orcamento" || tipoNorm === "orçamento") return 0.02;
+    return null;
+  }
+
+  if (tipoNorm === "compra") return 24;
+  if (tipoNorm === "orcamento" || tipoNorm === "orçamento") return 48;
+  return null;
+}
+
+function getIntervaloLembreteFollowUp(tipo) {
+  const tipoNorm = String(tipo || "").trim().toLowerCase();
+
+  if (DEBUG_ALERTAS) {
+    if (tipoNorm === "compra") return 0.03;
+    if (tipoNorm === "orcamento" || tipoNorm === "orçamento") return 0.04;
+    return null;
+  }
+
+  if (tipoNorm === "compra") return 24;
+  if (tipoNorm === "orcamento" || tipoNorm === "orçamento") return 48;
+  return null;
+}
+
+function getLimiteHorasSemResposta() {
+  return DEBUG_ALERTAS ? 0.05 : 120; // 5 dias
+}
+
+function getLimiteHorasPedidoSemNF() {
+  return DEBUG_ALERTAS ? 0.05 : 72; // 3 dias
+}
+
+function formatarDataAlertaBR(valor) {
+  if (!valor) return "-";
+  const d = new Date(valor);
+  if (isNaN(d.getTime())) return valor;
+  return d.toLocaleString("pt-BR");
+}
+
+function textoTempoRelativoAlerta(dataIso) {
+  if (!dataIso) return "";
+  const d = new Date(dataIso);
+  if (isNaN(d.getTime())) return "";
+
+  const diffMs = Date.now() - d.getTime();
+  const dias = Math.floor(Math.abs(diffMs) / 86400000);
+  const horas = Math.floor(Math.abs(diffMs) / 3600000);
+
+  if (diffMs >= 0) {
+    if (dias > 0) return `há ${dias} dia(s)`;
+    return `há ${horas} hora(s)`;
+  }
+
+  if (dias > 0) return `em ${dias} dia(s)`;
+  return `em ${horas} hora(s)`;
+}
+
+function labelTipoAlerta(tipo) {
+  const mapa = {
+    followup: "Follow-up",
+    prazo_entrega: "Prazo de entrega",
+    prazo_entrega_atrasado: "Prazo atrasado",
+    sem_resposta: "Sem resposta",
+    pedido_sem_nf: "Pedido sem NF"
+  };
+
+  return mapa[String(tipo || "").toLowerCase()] || tipo || "-";
+}
+
+function labelEntidadeAlerta(entidade) {
+  const mapa = {
+    oferta: "Oferta",
+    cliente: "Cliente",
+    projeto: "Projeto",
+    representada: "Representada"
+  };
+
+  return mapa[String(entidade || "").toLowerCase()] || entidade || "-";
+}
+
+function textoReferenciaAlerta(alerta) {
+  if (!alerta?.dataReferencia) return "-";
+
+  const dataRef = new Date(alerta.dataReferencia);
+  if (isNaN(dataRef.getTime())) return formatarDataAlertaBR(alerta.dataReferencia);
+
+  const diffMs = dataRef.getTime() - Date.now();
+  const diffDias = Math.floor(diffMs / 86400000);
+
+  if (alerta.atraso && diffDias < 0) {
+    return `atrasado há ${Math.abs(diffDias)} dia(s)`;
+  }
+
+  if (diffDias > 0) {
+    return `vence em ${diffDias} dia(s)`;
+  }
+
+  if (diffDias === 0) {
+    return "vence hoje";
+  }
+
+  return formatarDataAlertaBR(alerta.dataReferencia);
+}
+
+function tempoParaResolverAlerta(alerta) {
+  if (!alerta?.dataCriacao || !alerta?.resolvidoEm) return "-";
+
+  const ini = new Date(alerta.dataCriacao).getTime();
+  const fim = new Date(alerta.resolvidoEm).getTime();
+  if (isNaN(ini) || isNaN(fim) || fim < ini) return "-";
+
+  const horas = Math.floor((fim - ini) / 3600000);
+  const dias = Math.floor(horas / 24);
+
+  if (dias > 0) return `${dias} dia(s)`;
+  return `${horas} hora(s)`;
+}
+
+function getOrdemPrioridade(prioridade) {
+  const ordem = {
+    critica: 4,
+    alta: 3,
+    media: 2,
+    baixa: 1
+  };
+  return ordem[String(prioridade || "").toLowerCase()] || 0;
+}
+
+function classePrioridadeAlerta(prioridade) {
+  const p = String(prioridade || "baixa").toLowerCase();
+
+  if (p === "critica") return "alerta-prioridade-critica";
+  if (p === "alta") return "alerta-prioridade-alta";
+  if (p === "media") return "alerta-prioridade-media";
+  return "alerta-prioridade-baixa";
+}
+
+function classeStatusAlerta(status) {
+  const s = String(status || "aberto").toLowerCase();
+
+  if (s === "resolvido") return "alerta-status-resolvido";
+  if (s === "ignorado") return "alerta-status-ignorado";
+  if (s === "adiado") return "alerta-status-adiado";
+  if (s === "aguardando_aprovacao_resolucao") return "alerta-status-aprovacao";
+  if (s === "aguardando_aprovacao_ignorar") return "alerta-status-aprovacao";
+  return "alerta-status-aberto";
+}
+
+function statusExcluiAlertaOferta(status) {
+  const s = String(status || "").trim().toLowerCase();
+  return ["ganho", "perdido", "declinado", "faturado parcial"].includes(s);
+}
+
+function obterUltimaDataOferta(reg) {
+  return reg?.ultimoFollowUpEm || reg?.atualizadoEm || reg?.criadoEm || "";
+}
+
+function getNumeroOfertaTexto(reg) {
+  return reg?.oferta || reg?.numero_oferta || "sem número";
+}
+
+function getStatusLabel(status) {
+  const s = String(status || "").toLowerCase();
+
+  const mapa = {
+    aberto: "aberto",
+    adiado: "adiado",
+    resolvido: "resolvido",
+    ignorado: "ignorado",
+    aguardando_aprovacao_resolucao: "pendente resolução",
+    aguardando_aprovacao_ignorar: "pendente ignorar"
+  };
+
+  return mapa[s] || s || "-";
+}
+
+// =========================
+// TOAST / POPUP
+// =========================
+
+function garantirContainerToastAlertas() {
+  let wrap = document.getElementById("alertasToastContainer");
+  if (wrap) return wrap;
+
+  wrap = document.createElement("div");
+  wrap.id = "alertasToastContainer";
+  wrap.style.position = "fixed";
+  wrap.style.top = "18px";
+  wrap.style.right = "18px";
+  wrap.style.zIndex = "999999";
+  wrap.style.display = "flex";
+  wrap.style.flexDirection = "column";
+  wrap.style.gap = "10px";
+  wrap.style.maxWidth = "380px";
+  document.body.appendChild(wrap);
+  return wrap;
+}
+
+function mostrarToastAlerta(alerta) {
+  const wrap = garantirContainerToastAlertas();
+
+  const toast = document.createElement("div");
+  toast.style.background = "#1e293b";
+  toast.style.border = "1px solid rgba(255,255,255,0.08)";
+  toast.style.borderLeft = "4px solid #3b82f6";
+  toast.style.color = "#fff";
+  toast.style.padding = "14px 16px";
+  toast.style.borderRadius = "16px";
+  toast.style.boxShadow = "0 18px 40px rgba(0,0,0,0.28)";
+  toast.style.opacity = "0";
+  toast.style.transform = "translateY(-8px)";
+  toast.style.transition = "all 0.25s ease";
+  toast.style.cursor = "pointer";
+
+  const titulo = document.createElement("div");
+  titulo.textContent = alerta.titulo || "Novo alerta";
+  titulo.style.fontWeight = "700";
+  titulo.style.marginBottom = "6px";
+  titulo.style.fontSize = "14px";
+
+  const desc = document.createElement("div");
+  desc.textContent = alerta.descricao || "";
+  desc.style.fontSize = "13px";
+  desc.style.lineHeight = "1.45";
+  desc.style.color = "#e2e8f0";
+
+  toast.appendChild(titulo);
+  toast.appendChild(desc);
+  wrap.appendChild(toast);
+
+  requestAnimationFrame(() => {
+    toast.style.opacity = "1";
+    toast.style.transform = "translateY(0)";
+  });
+
+  toast.onclick = () => {
+    abrirModalAlertas();
+    const remover = () => {
+      toast.style.opacity = "0";
+      toast.style.transform = "translateY(-8px)";
+      setTimeout(() => toast.remove(), 250);
+    };
+    remover();
+  };
+
+  setTimeout(() => {
+    toast.style.opacity = "0";
+    toast.style.transform = "translateY(-8px)";
+    setTimeout(() => toast.remove(), 250);
+  }, 5000);
+}
+
+// =========================
+// CRUD ALERTAS
+// =========================
+
+async function buscarAlertaPorChave(chaveUnica) {
+  const snap = await getAlertasRef()
+    .where("chaveUnica", "==", chaveUnica)
+    .limit(1)
+    .get();
+
+  if (snap.empty) return null;
+
+  const doc = snap.docs[0];
+  return { id: doc.id, ...doc.data() };
+}
+
+async function criarOuAtualizarAlerta(payload) {
+  if (!payload?.chaveUnica) return null;
+
+  const existente = await buscarAlertaPorChave(payload.chaveUnica);
+
+  if (
+    existente &&
+    existente.status !== "resolvido" &&
+    existente.status !== "ignorado"
+  ) {
+    await getAlertasRef().doc(existente.id).set(
+      {
+        ...payload,
+        atualizadoEm: agoraISOAlerta()
+      },
+      { merge: true }
+    );
+    return existente.id;
+  }
+
+  const ref = getAlertasRef().doc();
+
+  await ref.set({
+    ...payload,
+    dataCriacao: agoraISOAlerta(),
+    atualizadoEm: agoraISOAlerta(),
+    lido: false,
+    status: payload.status || "aberto",
+    historico: [
+      {
+        acao: "criado",
+        usuario: "system",
+        dataHora: agoraISOAlerta()
+      }
+    ]
+  });
+
+  return ref.id;
+}
+
+async function adicionarHistoricoAlerta(alertaId, acao, extra = {}) {
+  const ref = getAlertasRef().doc(alertaId);
+  const snap = await ref.get();
+  if (!snap.exists) return;
+
+  const atual = snap.data() || {};
+  const historicoAtual = Array.isArray(atual.historico) ? atual.historico : [];
+
+  historicoAtual.push({
+    acao,
+    usuario: getUsuarioAcaoAlertas(),
+    dataHora: agoraISOAlerta(),
+    ...extra
+  });
+
+  await ref.set(
+    {
+      historico: historicoAtual
+    },
+    { merge: true }
+  );
+}
+
+// =========================
+// VERIFICAÇÕES PRINCIPAIS
+// =========================
+
+async function verificarAlertasPrazoEntrega() {
+  const marcos = [15, 10, 5, 3, 2, 1];
+
+  for (const reg of (registros || [])) {
+    const prazo = reg?.pedido?.prazo_entrega_contratual;
+    const entregue = String(reg?.pedido?.entregue || "nao").toLowerCase() === "sim";
+
+    if (!prazo || entregue) continue;
+
+    const dias = diferencaDiasAlerta(prazo);
+    if (dias === null) continue;
+
+    const email = normalizarEmailAlerta(reg.responsavelEmail);
+    if (!email) continue;
+
+    const numeroOferta = getNumeroOfertaTexto(reg);
+
+    if (marcos.includes(dias)) {
+      await criarOuAtualizarAlerta({
+        tipo: "prazo_entrega",
+        entidade: "oferta",
+        entidadeId: reg.id,
+        titulo: "Prazo de entrega próximo",
+        descricao: `Oferta ${numeroOferta} com ${dias} dia(s) para entrega.`,
+        responsavelEmail: email,
+        prioridade: dias <= 1 ? "critica" : dias <= 3 ? "alta" : "media",
+        atraso: false,
+        dataReferencia: prazo,
+        chaveUnica: montarChaveAlerta({
+          tipo: "prazo_entrega",
+          entidade: "oferta",
+          entidadeId: reg.id,
+          referencia: `${prazo}_${dias}`
+        })
+      });
+    }
+
+    if (dias < 0) {
+      await criarOuAtualizarAlerta({
+        tipo: "prazo_entrega_atrasado",
+        entidade: "oferta",
+        entidadeId: reg.id,
+        titulo: "Prazo de entrega atrasado",
+        descricao: `Oferta ${numeroOferta} está atrasada há ${Math.abs(dias)} dia(s).`,
+        responsavelEmail: email,
+        prioridade: "critica",
+        atraso: true,
+        dataReferencia: prazo,
+        chaveUnica: montarChaveAlerta({
+          tipo: "prazo_entrega_atrasado",
+          entidade: "oferta",
+          entidadeId: reg.id,
+          referencia: prazo
+        })
+      });
+    }
+  }
+}
+
+async function verificarAlertaFollowUpRegistro(reg) {
+  const email = normalizarEmailAlerta(reg.responsavelEmail);
+  if (!email) return;
+
+  const tipo = String(reg.tipo_oferta || "").trim().toLowerCase();
+  const status = String(reg.status || "").trim().toLowerCase();
+
+  if (statusExcluiAlertaOferta(status)) return;
+
+  const limiteHoras = getLimiteHorasFollowUp(tipo);
+  const intervaloLembrete = getIntervaloLembreteFollowUp(tipo);
+  if (!limiteHoras || !intervaloLembrete) return;
+
+  const horas = diferencaHorasDesdeAlerta(obterUltimaDataOferta(reg));
+  if (horas === null || horas < limiteHoras) return;
+
+  const numeroOferta = getNumeroOfertaTexto(reg);
+  const chaveUnica = montarChaveAlerta({
+    tipo: "followup",
+    entidade: "oferta",
+    entidadeId: reg.id
+  });
+
+  const existente = await buscarAlertaPorChave(chaveUnica);
+
+  const numeroLembreteCalculado = Math.max(
+    1,
+    Math.floor(horas / intervaloLembrete)
+  );
+
+  if (!existente || existente.status === "resolvido" || existente.status === "ignorado") {
+    await criarOuAtualizarAlerta({
+      tipo: "followup",
+      entidade: "oferta",
+      entidadeId: reg.id,
+      titulo: "Follow-up pendente",
+      descricao: `Oferta ${numeroOferta} precisa de follow-up.`,
+      responsavelEmail: email,
+      prioridade: tipo === "compra" ? "alta" : "media",
+      atraso: true,
+      dataReferencia: obterUltimaDataOferta(reg),
+      lembreteNumero: 1,
+      ultimoLembreteEm: agoraISOAlerta(),
+      chaveUnica
+    });
+    return;
+  }
+
+  const lembreteAtual = Number(existente.lembreteNumero || 1);
+
+  if (numeroLembreteCalculado > lembreteAtual) {
+    await getAlertasRef().doc(existente.id).set(
+      {
+        titulo: "Follow-up pendente",
+        descricao:
+          numeroLembreteCalculado <= 1
+            ? `Oferta ${numeroOferta} precisa de follow-up.`
+            : `Lembrete ${numeroLembreteCalculado} do alerta de follow-up: a oferta ${numeroOferta} ainda não foi resolvida.`,
+        prioridade: tipo === "compra" ? "alta" : "media",
+        atraso: true,
+        dataReferencia: obterUltimaDataOferta(reg),
+        responsavelEmail: email,
+        lembreteNumero: numeroLembreteCalculado,
+        ultimoLembreteEm: agoraISOAlerta(),
+        atualizadoEm: agoraISOAlerta()
+      },
+      { merge: true }
+    );
+
+    await adicionarHistoricoAlerta(existente.id, "novo_lembrete_followup", {
+      lembreteNumero: numeroLembreteCalculado
+    });
+  }
+}
+
+async function verificarAlertasFollowUp() {
+  for (const reg of (registros || [])) {
+    await verificarAlertaFollowUpRegistro(reg);
+  }
+}
+
+async function verificarAlertasSemResposta() {
+  const limite = getLimiteHorasSemResposta();
+
+  for (const reg of (registros || [])) {
+    const email = normalizarEmailAlerta(reg.responsavelEmail);
+    if (!email) continue;
+
+    const status = String(reg.status || "").trim().toLowerCase();
+    if (statusExcluiAlertaOferta(status)) continue;
+
+    const horas = diferencaHorasDesdeAlerta(reg.atualizadoEm || reg.criadoEm);
+    if (horas === null || horas < limite) continue;
+
+    await criarOuAtualizarAlerta({
+      tipo: "sem_resposta",
+      entidade: "oferta",
+      entidadeId: reg.id,
+      titulo: "Oferta sem resposta",
+      descricao: `Oferta ${getNumeroOfertaTexto(reg)} está sem atualização há 5 dias ou mais.`,
+      responsavelEmail: email,
+      prioridade: "alta",
+      atraso: true,
+      dataReferencia: reg.atualizadoEm || reg.criadoEm || "",
+      chaveUnica: montarChaveAlerta({
+        tipo: "sem_resposta",
+        entidade: "oferta",
+        entidadeId: reg.id
+      })
+    });
+  }
+}
+
+async function verificarAlertasPedidoSemNF() {
+  const limite = getLimiteHorasPedidoSemNF();
+
+  for (const reg of (registros || [])) {
+    if (String(reg.possuiPedido || "").toLowerCase() !== "sim") continue;
+    if (statusExcluiAlertaOferta(reg.status)) continue;
+
+    const email = normalizarEmailAlerta(reg.responsavelEmail);
+    if (!email) continue;
+
+    const pedido = reg.pedido || {};
+    const temNF = !!(
+      pedido.numero_nf ||
+      pedido.data_nf ||
+      pedido.valor_nf ||
+      (Array.isArray(pedido.notas_fiscais) &&
+        pedido.notas_fiscais.some((nf) => nf?.numero || nf?.data || nf?.valor))
+    );
+
+    if (temNF) continue;
+
+    const baseTempo = pedido.data_po || reg.atualizadoEm || reg.criadoEm;
+    const horas = diferencaHorasDesdeAlerta(baseTempo);
+    if (horas === null || horas < limite) continue;
+
+    await criarOuAtualizarAlerta({
+      tipo: "pedido_sem_nf",
+      entidade: "oferta",
+      entidadeId: reg.id,
+      titulo: "Pedido sem NF",
+      descricao: `Oferta ${getNumeroOfertaTexto(reg)} possui pedido, mas ainda não tem NF registrada.`,
+      responsavelEmail: email,
+      prioridade: "alta",
+      atraso: true,
+      dataReferencia: baseTempo,
+      chaveUnica: montarChaveAlerta({
+        tipo: "pedido_sem_nf",
+        entidade: "oferta",
+        entidadeId: reg.id
+      })
+    });
+  }
+}
+
+// =========================
+// DISPARO GERAL
+// =========================
+
+async function verificarAlertasSistema() {
+  await verificarAlertasPrazoEntrega();
+  await verificarAlertasFollowUp();
+  await verificarAlertasSemResposta();
+  await verificarAlertasPedidoSemNF();
+}
+
+// =========================
+// LISTENER / LOOP
+// =========================
+
+let unsubscribeAlertas = null;
+
+function usuarioPodeVerAlerta(alerta) {
+  const email = String(alerta?.responsavelEmail || "").toLowerCase().trim();
+  return typeof usuarioPodeVerResponsavel === "function"
+    ? usuarioPodeVerResponsavel(email)
+    : true;
+}
+
+function iniciarListenerAlertas() {
+  if (!window.db) return;
+
+  if (unsubscribeAlertas) {
+    unsubscribeAlertas();
+    unsubscribeAlertas = null;
+  }
+
+  unsubscribeAlertas = getAlertasRef().onSnapshot((snap) => {
+    const agora = Date.now();
+
+    const listaNova = snap.docs
+      .map((doc) => ({ id: doc.id, ...doc.data() }))
+      .filter((a) => usuarioPodeVerAlerta(a))
+      .filter((a) => {
+        if (a.status === "adiado" && a.lembrarNovamenteEm) {
+          const voltarEm = new Date(a.lembrarNovamenteEm).getTime();
+          return agora >= voltarEm;
+        }
+        return true;
+      });
+
+    const idsNovos = new Set(listaNova.map((a) => a.id));
+
+    if (window.alertasPrimeiraCargaFeita) {
+      listaNova.forEach((alerta) => {
+        const ehAtivo =
+          alerta.status === "aberto" ||
+          alerta.status === "adiado" ||
+          alerta.status === "aguardando_aprovacao_resolucao" ||
+          alerta.status === "aguardando_aprovacao_ignorar";
+
+        if (ehAtivo && !window.alertasIdsAnteriores.has(alerta.id)) {
+          mostrarToastAlerta(alerta);
+        }
+      });
+    }
+
+    window.alertasCache = listaNova;
+    window.alertasIdsAnteriores = idsNovos;
+    window.alertasPrimeiraCargaFeita = true;
+
+    atualizarBadgeAlertas();
+    renderListaAlertas();
+  });
+}
+
+function iniciarLoopAlertas() {
+  if (window.alertasLoopHandle) {
+    clearInterval(window.alertasLoopHandle);
+    window.alertasLoopHandle = null;
+  }
+
+  const intervaloMs = DEBUG_ALERTAS ? 10000 : 60000;
+
+  window.alertasLoopHandle = setInterval(() => {
+    verificarAlertasSistema().catch(console.error);
+  }, intervaloMs);
+
+  document.addEventListener("visibilitychange", () => {
+    if (!document.hidden) {
+      verificarAlertasSistema().catch(console.error);
+    }
+  });
+}
+
+function iniciarSistemaAlertas() {
+  iniciarListenerAlertas();
+  iniciarLoopAlertas();
+  verificarAlertasSistema().catch(console.error);
+}
+
+// =========================
+// BADGE / MODAL
+// =========================
+
+function atualizarBadgeAlertas() {
+  const badge = document.getElementById("badgeAlertas");
+  const btn = document.getElementById("btnAlertas");
+  if (!badge || !btn) return;
+
+  const total = (window.alertasCache || []).filter((a) =>
+    a.status === "aberto" ||
+    a.status === "adiado" ||
+    a.status === "aguardando_aprovacao_resolucao" ||
+    a.status === "aguardando_aprovacao_ignorar"
+  ).length;
+
+  const totalAnterior = window.alertasCacheAnterior || 0;
+
+  badge.textContent = String(total);
+  badge.classList.toggle("hidden", total === 0);
+
+  if (total > totalAnterior) {
+    btn.classList.remove("animar-alerta");
+    void btn.offsetWidth;
+    btn.classList.add("animar-alerta");
+  }
+
+  window.alertasCacheAnterior = total;
+}
+
+function abrirModalAlertas() {
+  document.getElementById("modalAlertas")?.classList.remove("hidden");
+  renderListaAlertas();
+}
+
+function fecharModalAlertas() {
+  document.getElementById("modalAlertas")?.classList.add("hidden");
+}
+
+// =========================
+// FILTROS UI
+// =========================
+
+function trocarAbaAlertas(aba) {
+  window.alertasUI.aba = aba;
+
+  document.querySelectorAll(".alerta-tab").forEach((btn) => {
+    btn.classList.toggle("active", btn.dataset.tab === aba);
+  });
+
+  renderListaAlertas();
+}
+
+function getAlertasFiltradosUI() {
+  let lista = [...(window.alertasCache || [])];
+
+  const aba = window.alertasUI?.aba || "todos";
+  const busca = String(document.getElementById("alertasBusca")?.value || "").trim().toLowerCase();
+  const tipo = String(document.getElementById("filtroTipoAlerta")?.value || "").trim().toLowerCase();
+  const prioridade = String(document.getElementById("filtroPrioridadeAlerta")?.value || "").trim().toLowerCase();
+  const entidade = String(document.getElementById("filtroEntidadeAlerta")?.value || "").trim().toLowerCase();
+  const responsavel = String(document.getElementById("filtroResponsavelAlerta")?.value || "").trim().toLowerCase();
+
+  if (aba === "nao_lidos") {
+    lista = lista.filter((a) =>
+      !a.lido &&
+      a.status !== "resolvido" &&
+      a.status !== "ignorado"
+    );
+  } else if (aba === "atrasados") {
+    lista = lista.filter((a) =>
+      !!a.atraso &&
+      a.status !== "resolvido" &&
+      a.status !== "ignorado"
+    );
+  } else if (aba === "resolvidos") {
+    lista = lista.filter((a) => a.status === "resolvido");
+  } else if (aba === "pendentes_aprovacao") {
+    lista = lista.filter((a) =>
+      a.status === "aguardando_aprovacao_resolucao" ||
+      a.status === "aguardando_aprovacao_ignorar"
+    );
+  } else if (aba === "ignorados") {
+    lista = lista.filter((a) => a.status === "ignorado");
+  } else {
+    lista = lista.filter((a) =>
+      a.status === "aberto" ||
+      a.status === "adiado" ||
+      a.status === "aguardando_aprovacao_resolucao" ||
+      a.status === "aguardando_aprovacao_ignorar"
+    );
+  }
+
+  if (busca) {
+    lista = lista.filter((a) => {
+      const texto = [
+        a.titulo,
+        a.descricao,
+        a.responsavelEmail,
+        a.tipo,
+        a.entidade
+      ]
+        .filter(Boolean)
+        .join(" ")
+        .toLowerCase();
+
+      return texto.includes(busca);
+    });
+  }
+
+  if (tipo) lista = lista.filter((a) => String(a.tipo || "").toLowerCase() === tipo);
+  if (prioridade) lista = lista.filter((a) => String(a.prioridade || "").toLowerCase() === prioridade);
+  if (entidade) lista = lista.filter((a) => String(a.entidade || "").toLowerCase() === entidade);
+  if (responsavel) {
+    lista = lista.filter((a) =>
+      String(a.responsavelEmail || "").toLowerCase().includes(responsavel)
+    );
+  }
+
+  lista.sort((a, b) => {
+    const pa = getOrdemPrioridade(a.prioridade);
+    const pb = getOrdemPrioridade(b.prioridade);
+
+    if (pb !== pa) return pb - pa;
+    return new Date(b.dataCriacao || 0) - new Date(a.dataCriacao || 0);
+  });
+
+  return lista;
+}
+
+// =========================
+// RENDER
+// =========================
+
+function renderListaAlertas() {
+  const wrap = document.getElementById("listaAlertas");
+  const resumo = document.getElementById("resumoAlertas");
+  if (!wrap) return;
+
+  const lista = getAlertasFiltradosUI();
+
+  if (resumo) {
+    resumo.textContent = `${lista.length} alerta(s) nesta visualização`;
+  }
+
+  if (!lista.length) {
+    wrap.innerHTML = `<div class="alerta-vazio">Nenhum alerta encontrado.</div>`;
+    return;
+  }
+
+  wrap.innerHTML = lista.map((a) => {
+    const prioridade = String(a.prioridade || "baixa").toLowerCase();
+    const status = String(a.status || "aberto").toLowerCase();
+
+    const classePrioridade = classePrioridadeAlerta(prioridade);
+    const classeStatus = classeStatusAlerta(status);
+
+    const podeGerenciarDireto = usuarioPodeGerenciarDiretoAlerta(a);
+    const podeAprovar = usuarioPodeAprovarPendencia(a);
+
+    return `
+      <div class="alerta-card ${classePrioridade} ${classeStatus}">
+        <div class="alerta-topo">
+          <div class="alerta-titulo-wrap">
+            <div class="alerta-titulo">${a.titulo || "Alerta"}</div>
+            <span class="alerta-badge-status ${classeStatus}">${getStatusLabel(status)}</span>
+          </div>
+
+          <span class="alerta-badge-prioridade ${classePrioridade}">
+            ${prioridade}
+          </span>
+        </div>
+
+        <div class="alerta-meta">
+          ${a.descricao || ""}<br>
+          <strong>Tipo:</strong> ${labelTipoAlerta(a.tipo)}<br>
+          <strong>Entidade:</strong> ${labelEntidadeAlerta(a.entidade)}<br>
+          <strong>Responsável:</strong> ${a.responsavelEmail || "-"}<br>
+          <strong>Lido:</strong> ${a.lido ? "Sim" : "Não"}<br>
+          <strong>Alerta Criado em:</strong> ${formatarDataAlertaBR(a.dataCriacao)} (${textoTempoRelativoAlerta(a.dataCriacao)})<br>
+          <strong>Referência:</strong> ${textoReferenciaAlerta(a)}<br>
+          ${a.lembreteNumero ? `<strong>Lembrete:</strong> ${a.lembreteNumero}<br>` : ""}
+          ${a.resolvidoPor ? `<strong>Resolvido por:</strong> ${a.resolvidoPor}<br>` : ""}
+          ${a.resolvidoEm ? `<strong>Resolvido em:</strong> ${formatarDataAlertaBR(a.resolvidoEm)}<br>` : ""}
+          ${a.resolvidoEm ? `<strong>Tempo para resolver:</strong> ${tempoParaResolverAlerta(a)}<br>` : ""}
+          ${a.aprovadoPor ? `<strong>Aprovado por:</strong> ${a.aprovadoPor}<br>` : ""}
+          ${a.aprovadoEm ? `<strong>Aprovado em:</strong> ${formatarDataAlertaBR(a.aprovadoEm)}<br>` : ""}
+          ${a.ignoradoPor ? `<strong>Ignorado por:</strong> ${a.ignoradoPor}<br>` : ""}
+          ${a.ignoradoEm ? `<strong>Ignorado em:</strong> ${formatarDataAlertaBR(a.ignoradoEm)}<br>` : ""}
+        </div>
+
+        <div class="alerta-actions">
+          ${status === "aberto" || status === "adiado"
+            ? `<button type="button" class="secondary" onclick="abrirItemDoAlerta('${a.id}')">Abrir</button>`
+            : ""}
+
+          ${status === "aberto" || status === "adiado"
+            ? `<button type="button" class="secondary" onclick="${podeGerenciarDireto ? `resolverAlertaDireto('${a.id}')` : `solicitarResolucaoAlerta('${a.id}')`}">Resolver</button>`
+            : ""}
+
+          ${status === "aberto" || status === "adiado"
+            ? `<button type="button" class="secondary" onclick="lembrarDepoisAlerta('${a.id}', 1)">+1 dia</button>`
+            : ""}
+
+          ${status === "aberto" || status === "adiado"
+            ? `<button type="button" class="secondary" onclick="lembrarDepoisAlerta('${a.id}', 3)">+3 dias</button>`
+            : ""}
+
+          ${status === "aberto" || status === "adiado"
+            ? `<button type="button" class="secondary" onclick="lembrarDepoisAlerta('${a.id}', 7)">+7 dias</button>`
+            : ""}
+
+          ${status === "aberto" || status === "adiado"
+            ? `<button type="button" class="secondary" onclick="lembrarDepoisDataAlerta('${a.id}')">Escolher data</button>`
+            : ""}
+
+          ${status === "aberto" || status === "adiado"
+            ? `<button type="button" class="secondary" onclick="${podeGerenciarDireto ? `ignorarAlertaDireto('${a.id}')` : `solicitarIgnorarAlerta('${a.id}')`}">Ignorar</button>`
+            : ""}
+
+          ${status === "aguardando_aprovacao_resolucao" && podeAprovar
+            ? `<button type="button" class="secondary" onclick="aprovarResolucaoAlerta('${a.id}')">Aprovar resolução</button>`
+            : ""}
+
+          ${status === "aguardando_aprovacao_resolucao" && podeAprovar
+            ? `<button type="button" class="secondary" onclick="rejeitarResolucaoAlerta('${a.id}')">Rejeitar</button>`
+            : ""}
+
+          ${status === "aguardando_aprovacao_ignorar" && podeAprovar
+            ? `<button type="button" class="secondary" onclick="aprovarIgnorarAlerta('${a.id}')">Aprovar ignorar</button>`
+            : ""}
+
+          ${status === "aguardando_aprovacao_ignorar" && podeAprovar
+            ? `<button type="button" class="secondary" onclick="rejeitarIgnorarAlerta('${a.id}')">Rejeitar</button>`
+            : ""}
+
+          <button type="button" class="secondary" onclick="verHistoricoAlerta('${a.id}')">Histórico</button>
+
+          ${status === "resolvido"
+            ? `<button type="button" class="secondary" onclick="reabrirAlerta('${a.id}')">Reabrir</button>`
+            : ""}
+        </div>
+      </div>
+    `;
+  }).join("");
+}
+
+// =========================
+// AÇÕES
+// =========================
+
+async function solicitarResolucaoAlerta(id) {
+  const usuario = getUsuarioAcaoAlertas();
+
+  await getAlertasRef().doc(id).set(
+    {
+      status: "aguardando_aprovacao_resolucao",
+      resolvidoPor: usuario,
+      resolvidoEm: agoraISOAlerta(),
+      atualizadoEm: agoraISOAlerta()
+    },
+    { merge: true }
+  );
+
+  await adicionarHistoricoAlerta(id, "solicitou_resolucao", {
+    resolvidoPor: usuario
+  });
+
+  trocarAbaAlertas("pendentes_aprovacao");
+}
+
+async function resolverAlertaDireto(id) {
+  const usuario = getUsuarioAcaoAlertas();
+
+  await getAlertasRef().doc(id).set(
+    {
+      status: "resolvido",
+      resolvidoPor: usuario,
+      resolvidoEm: agoraISOAlerta(),
+      aprovadoPor: usuario,
+      aprovadoEm: agoraISOAlerta(),
+      atualizadoEm: agoraISOAlerta()
+    },
+    { merge: true }
+  );
+
+  await adicionarHistoricoAlerta(id, "resolvido", {
+    resolvidoPor: usuario,
+    aprovadoPor: usuario
+  });
+
+  trocarAbaAlertas("resolvidos");
+}
+
+async function aprovarResolucaoAlerta(id) {
+  const usuario = getUsuarioAcaoAlertas();
+
+  await getAlertasRef().doc(id).set(
+    {
+      status: "resolvido",
+      aprovadoPor: usuario,
+      aprovadoEm: agoraISOAlerta(),
+      atualizadoEm: agoraISOAlerta()
+    },
+    { merge: true }
+  );
+
+  await adicionarHistoricoAlerta(id, "aprovou_resolucao", {
+    aprovadoPor: usuario
+  });
+
+  trocarAbaAlertas("resolvidos");
+}
+
+async function rejeitarResolucaoAlerta(id) {
+  await getAlertasRef().doc(id).set(
+    {
+      status: "aberto",
+      resolvidoPor: "",
+      resolvidoEm: "",
+      atualizadoEm: agoraISOAlerta()
+    },
+    { merge: true }
+  );
+
+  await adicionarHistoricoAlerta(id, "rejeitou_resolucao");
+
+  trocarAbaAlertas("todos");
+}
+
+async function solicitarIgnorarAlerta(id) {
+  await getAlertasRef().doc(id).set(
+    {
+      status: "aguardando_aprovacao_ignorar",
+      atualizadoEm: agoraISOAlerta(),
+      solicitouIgnorarPor: getUsuarioAcaoAlertas(),
+      solicitouIgnorarEm: agoraISOAlerta()
+    },
+    { merge: true }
+  );
+
+  await adicionarHistoricoAlerta(id, "solicitou_ignorar", {
+    solicitouIgnorarPor: getUsuarioAcaoAlertas()
+  });
+
+  trocarAbaAlertas("pendentes_aprovacao");
+}
+
+async function ignorarAlertaDireto(id) {
+  await getAlertasRef().doc(id).set(
+    {
+      status: "ignorado",
+      ignoradoPor: getUsuarioAcaoAlertas(),
+      ignoradoEm: agoraISOAlerta(),
+      aprovadoPor: getUsuarioAcaoAlertas(),
+      aprovadoEm: agoraISOAlerta(),
+      atualizadoEm: agoraISOAlerta()
+    },
+    { merge: true }
+  );
+
+  await adicionarHistoricoAlerta(id, "ignorado", {
+    ignoradoPor: getUsuarioAcaoAlertas()
+  });
+
+  trocarAbaAlertas("ignorados");
+}
+
+async function aprovarIgnorarAlerta(id) {
+  await getAlertasRef().doc(id).set(
+    {
+      status: "ignorado",
+      ignoradoPor: getUsuarioAcaoAlertas(),
+      ignoradoEm: agoraISOAlerta(),
+      aprovadoPor: getUsuarioAcaoAlertas(),
+      aprovadoEm: agoraISOAlerta(),
+      atualizadoEm: agoraISOAlerta()
+    },
+    { merge: true }
+  );
+
+  await adicionarHistoricoAlerta(id, "aprovou_ignorar", {
+    aprovadoPor: getUsuarioAcaoAlertas()
+  });
+
+  trocarAbaAlertas("ignorados");
+}
+
+async function rejeitarIgnorarAlerta(id) {
+  await getAlertasRef().doc(id).set(
+    {
+      status: "aberto",
+      atualizadoEm: agoraISOAlerta()
+    },
+    { merge: true }
+  );
+
+  await adicionarHistoricoAlerta(id, "rejeitou_ignorar");
+
+  trocarAbaAlertas("todos");
+}
+
+async function reabrirAlerta(id) {
+  await getAlertasRef().doc(id).set(
+    {
+      status: "aberto",
+      resolvidoPor: "",
+      resolvidoEm: "",
+      aprovadoPor: "",
+      aprovadoEm: "",
+      ignoradoPor: "",
+      ignoradoEm: "",
+      atualizadoEm: agoraISOAlerta()
+    },
+    { merge: true }
+  );
+
+  await adicionarHistoricoAlerta(id, "reaberto");
+
+  trocarAbaAlertas("todos");
+}
+
+async function lembrarDepoisAlerta(id, dias) {
+  const data = new Date();
+  data.setDate(data.getDate() + dias);
+
+  await getAlertasRef().doc(id).set(
+    {
+      status: "adiado",
+      lembrarNovamenteEm: data.toISOString(),
+      atualizadoEm: agoraISOAlerta()
+    },
+    { merge: true }
+  );
+
+  await adicionarHistoricoAlerta(id, "adiado", {
+    dias
+  });
+}
+
+async function lembrarDepoisDataAlerta(id) {
+  const valor = prompt("Lembrar novamente em qual data? Use YYYY-MM-DD");
+  if (!valor) return;
+
+  const data = new Date(`${valor}T09:00:00`);
+  if (isNaN(data.getTime())) {
+    alert("Data inválida.");
+    return;
+  }
+
+  await getAlertasRef().doc(id).set(
+    {
+      status: "adiado",
+      lembrarNovamenteEm: data.toISOString(),
+      atualizadoEm: agoraISOAlerta()
+    },
+    { merge: true }
+  );
+
+  await adicionarHistoricoAlerta(id, "adiado_data", {
+    dataEscolhida: data.toISOString()
+  });
+}
+
+async function marcarAlertaComoLido(id) {
+  if (!id) return;
+
+  await getAlertasRef().doc(id).set(
+    {
+      lido: true,
+      lidoEm: agoraISOAlerta()
+    },
+    { merge: true }
+  );
+}
+
+async function abrirItemDoAlerta(alertaId) {
+  const alerta = (window.alertasCache || []).find((a) => a.id === alertaId);
+  if (!alerta) return;
+
+  await marcarAlertaComoLido(alertaId);
+  fecharModalAlertas();
+
+  const entidade = String(alerta.entidade || "").toLowerCase();
+  const entidadeId = alerta.entidadeId;
+
+  if (entidade === "oferta" && typeof verOferta === "function") {
+    verOferta(entidadeId);
+    return;
+  }
+
+  if (entidade === "cliente" && typeof verCliente === "function") {
+    verCliente(entidadeId);
+    return;
+  }
+
+  if (entidade === "projeto" && typeof verProjeto === "function") {
+    verProjeto(entidadeId);
+    return;
+  }
+
+  if (entidade === "representada" && typeof verRepresentada === "function") {
+    verRepresentada(entidadeId);
+    return;
+  }
+
+  console.warn("Nenhuma função encontrada para abrir a entidade:", entidade, entidadeId);
+}
+
+// =========================
+// HISTÓRICO
+// =========================
+
+function verHistoricoAlerta(id) {
+  const alerta = (window.alertasCache || []).find((a) => a.id === id);
+  if (!alerta) return;
+
+  const historico = Array.isArray(alerta.historico) ? alerta.historico : [];
+
+  const html = historico.length
+    ? historico.map((h) => `
+        <div class="historico-item">
+          <div class="historico-topo">
+            <span class="historico-usuario">${h.usuario || "-"}</span>
+            <span class="historico-data">${formatarDataAlertaBR(h.dataHora)}</span>
+          </div>
+          <div class="historico-texto">
+            ${h.acao || "-"}
+          </div>
+        </div>
+      `).join("")
+    : `<div class="historico-vazio">Sem histórico.</div>`;
+
+  if (typeof abrirModal === "function") {
+    abrirModal("Histórico do alerta", html);
+  }
+}

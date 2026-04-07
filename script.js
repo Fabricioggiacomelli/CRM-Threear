@@ -17,8 +17,7 @@ function isAdminEmail(email) {
 }
 
 function isAdmin() {
-  const email = window.auth?.currentUser?.email || "";
-  return isAdminEmail(email);
+  return usuarioEhAdmin() || isAdminEmail(window.auth?.currentUser?.email || "");
 }
 
 function getUserEmailAtual() {
@@ -171,6 +170,9 @@ window.STATUS_PROJETO_OPTIONS = [
   "Processos em Andamento",
 ];
 
+window.usuarioLogadoCRM = null;
+window.permissoesCRM = null;
+
 let projetos = [];
 let projetoContatosTemp = [];
 let projetoAtualizacoesTemp = [];
@@ -229,6 +231,56 @@ async function abrirLixeira() {
 async function carregarLixeira() {
   itensLixeira = await buscarItensLixeira();
   aplicarFiltrosLixeira();
+}
+
+async function carregarPermissoesUsuarioLogado() {
+  const authUser = window.auth?.currentUser;
+
+  if (!authUser || !authUser.uid) {
+    console.warn("Usuário não autenticado.");
+    return null;
+  }
+
+  try {
+    const doc = await window.db.collection("usuarios").doc(authUser.uid).get();
+
+    if (!doc.exists) {
+      const fallback = {
+        uid: authUser.uid,
+        email: String(authUser.email || "").toLowerCase(),
+        nome: authUser.displayName || authUser.email || "Usuário",
+        role: isAdminEmail(authUser.email) ? "admin" : "user",
+        podeVerDe: [String(authUser.email || "").toLowerCase()],
+        ativo: true
+      };
+
+      window.usuarioLogadoCRM = fallback;
+      window.permissoesCRM = fallback;
+      return fallback;
+    }
+
+    const dados = doc.data() || {};
+
+    const permissoes = {
+      uid: authUser.uid,
+      email: String(dados.email || authUser.email || "").toLowerCase(),
+      nome: dados.nome || authUser.displayName || authUser.email || "Usuário",
+      role: dados.role || (isAdminEmail(authUser.email) ? "admin" : "user"),
+      podeVerDe: Array.isArray(dados.podeVerDe)
+        ? dados.podeVerDe.map((e) => String(e).toLowerCase())
+        : [String(dados.email || authUser.email || "").toLowerCase()],
+      ativo: dados.ativo !== false
+    };
+
+    window.usuarioLogadoCRM = permissoes;
+    window.permissoesCRM = permissoes;
+
+    console.log("Permissões carregadas:", permissoes);
+    return permissoes;
+  } catch (error) {
+    console.error("Erro ao carregar permissões:", error);
+    return null;
+  }
 }
 
 function getApiBase() {
@@ -379,6 +431,7 @@ window.addEventListener("load", async () => {
         return;
       }
 
+      await carregarPermissoesUsuarioLogado();
       await carregarDadosDoFirebase();
       atualizarSugestoesCnpj();
       mostrarApp();
@@ -529,6 +582,7 @@ function mostrarApp() {
   preencherSelectPadrao("proj_tipo", TIPO_PROJETO_OPTIONS, "");
   preencherSelectPadrao("proj_status", STATUS_PROJETO_OPTIONS, "");
   renderTabelaProjetos();
+  iniciarSistemaAlertas();
 }
 
 function logout() {
@@ -797,6 +851,7 @@ async function confirmarTotpNoModal() {
     setTimeout(async () => {
       fecharModalTOTP(true);
 
+      await carregarPermissoesUsuarioLogado();
       await carregarDadosDoFirebase();
       atualizarSugestoesCnpj();
       mostrarApp();
@@ -1148,6 +1203,7 @@ function initForm() {
       data_entrada: data_entrada.value,
       status: status.value,
       data_envio: data_envio.value,
+      responsavelEmail: (window.auth?.currentUser?.email || "").toLowerCase(),
       possuiPedido,
       possuiRevisao,
       atendimentoSpot,
@@ -1332,6 +1388,7 @@ function initForm() {
     cnpj_cliente.dataset.clienteId = "";
     currentPage = 1;
     renderTabela();
+    await verificarAlertasSistema();
   });
 
   initFiltrosRegistrosUI();
@@ -1623,6 +1680,7 @@ function getValorCampoRegistro(reg, field) {
 }
 
 function getRegistrosFiltrados() {
+  const base = registros;
   const statusFilter = (document.getElementById("statusFilter")?.value || "")
     .trim()
     .toLowerCase();
@@ -1646,7 +1704,7 @@ function getRegistrosFiltrados() {
 
   const isEmptyKeyword = (t) => ["vazio", "em branco", "sem"].includes(t);
 
-  return registros.filter((reg) => {
+  return base.filter((reg) => {
     if (filtros.length > 0) {
       const textoTodos = getTextoRegistroTodosCampos(reg);
 
@@ -1694,6 +1752,8 @@ function getRegistrosFiltrados() {
 }
 
 function getClientesFiltrados() {
+  const base = clientes;
+
   const filtros = Array.from(
     document.querySelectorAll("#filtersClientes .filter-item"),
   )
@@ -1712,7 +1772,7 @@ function getClientesFiltrados() {
     return acc;
   }, {});
 
-  return clientes.filter((cli) => {
+  return base.filter((cli) => {
     const usuario = formatarNomeUsuario(
       cli.atualizadoPor || cli.criadoPor || "",
     ).toLowerCase();
@@ -1971,13 +2031,13 @@ async function excluirRegistro(id) {
     registros = registros.filter((r) => r.id !== id);
     renderTabela();
 
-mostrarToastDesfazer({
-  mensagem: "Registro movido para a lixeira.",
-  onUndo: async () => {
-    await restaurarDaLixeira("ofertas", id);
-    await recarregarDadosPrincipais();
-  },
-});
+    mostrarToastDesfazer({
+      mensagem: "Registro movido para a lixeira.",
+      onUndo: async () => {
+        await restaurarDaLixeira("ofertas", id);
+        await recarregarDadosPrincipais();
+      },
+    });
   } catch (e) {
     console.error(e);
     alert("Erro ao mover registro para a lixeira.");
@@ -3086,6 +3146,7 @@ function importBackupExcelFirebase(event) {
           nome: normalizarTexto(row.Nome),
           criadoPor: currentUser,
           atualizadoPor: currentUser,
+          responsavelEmail: (window.auth?.currentUser?.email || "").toLowerCase(),
           criadoEm: nowIso,
           atualizadoEm: nowIso,
         };
@@ -3148,6 +3209,7 @@ function importBackupExcelFirebase(event) {
           inicio_entregas: normalizarTexto(row.InicioEntregas),
           fim_entregas: normalizarTexto(row.FimEntregas),
           obs: normalizarTexto(row.Observacoes),
+          responsavelEmail: (window.auth?.currentUser?.email || "").toLowerCase(),
           contatos: [],
           atualizacoes: [],
           criadoPor: currentUser,
@@ -3733,6 +3795,7 @@ function initClientesUI() {
       endereco,
       segmento,
       sap,
+      responsavelEmail: (window.auth?.currentUser?.email || "").toLowerCase(),
       contatos: obterItensTemporariosAtivos(contatosTemp).map((ct) => ({ ...ct })),
     };
 
@@ -4073,13 +4136,13 @@ async function excluirCliente(id) {
     salvarClientes?.();
     renderTabelaClientes?.();
 
-mostrarToastDesfazer({
-  mensagem: "Cliente movido para a lixeira.",
-  onUndo: async () => {
-    await restaurarDaLixeira("clientes", id);
-    await recarregarDadosPrincipais();
-  },
-});
+    mostrarToastDesfazer({
+      mensagem: "Cliente movido para a lixeira.",
+      onUndo: async () => {
+        await restaurarDaLixeira("clientes", id);
+        await recarregarDadosPrincipais();
+      },
+    });
   } catch (e) {
     console.error(e);
     alert("Erro ao mover cliente para a lixeira.");
@@ -4174,6 +4237,7 @@ function initRepresentadasUI() {
         nome,
         criadoPor: currentUser,
         atualizadoPor: currentUser,
+        responsavelEmail: (window.auth?.currentUser?.email || "").toLowerCase(),
         criadoEm: nowIso,
         atualizadoEm: nowIso,
         historico: [
@@ -4212,6 +4276,9 @@ function initRepresentadasUI() {
           nome,
           criadoPor: antigo.criadoPor || currentUser,
           atualizadoPor: currentUser,
+          responsavelEmail:
+            antigo.responsavelEmail ||
+            (window.auth?.currentUser?.email || "").toLowerCase(),
           criadoEm: antigo.criadoEm || nowIso,
           atualizadoEm: nowIso,
           historico: [...(antigo.historico || []), ...eventosHistorico],
@@ -4430,13 +4497,13 @@ async function excluirRepresentada(id) {
     renderTabelaRepresentadas?.();
     preencherSelectRepresentadas?.();
 
-mostrarToastDesfazer({
-  mensagem: "Representada movida para a lixeira.",
-  onUndo: async () => {
-    await restaurarDaLixeira("representadas", id);
-    await recarregarDadosPrincipais();
-  },
-});
+    mostrarToastDesfazer({
+      mensagem: "Representada movida para a lixeira.",
+      onUndo: async () => {
+        await restaurarDaLixeira("representadas", id);
+        await recarregarDadosPrincipais();
+      },
+    });
   } catch (e) {
     console.error(e);
     alert("Erro ao mover representada para a lixeira.");
@@ -4789,16 +4856,17 @@ function initBuSegmento() {
     "T&I": [],
     OGP: ["On Shore", "Off Shore", "DW"],
     OEM: [
+      "Cranes",
       "infra",
+      "Marine",
+      "Mining",
+      "Nuclear",
+      "Papel & Celulose",
+      "Raiways",
       "Renew (PV)",
       "Renew (Wind)",
-      "Mining",
-      "Cranes",
-      "Marine",
       "Rolling Stock",
-      "Raiways",
-      "Water",
-      "Nuclear",
+      "Water"
     ],
     "High Voltage": [],
     OHTL: [],
@@ -5581,13 +5649,15 @@ document
   ?.addEventListener("click", cancelarEdicaoRepresentada);
 
 function getRepresentadasFiltradas() {
+  const base = representadas;
+
   const term = (document.getElementById("searchRepresentadas")?.value || "")
     .trim()
     .toLowerCase();
 
   if (!term) return representadas.slice();
 
-  return representadas.filter((r) =>
+  return base.filter((r) =>
     String(r.nome || "")
       .toLowerCase()
       .includes(term),
@@ -7475,6 +7545,7 @@ function initSalvarProjetoUI() {
       inicio_entregas: inicioEl.value,
       fim_entregas: fimEl.value,
       obs: obsEl.value.trim(),
+      responsavelEmail: (window.auth?.currentUser?.email || "").toLowerCase(),
       contatos: obterItensTemporariosAtivos(projetoContatosTemp).map((ct) => ({ ...ct })),
       atualizacoes: obterItensTemporariosAtivos(projetoAtualizacoesTemp).map((at) => ({ ...at })),
     };
@@ -7553,6 +7624,7 @@ function initSalvarProjetoUI() {
 }
 
 function getProjetosFiltrados() {
+  const base = projetos;
   const filtros = Array.from(
     document.querySelectorAll("#filtersProjetos .filter-item"),
   )
@@ -7571,7 +7643,7 @@ function getProjetosFiltrados() {
     return acc;
   }, {});
 
-  return projetos.filter((proj) => {
+  return base.filter((proj) => {
     const usuario = formatarNomeUsuario(
       proj.atualizadoPor || proj.criadoPor || "",
     ).toLowerCase();
@@ -7994,13 +8066,13 @@ async function excluirProjeto(id) {
     renderTabelaProjetos?.();
     atualizarSugestoesProjetosOferta?.();
 
-mostrarToastDesfazer({
-  mensagem: "Projeto movido para a lixeira.",
-  onUndo: async () => {
-    await restaurarDaLixeira("projetos", id);
-    await recarregarDadosPrincipais();
-  },
-});
+    mostrarToastDesfazer({
+      mensagem: "Projeto movido para a lixeira.",
+      onUndo: async () => {
+        await restaurarDaLixeira("projetos", id);
+        await recarregarDadosPrincipais();
+      },
+    });
   } catch (e) {
     console.error(e);
     alert("Erro ao mover projeto para a lixeira.");
@@ -9297,9 +9369,9 @@ async function buscarItensLixeira() {
 
 function renderResumoLixeira(itens) {
   const resumo = {
-    registro: 0, 
-    cliente: 0, 
-    representada: 0, 
+    registro: 0,
+    cliente: 0,
+    representada: 0,
     projeto: 0,
   };
 
@@ -9312,7 +9384,7 @@ function renderResumoLixeira(itens) {
   const el = document.getElementById("resumoLixeira");
   if (!el) return;
 
-el.innerHTML = `
+  el.innerHTML = `
   <div class="resumo-inline">
     <span><strong>Total:</strong> ${itens.length}</span>
     <span><strong>Registros:</strong> ${resumo.registro}</span>
@@ -9432,13 +9504,12 @@ function renderTabelaLixeira() {
           <button type="button" class="btn-sm" onclick="restaurarItemLixeira('${item.colecao}', '${item.id}')">
             Restaurar
           </button>
-          ${
-            isAdmin()
-              ? `<button type="button" class="btn-sm btn-danger" onclick="excluirItemDefinitivo('${item.colecao}', '${item.id}')">
+          ${isAdmin()
+          ? `<button type="button" class="btn-sm btn-danger" onclick="excluirItemDefinitivo('${item.colecao}', '${item.id}')">
                    Excluir definitivo
                  </button>`
-              : ""
-          }
+          : ""
+        }
         </td>
       `;
       tbody.appendChild(tr);
@@ -9728,5 +9799,127 @@ async function recarregarDadosPrincipais() {
   renderTabelaRepresentadas?.();
   renderTabelaProjetos?.();
   preencherSelectRepresentadas?.();
+}
+
+async function carregarPermissoesUsuarioLogado() {
+  const authUser = window.auth?.currentUser;
+
+  if (!authUser || !authUser.email) {
+    console.warn("Usuário não autenticado.");
+    return null;
+  }
+
+  const email = authUser.email.toLowerCase();
+
+  try {
+    const doc = await window.db.collection("usuarios").doc(email).get();
+
+    if (!doc.exists) {
+      console.warn("Usuário sem cadastro na coleção usuarios:", email);
+
+      window.usuarioLogadoCRM = {
+        email,
+        role: "user",
+        podeVerDe: [email],
+        ativo: true
+      };
+
+      window.permissoesCRM = window.usuarioLogadoCRM;
+      return window.usuarioLogadoCRM;
+    }
+
+    const dados = doc.data();
+
+    window.usuarioLogadoCRM = {
+      email: dados.email,
+      nome: dados.nome || "",
+      role: dados.role || "user",
+      podeVerDe: Array.isArray(dados.podeVerDe) ? dados.podeVerDe : [dados.email],
+      ativo: dados.ativo !== false
+    };
+
+    window.permissoesCRM = window.usuarioLogadoCRM;
+
+    console.log("Permissões carregadas:", window.usuarioLogadoCRM);
+    return window.usuarioLogadoCRM;
+  } catch (error) {
+    console.error("Erro ao carregar permissões do usuário:", error);
+    return null;
+  }
+}
+
+function usuarioEhAdmin() {
+  return window.permissoesCRM?.role === "admin";
+}
+
+function usuarioEhSupervisor() {
+  return window.permissoesCRM?.role === "supervisor";
+}
+
+function usuarioPodeVerResponsavel(emailResponsavel) {
+  const permissoes = window.permissoesCRM;
+  if (!permissoes) return false;
+
+  const email = String(emailResponsavel || "").toLowerCase().trim();
+
+  if (permissoes.role === "admin") return true;
+  if (Array.isArray(permissoes.podeVerDe) && permissoes.podeVerDe.includes("*")) {
+    return true;
+  }
+
+  return Array.isArray(permissoes.podeVerDe)
+    ? permissoes.podeVerDe.includes(email)
+    : false;
+}
+
+function filtrarRegistrosPorPermissao(lista) {
+  if (!Array.isArray(lista)) return [];
+
+  return lista.filter((item) => {
+    const responsavel =
+      item.responsavel ||
+      item.responsavelEmail ||
+      item.usuario ||
+      item.criadoPor ||
+      "";
+
+    return usuarioPodeVerResponsavel(responsavel);
+  });
+}
+
+function obterEmailResponsavelItem(item) {
+  const email = String(
+    item?.responsavelEmail ||
+    item?.emailResponsavel ||
+    item?.criadoPorEmail ||
+    ""
+  ).toLowerCase().trim();
+
+  if (email) return email;
+
+  // fallback temporário:
+  // se o item antigo não tiver responsável salvo, deixa aparecer
+  // para o usuário logado enquanto você migra os dados
+  return String(window.auth?.currentUser?.email || "").toLowerCase().trim();
+}
+
+function filtrarRegistrosPorPermissao(lista) {
+  if (!Array.isArray(lista)) return [];
+  return lista.filter((item) => usuarioPodeVerResponsavel(obterEmailResponsavelItem(item)));
+}
+
+function filtrarClientesPorPermissao(lista) {
+  if (!Array.isArray(lista)) return [];
+  return lista.filter((item) => usuarioPodeVerResponsavel(obterEmailResponsavelItem(item)));
+}
+
+function filtrarProjetosPorPermissao(lista) {
+  if (!Array.isArray(lista)) return [];
+  return lista.filter((item) => usuarioPodeVerResponsavel(obterEmailResponsavelItem(item)));
+}
+
+function filtrarRepresentadasPorPermissao(lista) {
+  if (!Array.isArray(lista)) return [];
+  return lista.filter((item) => usuarioPodeVerResponsavel(obterEmailResponsavelItem(item)));
 }
 

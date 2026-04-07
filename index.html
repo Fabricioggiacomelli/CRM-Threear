@@ -14,6 +14,66 @@
 
 <body>
 
+  <div id="modalAlertas" class="modal hidden">
+    <div class="modal-content modal-alertas-content">
+      <div class="modal-header">
+        <h3>Alertas</h3>
+        <button type="button" class="modal-close" onclick="fecharModalAlertas()">✕</button>
+      </div>
+
+      <div class="modal-body modal-alertas-body">
+        <div class="alertas-toolbar">
+          <div class="alertas-tabs">
+              <button type="button" class="alerta-tab active" data-tab="todos" onclick="trocarAbaAlertas('todos')">Todos</button>
+              <button type="button" class="alerta-tab" data-tab="nao_lidos" onclick="trocarAbaAlertas('nao_lidos')">Não lidos</button>
+              <button type="button" class="alerta-tab" data-tab="pendentes_aprovacao" onclick="trocarAbaAlertas('pendentes_aprovacao')">Pendentes aprovação</button>
+              <button type="button" class="alerta-tab" data-tab="atrasados" onclick="trocarAbaAlertas('atrasados')">Atrasados</button>
+              <button type="button" class="alerta-tab" data-tab="ignorados" onclick="trocarAbaAlertas('ignorados')">Ignorados</button>
+              <button type="button" class="alerta-tab" data-tab="resolvidos" onclick="trocarAbaAlertas('resolvidos')">Resolvidos</button>
+          </div>
+
+          <div class="alertas-filtros">
+            <input type="text" id="alertasBusca" placeholder="Buscar alerta..." oninput="renderListaAlertas()" />
+
+            <select id="filtroTipoAlerta" onchange="renderListaAlertas()">
+              <option value="">Tipo: todos</option>
+              <option value="followup">Follow-up</option>
+              <option value="prazo_entrega">Prazo de entrega</option>
+              <option value="prazo_entrega_atrasado">Prazo atrasado</option>
+              <option value="sem_resposta">Sem resposta</option>
+              <option value="pedido_sem_nf">Pedido sem NF</option>
+              <option value="frio_cliente">Cliente frio</option>
+              <option value="frio_projeto">Projeto frio</option>
+              <option value="frio_representada">Representada fria</option>
+            </select>
+
+            <select id="filtroPrioridadeAlerta" onchange="renderListaAlertas()">
+              <option value="">Prioridade: todas</option>
+              <option value="baixa">Baixa</option>
+              <option value="media">Média</option>
+              <option value="alta">Alta</option>
+              <option value="critica">Crítica</option>
+            </select>
+
+            <select id="filtroEntidadeAlerta" onchange="renderListaAlertas()">
+              <option value="">Entidade: todas</option>
+              <option value="oferta">Oferta</option>
+              <option value="cliente">Cliente</option>
+              <option value="projeto">Projeto</option>
+              <option value="representada">Representada</option>
+            </select>
+
+            <input type="text" id="filtroResponsavelAlerta" placeholder="Responsável..."
+              oninput="renderListaAlertas()" />
+          </div>
+        </div>
+
+        <div id="resumoAlertas" class="subtitle" style="margin-bottom: 10px;"></div>
+        <div id="listaAlertas"></div>
+      </div>
+    </div>
+  </div>
+
   <div id="modalDetalhes" class="modal hidden">
     <div class="modal-content">
       <div class="modal-header">
@@ -221,6 +281,10 @@
           <p class="subtitle">Cadastre clientes, ofertas e acompanhe resultados.</p>
         </div>
         <div class="topbar-right">
+          <button type="button" id="btnAlertas" class="btn-alertas" onclick="abrirModalAlertas()">
+            🔔
+            <span id="badgeAlertas" class="badge-alertas hidden">0</span>
+          </button>
           <span id="userInfo"></span>
         </div>
       </div>
@@ -829,7 +893,7 @@
         </div>
       </section>
 
-      <section id="secaoLixeira" >
+      <section id="secaoLixeira">
         <h3>Lixeira</h3>
         <p class="subtitle">
           Itens excluídos podem ser restaurados em até 7 dias. Após esse prazo, são removidos automaticamente.
@@ -1000,6 +1064,8 @@
   <script src="./firebase.js"></script>
 
   <script src="schema.js" defer></script>
+  <script src="usuarios.js"></script>
+  <script src="alertas.js"></script>
   <script src="script.js" defer></script>
 </body>
 
