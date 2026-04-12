@@ -1,3 +1,72 @@
+// ─────────────────────────────────────────────────────────
+// UTILITÁRIOS GLOBAIS
+// ─────────────────────────────────────────────────────────
+
+/**
+ * Timestamp do Firestore — use APENAS em campos de nível raiz do documento
+ * que NÃO precisam ser lidos imediatamente após o write.
+ *
+ * NÃO use em: arrays (historico, contatos), campos lidos logo após salvar,
+ * ou campos comparados via string. Nesses casos use new Date().toISOString().
+ */
+const serverTimestamp = () => firebase.firestore.FieldValue.serverTimestamp();
+
+/** Previne addEventListener duplicado: marca o elemento com dataset após bind */
+function addListenerOnce(el, event, handler, key) {
+  if (!el) return;
+  const flag = `bound_${key || event}`;
+  if (el.dataset[flag]) return;
+  el.dataset[flag] = "1";
+  el.addEventListener(event, handler);
+}
+
+/**
+ * Paginação unificada — elimina a duplicação em renderTabela*
+ * @returns {{ pageData, totalPages, start }}
+ */
+function getPaginatedData(list, page, pageSize) {
+  const total = list.length;
+  const totalPages = Math.max(1, Math.ceil(total / pageSize));
+  const safePage = Math.min(page, totalPages);
+  const start = (safePage - 1) * pageSize;
+  return {
+    pageData: list.slice(start, start + pageSize),
+    totalPages,
+    start,
+    safePage,
+  };
+}
+
+/** Alias curto para escapeHtml — use em template literals com dados do usuário */
+const esc = (s) => String(s || "").replaceAll("&","&amp;").replaceAll("<","&lt;").replaceAll(">","&gt;").replaceAll('"',"&quot;").replaceAll("'","&#039;");
+
+// ─────────────────────────────────────────────────────────
+// CACHE DE ELEMENTOS DOM FIXOS
+// Populado em mostrarApp() após #appContainer ficar visível.
+// Use DOM.xxx em vez de document.querySelector/getElementById
+// dentro de renderTabela*, evitando re-query a cada render.
+// ─────────────────────────────────────────────────────────
+const DOM = {};
+
+function initDOMCache() {
+  DOM.tabelaRegistrosTbody    = document.querySelector("#tabelaRegistros tbody");
+  DOM.pageInfo                = document.getElementById("pageInfo");
+  DOM.tabelaClientesTbody     = document.querySelector("#tabelaClientes tbody");
+  DOM.pageInfoClientes        = document.getElementById("pageInfoClientes");
+  DOM.clientesCount           = document.getElementById("clientesCount");
+  DOM.tabelaRepresentadasTbody= document.querySelector("#tabelaRepresentadas tbody");
+  DOM.pageInfoRepresentadas   = document.getElementById("pageInfoRepresentadas");
+  DOM.tabelaProjetosTbody     = document.querySelector("#tabelaProjetos tbody");
+  DOM.pageInfoProjetos        = document.getElementById("pageInfoProjetos");
+  DOM.projetosCount           = document.getElementById("projetosCount");
+  DOM.tbodyLixeira            = document.getElementById("tbodyLixeira");
+  DOM.pageInfoLixeira         = document.getElementById("pageInfoLixeira");
+  DOM.btnPrevLixeira          = document.getElementById("btnPrevLixeira");
+  DOM.btnNextLixeira          = document.getElementById("btnNextLixeira");
+}
+
+// ─────────────────────────────────────────────────────────
+
 let currentUserName = null;
 
 function getCurrentUserName() {
@@ -236,30 +305,18 @@ async function carregarLixeira() {
 async function carregarPermissoesUsuarioLogado() {
   const authUser = window.auth?.currentUser;
 
-  if (!authUser || !authUser.uid) {
+  if (!authUser?.uid) {
     console.warn("Usuário não autenticado.");
     return null;
   }
 
+  const emailFallback = String(authUser.email || "").toLowerCase();
+
   try {
+    // Documentos de usuário usam UID como chave — NÃO use email aqui
     const doc = await window.db.collection("usuarios").doc(authUser.uid).get();
 
-    if (!doc.exists) {
-      const fallback = {
-        uid: authUser.uid,
-        email: String(authUser.email || "").toLowerCase(),
-        nome: authUser.displayName || authUser.email || "Usuário",
-        role: isAdminEmail(authUser.email) ? "admin" : "user",
-        podeVerDe: [String(authUser.email || "").toLowerCase()],
-        ativo: true
-      };
-
-      window.usuarioLogadoCRM = fallback;
-      window.permissoesCRM = fallback;
-      return fallback;
-    }
-
-    const dados = doc.data() || {};
+    const dados = doc.exists ? (doc.data() || {}) : {};
 
     const permissoes = {
       uid: authUser.uid,
@@ -268,14 +325,16 @@ async function carregarPermissoesUsuarioLogado() {
       role: dados.role || (isAdminEmail(authUser.email) ? "admin" : "user"),
       podeVerDe: Array.isArray(dados.podeVerDe)
         ? dados.podeVerDe.map((e) => String(e).toLowerCase())
-        : [String(dados.email || authUser.email || "").toLowerCase()],
-      ativo: dados.ativo !== false
+        : [emailFallback],
+      ativo: dados.ativo !== false,
     };
+
+    if (!doc.exists) {
+      console.warn("Usuário sem cadastro na coleção usuarios:", authUser.uid);
+    }
 
     window.usuarioLogadoCRM = permissoes;
     window.permissoesCRM = permissoes;
-
-    console.log("Permissões carregadas:", permissoes);
     return permissoes;
   } catch (error) {
     console.error("Erro ao carregar permissões:", error);
@@ -352,7 +411,6 @@ window.addEventListener("load", async () => {
 
   await esperarFirebase();
 
-  console.log("Firebase OK:", { temAuth: !!window.auth, temDb: !!window.db });
 
   auth.onAuthStateChanged(async (user) => {
     try {
@@ -464,53 +522,42 @@ function esperarFirebase(timeoutMs = 8000) {
 
 document.addEventListener("DOMContentLoaded", async () => {
   try {
-    if (typeof esperarFirebase === "function") {
-      await esperarFirebase();
-    }
-
-    await verificarBackupAutomatico();
-    atualizarInfoUltimoBackupAutomatico();
-
+    await esperarFirebase();
+    await Promise.allSettled([
+      verificarBackupAutomatico().then(() => atualizarInfoUltimoBackupAutomatico()),
+      limparLixeiraExpirada(),
+    ]);
   } catch (error) {
-    console.error("Falha ao iniciar rotina de backup automático:", error);
-  }
-});
-
-document.addEventListener("DOMContentLoaded", async () => {
-  try {
-    if (typeof esperarFirebase === "function") {
-      await esperarFirebase();
-    }
-
-    await limparLixeiraExpirada();
-  } catch (error) {
-    console.error("Falha ao iniciar rotina da lixeira:", error);
+    console.error("Falha nas rotinas de inicialização:", error);
   }
 });
 
 async function carregarDadosDoFirebase() {
-  try {
-    await Promise.all([
-      carregarClientesFirebase(),
-      carregarRepresentadasFirebase(),
-      carregarRegistrosFirebase(),
-      carregarUsuariosFirebase(),
-      carregarProjetosFirebase(),
-    ]);
+  const colecoes = [
+    { fn: carregarClientesFirebase,      nome: "clientes" },
+    { fn: carregarRepresentadasFirebase, nome: "representadas" },
+    { fn: carregarRegistrosFirebase,     nome: "ofertas" },
+    { fn: carregarUsuariosFirebase,      nome: "usuarios" },
+    { fn: carregarProjetosFirebase,      nome: "projetos" },
+  ];
 
-    preencherSelectRepresentadas();
-    preencherSelectResponsaveisContato();
-    preencherSelectResponsaveisProjeto();
-    renderTabela();
-    renderTabelaClientes();
-    renderTabelaRepresentadas();
-    renderTabelaProjetos();
-    initAutoCompleteCnpjSimples();
-    initAutoCompleteProjetoOferta();
-  } catch (err) {
-    console.error("carregarDadosDoFirebase falhou:", err);
-    throw err;
-  }
+  const resultados = await Promise.allSettled(colecoes.map((c) => c.fn()));
+
+  resultados.forEach((r, i) => {
+    if (r.status === "rejected") {
+      console.error(`Falha ao carregar "${colecoes[i].nome}":`, r.reason);
+    }
+  });
+
+  preencherSelectRepresentadas();
+  preencherSelectResponsaveisContato();
+  preencherSelectResponsaveisProjeto();
+  renderTabela();
+  renderTabelaClientes();
+  renderTabelaRepresentadas();
+  renderTabelaProjetos();
+  initAutoCompleteCnpjSimples();
+  initAutoCompleteProjetoOferta();
 }
 
 async function carregarClientesFirebase() {
@@ -524,7 +571,6 @@ async function carregarUsuariosFirebase() {
   try {
     const snap = await db.collection("usuarios").get();
     usuarios = snap.docs.map((doc) => ({ id: doc.id, ...doc.data() }));
-    console.log("Usuarios carregados:", usuarios.length);
   } catch (e) {
     console.error("ERRO ao carregar usuarios:", e);
     usuarios = [];
@@ -583,6 +629,12 @@ function mostrarApp() {
   preencherSelectPadrao("proj_status", STATUS_PROJETO_OPTIONS, "");
   renderTabelaProjetos();
   iniciarSistemaAlertas();
+  initDOMCache();
+
+  // Sincroniza permissões do usuarios.js → Firestore silenciosamente quando admin faz login
+  if (typeof sincronizarUsuariosCRM === "function" && typeof isAdmin === "function" && isAdmin()) {
+    sincronizarUsuariosCRM().catch(console.error);
+  }
 }
 
 function logout() {
@@ -632,9 +684,8 @@ function initLogin() {
       btnLogin.disabled = true;
       btnLogin.textContent = "Entrando...";
 
-      const cred = await auth.signInWithEmailAndPassword(email, pass);
+      await auth.signInWithEmailAndPassword(email, pass);
 
-      console.log("Login OK:", cred.user?.uid);
     } catch (err) {
       console.error(err);
 
@@ -701,16 +752,6 @@ function fecharModalTOTP(forceClose = false) {
 function setTotpStatus(msg) {
   const el = document.getElementById("totp_status");
   if (el) el.textContent = msg || "";
-}
-
-function formatarNomeUsuario(raw) {
-  if (!raw) return "";
-
-  let nome = raw.split("@")[0];
-
-  nome = nome.split(".")[0];
-
-  return nome.charAt(0).toUpperCase() + nome.slice(1).toLowerCase();
 }
 
 async function apiGetQr(userEmail) {
@@ -1010,10 +1051,6 @@ function formatCnpjValue(value) {
   return value;
 }
 
-function onCnpjInput(e) {
-  e.target.value = formatCnpjValue(e.target.value);
-}
-
 function onCnpjPaste(e) {
   e.preventDefault();
   const text = (e.clipboardData || window.clipboardData).getData("text");
@@ -1259,6 +1296,7 @@ function initForm() {
         valor_nf: notasFiscais[0]?.valor || "",
         notas_fiscais: notasFiscais,
         prazo_entrega_contratual: prazo_entrega_contratual?.value || "",
+        entregue: document.querySelector("input[name='entregue']:checked")?.value || "nao",
         solicitacao_oc,
         ref_oc: ref_oc?.value || "",
         data_implantacao: data_implantacao?.value || "",
@@ -1311,7 +1349,7 @@ function initForm() {
     } else {
       const idx = registros.findIndex((r) => r.id === editId);
       const antigo = registros[idx] || {};
-      const eventosHistoricoBase = montarHistoricoAlteracoes(
+      const eventosHistoricoBase = montarEventosHistorico(
         antigo,
         registroBase,
         currentUser,
@@ -1366,6 +1404,10 @@ function initForm() {
         };
         await db.collection("ofertas").doc(editId).set(registro);
         registros[idx] = registro;
+        // Resolve/solicita aprovação dos alertas de follow-up e sem_resposta
+        if (typeof onRegistroSalvoReset === "function") {
+          onRegistroSalvoReset(editId).catch(console.error);
+        }
         alert("Registro atualizado!");
       }
       editId = null;
@@ -1679,78 +1721,6 @@ function getValorCampoRegistro(reg, field) {
   }
 }
 
-function getRegistrosFiltrados() {
-  const base = registros;
-  const statusFilter = (document.getElementById("statusFilter")?.value || "")
-    .trim()
-    .toLowerCase();
-
-  const pedidoFilter =
-    document.getElementById("pedidoFilter")?.value || "todos";
-  const revisaoFilter =
-    document.getElementById("revisaoFilter")?.value || "todos";
-
-  const filtros = Array.from(
-    document.querySelectorAll("#filtersRegistros .filter-item"),
-  )
-    .map((row) => {
-      const field = row.querySelector(".multiField")?.value || "todos";
-      const term = (row.querySelector(".multiTerm")?.value || "")
-        .trim()
-        .toLowerCase();
-      return { field, term };
-    })
-    .filter((f) => f.term);
-
-  const isEmptyKeyword = (t) => ["vazio", "em branco", "sem"].includes(t);
-
-  return base.filter((reg) => {
-    if (filtros.length > 0) {
-      const textoTodos = getTextoRegistroTodosCampos(reg);
-
-      for (const f of filtros) {
-        const wantEmpty = isEmptyKeyword(f.term);
-
-        if (wantEmpty) {
-          // só faz sentido com campo específico
-          if (f.field === "todos") return false;
-
-          if (!isEmptyByFieldRegistro(reg, f.field)) return false;
-          continue;
-        }
-
-        // normal (como já está)
-        if (f.field === "todos") {
-          if (!textoTodos.includes(f.term)) return false;
-        } else {
-          const v = (getValorCampoRegistro(reg, f.field) || "")
-            .toString()
-            .toLowerCase();
-
-          if (f.field === "cnpj_cliente") {
-            if (!normalizeCNPJ(v).includes(normalizeCNPJ(f.term))) return false;
-          } else {
-            if (!v.includes(f.term)) return false;
-          }
-        }
-      }
-    }
-
-    if (statusFilter) {
-      if (!reg.status || !reg.status.toLowerCase().includes(statusFilter))
-        return false;
-    }
-
-    if (pedidoFilter === "com" && reg.possuiPedido !== "sim") return false;
-    if (pedidoFilter === "sem" && reg.possuiPedido !== "nao") return false;
-
-    if (revisaoFilter === "com" && reg.possuiRevisao !== "sim") return false;
-    if (revisaoFilter === "sem" && reg.possuiRevisao !== "nao") return false;
-
-    return true;
-  });
-}
-
 function getClientesFiltrados() {
   const base = clientes;
 
@@ -1824,8 +1794,8 @@ function getClientesFiltrados() {
 }
 
 function renderTabela() {
-  const tbody = document.querySelector("#tabelaRegistros tbody");
-  const pageInfo = document.getElementById("pageInfo");
+  const tbody = DOM.tabelaRegistrosTbody || document.querySelector("#tabelaRegistros tbody");
+  const pageInfo = DOM.pageInfo || document.getElementById("pageInfo");
   if (!tbody) return;
 
   tbody.innerHTML = "";
@@ -1834,12 +1804,9 @@ function renderTabela() {
   const listaOrdenada =
     ordemRegistros === "asc" ? [...filtrados] : [...filtrados].reverse();
   const total = listaOrdenada.length;
-  const totalPages = Math.max(1, Math.ceil(total / pageSize));
-  if (currentPage > totalPages) currentPage = totalPages;
 
-  const start = (currentPage - 1) * pageSize;
-  const end = start + pageSize;
-  const pageData = listaOrdenada.slice(start, end);
+  const { pageData, totalPages, start, safePage } = getPaginatedData(listaOrdenada, currentPage, pageSize);
+  currentPage = safePage;
 
   if (pageData.length === 0) {
     const tr = document.createElement("tr");
@@ -1860,13 +1827,13 @@ function renderTabela() {
       tr.innerHTML = `
 <td>${ordemRegistros === "asc" ? start + index + 1 : total - (start + index)
         }</td>
-        <td>${reg.bu || ""}</td>
-        <td>${reg.razao || ""}</td>
-        <td>${reg.cnpj_cliente || ""}</td>
-        <td>${reg.nome_projeto || ""}</td>
-        <td>${reg.representadaNome || ""}</td>
-        <td>${reg.tipo_oferta || ""}</td>
-        <td>${reg.status || ""}</td>
+        <td>${esc(reg.bu)}</td>
+        <td>${esc(reg.razao)}</td>
+        <td>${esc(reg.cnpj_cliente)}</td>
+        <td>${esc(reg.nome_projeto)}</td>
+        <td>${esc(reg.representadaNome)}</td>
+        <td>${esc(reg.tipo_oferta)}</td>
+        <td>${esc(reg.status)}</td>
         <td>${pedidoIcon}</td>
         <td>${revisaoIcon}</td>
         <td>${usuario}</td>
@@ -1986,6 +1953,11 @@ function editarRegistro(id) {
     document
       .querySelector(
         `input[name="sol_oc"][value="${reg.pedido.solicitacao_oc || "nao"}"]`,
+      )
+      ?.click();
+    document
+      .querySelector(
+        `input[name="entregue"][value="${reg.pedido?.entregue || "nao"}"]`,
       )
       ?.click();
   } else {
@@ -2270,10 +2242,19 @@ function exportPdf() {
   `;
 
   const win = window.open("", "_blank");
-  win.document.write(html);
-  win.document.close();
-  win.focus();
-  win.print();
+  if (!win) {
+    alert("Não foi possível abrir a janela. Desbloqueie popups no navegador e tente novamente.");
+    return;
+  }
+  try {
+    win.document.write(html);
+    win.document.close();
+    win.focus();
+    win.print();
+  } catch (err) {
+    console.error("Erro ao gerar PDF:", err);
+    alert("Erro ao gerar PDF.");
+  }
 }
 
 function getByPath(obj, path) {
@@ -2401,10 +2382,12 @@ function initBackupUI() {
           representadas = data.representadas || [];
           projetos = data.projetos || [];
 
-          salvarRegistros();
-          salvarClientes();
-          salvarRepresentadas();
-          if (typeof salvarProjetos === "function") salvarProjetos();
+          await Promise.all([
+            salvarRegistros(),
+            salvarClientes(),
+            salvarRepresentadas(),
+            typeof salvarProjetos === "function" ? salvarProjetos() : Promise.resolve(),
+          ]);
 
           renderTabela();
           renderTabelaClientes();
@@ -2703,11 +2686,6 @@ function exportBackupExcel() {
   autoFitColumns(wsAtualizacoesProjetos, atualizacoesProjetosData.length ? atualizacoesProjetosData : [{ Mensagem: "Sem atualizações de projetos" }]);
   autoFitColumns(wsContatosProjetos, contatosProjetosData.length ? contatosProjetosData : [{ Mensagem: "Sem contatos de projetos" }]);
 
-  console.log("Clientes:", listaClientes);
-  console.log("Contatos de clientes:", contatosSheetData);
-  console.log("Projetos:", listaProjetos);
-  console.log("Contatos de projetos:", contatosProjetosData);
-  console.log("Ofertas:", ofertasData);
 
   XLSX.writeFile(wb, "backup_crm.xlsx");
 }
@@ -3826,7 +3804,7 @@ function initClientesUI() {
         const idx = clientes.findIndex((c) => c.id === editClienteId);
         const antigo = clientes[idx] || {};
 
-        const eventosHistoricoBase = montarHistoricoAlteracoes(
+        const eventosHistoricoBase = montarEventosHistorico(
           antigo,
           clienteBase,
           currentUser,
@@ -3926,7 +3904,7 @@ function renderListaContatos() {
   contatosAtivos.forEach((ct, index) => {
     const div = document.createElement("div");
     div.innerHTML = `
-      <span>${ct.nome || ""} - ${ct.email || ""}</span>
+      <span>${esc(ct.nome)} - ${esc(ct.email)}</span>
       <button type="button" onclick="editarContato(${index})">Editar</button>
       <button type="button" onclick="excluirContato(${index})">Excluir</button>
     `;
@@ -3956,40 +3934,51 @@ function editarContato(index) {
   document.getElementById("btnCancelarEdicaoContato")?.classList.remove("hidden");
 }
 
-function excluirContato(index) {
-  const ativos = obterItensTemporariosAtivos(contatosTemp);
-  const ct = ativos[index];
+/**
+ * Lógica unificada de exclusão de contato temporário.
+ * Usada por excluirContato (clientes) e excluirContatoProjeto (projetos).
+ */
+function excluirContatoGenerico({ lista, indiceAtivo, labelTipo, btnId, renderFn, renderLixeiraFn, resetEditIndex }) {
+  const ativos = obterItensTemporariosAtivos(lista);
+  const ct = ativos[indiceAtivo];
   if (!ct) return;
 
-  const indiceReal = contatosTemp.indexOf(ct);
+  const indiceReal = lista.indexOf(ct);
   if (indiceReal < 0) return;
 
-  if (!confirm("Tem certeza que deseja mover este contato para a mini lixeira?")) return;
+  if (!confirm(`Tem certeza que deseja mover este ${labelTipo} para a mini lixeira?`)) return;
 
   const currentUser = getCurrentUserName();
+  marcarItemTemporarioComoRemovido(lista, indiceReal, labelTipo);
 
-  marcarItemTemporarioComoRemovido(contatosTemp, indiceReal, "contato");
-
-  contatosTemp.historicoRemocoes = contatosTemp.historicoRemocoes || [];
-  contatosTemp.historicoRemocoes.push(
-    criarEventoHistorico({
-      usuario: currentUser,
-      acao: "removeu",
-      campo: "contato",
-      de: resumoContatoHistorico(ct),
-      para: "",
-    }),
+  lista.historicoRemocoes = lista.historicoRemocoes || [];
+  lista.historicoRemocoes.push(
+    criarEventoHistorico({ usuario: currentUser, acao: "removeu", campo: labelTipo, de: resumoContatoHistorico(ct), para: "" }),
   );
 
-  editContatoIndex = null;
-  document.getElementById("btnAddContato").textContent = "Adicionar Contato";
-  renderListaContatos();
-  renderMiniLixeiraContatos();
+  resetEditIndex();
+  const btnEl = document.getElementById(btnId);
+  if (btnEl) btnEl.textContent = "Adicionar Contato";
+
+  renderFn();
+  renderLixeiraFn();
+}
+
+function excluirContato(index) {
+  excluirContatoGenerico({
+    lista: contatosTemp,
+    indiceAtivo: index,
+    labelTipo: "contato",
+    btnId: "btnAddContato",
+    renderFn: renderListaContatos,
+    renderLixeiraFn: renderMiniLixeiraContatos,
+    resetEditIndex: () => { editContatoIndex = null; },
+  });
 }
 
 function renderTabelaClientes() {
-  const tbody = document.querySelector("#tabelaClientes tbody");
-  const pageInfoClientes = document.getElementById("pageInfoClientes");
+  const tbody = DOM.tabelaClientesTbody || document.querySelector("#tabelaClientes tbody");
+  const pageInfoClientes = DOM.pageInfoClientes || document.getElementById("pageInfoClientes");
   if (!tbody) return;
 
   tbody.innerHTML = "";
@@ -3997,19 +3986,11 @@ function renderTabelaClientes() {
   const filtrados = getClientesFiltrados();
   const listaOrdenada =
     ordemClientes === "asc" ? [...filtrados] : [...filtrados].reverse();
-  const countEl = document.getElementById("clientesCount");
-  if (countEl) {
-    countEl.textContent = `${filtrados.length} cliente(s) encontrado(s)`;
-  }
-  const totalPages = Math.max(
-    1,
-    Math.ceil(listaOrdenada.length / clientesPageSize),
-  );
-  if (clientesCurrentPage > totalPages) clientesCurrentPage = totalPages;
+  const countEl = DOM.clientesCount || document.getElementById("clientesCount");
+  if (countEl) countEl.textContent = `${filtrados.length} cliente(s) encontrado(s)`;
 
-  const start = (clientesCurrentPage - 1) * clientesPageSize;
-  const end = start + clientesPageSize;
-  const pageData = listaOrdenada.slice(start, end);
+  const { pageData, totalPages, start, safePage } = getPaginatedData(listaOrdenada, clientesCurrentPage, clientesPageSize);
+  clientesCurrentPage = safePage;
 
   if (pageData.length === 0) {
     const tr = document.createElement("tr");
@@ -4020,7 +4001,6 @@ function renderTabelaClientes() {
     tbody.appendChild(tr);
   } else {
     pageData.forEach((cli, index) => {
-      console.log("SAP DEBUG:", cli.razao, cli.sap, cli);
       const tr = document.createElement("tr");
       const qtdContatos = cli.contatos ? cli.contatos.length : 0;
       const usuario = formatarNomeUsuario(
@@ -4037,10 +4017,10 @@ function renderTabelaClientes() {
           ? start + index + 1
           : listaOrdenada.length - (start + index)
         }</td>
-        <td>${cli.razao || ""}</td>
-        <td>${cli.cnpj || ""}</td>
-        <td>${cli.segmento || ""}</td>
-        <td>${cli.sap || ""}</td>
+        <td>${esc(cli.razao)}</td>
+        <td>${esc(cli.cnpj)}</td>
+        <td>${esc(cli.segmento)}</td>
+        <td>${esc(cli.sap)}</td>
         <td class="col-center">${qtdOfertas}</td>
         <td class="col-center">${qtdContatos}</td>
         <td>${usuario}</td>
@@ -4200,7 +4180,8 @@ function buscarClientePorCnpj(cnpj) {
 
 function initLigacaoClienteOferta() {
   const cnpjInput = document.getElementById("cnpj_cliente");
-  if (!cnpjInput) return;
+  if (!cnpjInput || cnpjInput.dataset.bound_blur) return;
+  cnpjInput.dataset.bound_blur = "1";
 
   cnpjInput.addEventListener("blur", () => {
     const cli = buscarClientePorCnpj(cnpjInput.value);
@@ -4208,9 +4189,7 @@ function initLigacaoClienteOferta() {
       cnpjInput.dataset.clienteId = "";
       return;
     }
-
     cnpjInput.dataset.clienteId = cli.id;
-
     const razao = document.getElementById("razao");
     if (razao) razao.value = cli.razao || "";
   });
@@ -4308,10 +4287,7 @@ function initRepresentadasUI() {
   });
   document
     .getElementById("searchRepresentadas")
-    ?.addEventListener("input", () => {
-      representadasCurrentPage = 1;
-      renderTabelaRepresentadas();
-    });
+    ?.addEventListener("input", renderTabelaRepresentadasDebounced);
 
   const pageSizeRepInput = document.getElementById("pageSizeRepresentadas");
   if (pageSizeRepInput) {
@@ -4366,7 +4342,7 @@ function initRepresentadasUI() {
 }
 
 function renderTabelaRepresentadas() {
-  const tbody = document.querySelector("#tabelaRepresentadas tbody");
+  const tbody = DOM.tabelaRepresentadasTbody || document.querySelector("#tabelaRepresentadas tbody");
   if (!tbody) return;
 
   representadas.sort((a, b) =>
@@ -4380,16 +4356,9 @@ function renderTabelaRepresentadas() {
   const filtrados = getRepresentadasFiltradas();
   const listaOrdenada =
     ordemRepresentadas === "asc" ? [...filtrados] : [...filtrados].reverse();
-  const totalPages = Math.max(
-    1,
-    Math.ceil(listaOrdenada.length / representadasPageSize),
-  );
-  if (representadasCurrentPage > totalPages)
-    representadasCurrentPage = totalPages;
 
-  const start = (representadasCurrentPage - 1) * representadasPageSize;
-  const end = start + representadasPageSize;
-  const pageData = listaOrdenada.slice(start, end);
+  const { pageData, totalPages, start, safePage } = getPaginatedData(listaOrdenada, representadasCurrentPage, representadasPageSize);
+  representadasCurrentPage = safePage;
 
   if (!pageData.length) {
     const tr = document.createElement("tr");
@@ -4415,9 +4384,9 @@ function renderTabelaRepresentadas() {
         ? start + index + 1
         : listaOrdenada.length - (start + index)
       }</td>
-      <td>${rep.nome}</td>
+      <td>${esc(rep.nome)}</td>
       <td class="col-center">${qtdOfertas}</td>
-      <td>${usuario}</td>
+      <td>${esc(usuario)}</td>
       <td style="text-align:center;">
         <button class="btn-kebab" onclick="openActionsMenu(event,'rep','${rep.id}')">...</button>
       </td>
@@ -4425,7 +4394,7 @@ function renderTabelaRepresentadas() {
     tbody.appendChild(tr);
   });
 
-  const pageInfo = document.getElementById("pageInfoRepresentadas");
+  const pageInfo = DOM.pageInfoRepresentadas || document.getElementById("pageInfoRepresentadas");
   if (pageInfo)
     pageInfo.textContent = `Página ${representadasCurrentPage} de ${totalPages}`;
 
@@ -4514,11 +4483,6 @@ function verOferta(id) {
   const reg = registros.find((r) => r.id === id);
   if (!reg) return;
 
-  console.log("DEBUG tipo_oferta:", {
-    tipo_oferta: reg.tipo_oferta,
-    raw: JSON.stringify(reg.tipo_oferta),
-    typeof: typeof reg.tipo_oferta,
-  });
 
   historicoAtualModal = reg.historico || [];
 
@@ -4547,20 +4511,20 @@ function verOferta(id) {
     <div class="modal-grid">
       <div class="modal-card">
         <div class="modal-card-title">Dados do Cliente</div>
-        <div class="modal-section"><strong>Razão Social:</strong> ${reg.razao || "-"}</div>
-        <div class="modal-section"><strong>CNPJ:</strong> ${reg.cnpj_cliente || "-"}</div>
-        <div class="modal-section"><strong>B.U:</strong> ${reg.bu || "-"}</div>
-        <div class="modal-section"><strong>Segmento:</strong> ${reg.segmento || "-"}</div>
+        <div class="modal-section"><strong>Razão Social:</strong> ${esc(reg.razao) || "-"}</div>
+        <div class="modal-section"><strong>CNPJ:</strong> ${esc(reg.cnpj_cliente) || "-"}</div>
+        <div class="modal-section"><strong>B.U:</strong> ${esc(reg.bu) || "-"}</div>
+        <div class="modal-section"><strong>Segmento:</strong> ${esc(reg.segmento) || "-"}</div>
       </div>
 
       <div class="modal-card">
         <div class="modal-card-title">Projeto & Representada</div>
-        <div class="modal-section"><strong>Projeto:</strong> ${reg.nome_projeto || "-"}</div>
-        <div class="modal-section"><strong>Representada:</strong> ${reg.representadaNome || "-"}</div>
+        <div class="modal-section"><strong>Projeto:</strong> ${esc(reg.nome_projeto) || "-"}</div>
+        <div class="modal-section"><strong>Representada:</strong> ${esc(reg.representadaNome) || "-"}</div>
         ${String(reg.representadaNome || "")
       .toLowerCase()
       .includes("mantex") && reg.unidade
-      ? `<div class="modal-section"><strong>Unidade:</strong> ${reg.unidade}</div>`
+      ? `<div class="modal-section"><strong>Unidade:</strong> ${esc(reg.unidade)}</div>`
       : ""
     }
       </div>
@@ -4569,16 +4533,16 @@ function verOferta(id) {
     <div class="modal-card">
       <div class="modal-card-title">Oferta</div>
 
-      <div class="modal-section"><strong>N° Oferta:</strong> ${reg.oferta || "-"}</div>
-      <div class="modal-section"><strong>Solicitante:</strong> ${reg.solicitante || "-"}</div>
-      <div class="modal-section"><strong>Telefone:</strong> ${reg.telefone || "-"}</div>
-      <div class="modal-section"><strong>E-mail:</strong> ${reg.email || "-"}</div>
+      <div class="modal-section"><strong>N° Oferta:</strong> ${esc(reg.oferta) || "-"}</div>
+      <div class="modal-section"><strong>Solicitante:</strong> ${esc(reg.solicitante) || "-"}</div>
+      <div class="modal-section"><strong>Telefone:</strong> ${esc(reg.telefone) || "-"}</div>
+      <div class="modal-section"><strong>E-mail:</strong> ${esc(reg.email) || "-"}</div>
 
-      <div class="modal-section"><strong>Tipo:</strong> ${tipoTexto}</div>
-      <div class="modal-section"><strong>Valor:</strong> ${reg.valor_total || "-"}</div>
-      <div class="modal-section"><strong>Status:</strong> ${reg.status || "-"}</div>
+      <div class="modal-section"><strong>Tipo:</strong> ${esc(tipoTexto)}</div>
+      <div class="modal-section"><strong>Valor:</strong> ${esc(reg.valor_total) || "-"}</div>
+      <div class="modal-section"><strong>Status:</strong> ${esc(reg.status) || "-"}</div>
       <div class="modal-section"><strong>Atendimento spot?</strong> ${reg.atendimentoSpot === "sim" ? "Sim" : "Não"}</div>
-      <div class="modal-section"><strong>Referência:</strong> ${reg.ref_cliente || "-"}</div>
+      <div class="modal-section"><strong>Referência:</strong> ${esc(reg.ref_cliente) || "-"}</div>
 
       <div class="modal-section"><strong>Data Entrada:</strong> ${formatDateBR(reg.data_entrada) || "-"}</div>
       <div class="modal-section"><strong>Data Envio:</strong> ${formatDateBR(reg.data_envio) || "-"}</div>
@@ -4596,7 +4560,7 @@ function verOferta(id) {
     html += `
       <div class="modal-card">
         <div class="modal-card-title">Observações Gerais</div>
-        <div class="modal-section">${String(reg.obs_geral).replace(/\n/g, "<br>")}</div>
+        <div class="modal-section">${esc(reg.obs_geral).replace(/\n/g, "<br>")}</div>
       </div>
     `;
   }
@@ -4618,6 +4582,7 @@ function verOferta(id) {
           ${formatarNotasFiscaisHtml(pedido)}
 
           <strong>Prazo entrega contratual:</strong> ${formatDateBR(pedido.prazo_entrega_contratual)}<br>
+          <strong>Entregue:</strong> ${pedido.entregue === "sim" ? "Sim" : "Não"}<br>
           <strong>SOV?</strong> ${pedido.solicitacao_oc === "sim" ? "Sim" : "Não"}<br>
           <strong>Ref. OV:</strong> ${pedido.ref_oc || "-"}<br>
           <strong>Data de Implantação:</strong> ${formatDateBR(pedido.data_implantacao)}<br>
@@ -4675,12 +4640,12 @@ function verCliente(id) {
 
   let html = `
     <div class="modal-section">
-      <strong>Razão Social:</strong> ${cli.razao || "-"}<br>
-      <strong>CNPJ:</strong> ${cli.cnpj || "-"}<br>
-      <strong>Inscrição Estadual:</strong> ${cli.ie || "-"}<br>
-      <strong>Segmento:</strong> ${cli.segmento || "-"}<br>
-      <strong>Endereço:</strong> ${cli.endereco || "-"}<br>
-      <strong>Código SAP:</strong> ${cli.codigo_sap || cli.sap || "-"}<br>
+      <strong>Razão Social:</strong> ${esc(cli.razao) || "-"}<br>
+      <strong>CNPJ:</strong> ${esc(cli.cnpj) || "-"}<br>
+      <strong>Inscrição Estadual:</strong> ${esc(cli.ie) || "-"}<br>
+      <strong>Segmento:</strong> ${esc(cli.segmento) || "-"}<br>
+      <strong>Endereço:</strong> ${esc(cli.endereco) || "-"}<br>
+      <strong>Código SAP:</strong> ${esc(cli.codigo_sap || cli.sap) || "-"}<br>
       <br><strong>Ofertas cadastradas:</strong> ${totalOfertas}
     </div>
      <br>
@@ -4698,16 +4663,16 @@ function verCliente(id) {
     cli.contatos.forEach((ct) => {
       html += `
         <div style="margin-bottom:6px;">
-          <strong>${ct.nome || "-"}</strong>
+          <strong>${esc(ct.nome) || "-"}</strong>
           ${ct.principal ? '<span class="modal-badge">Principal</span>' : ""}
           <br>
-          Função: ${ct.funcao || "-"}<br>
-          Tel: ${ct.telefone || "-"}<br>
-          E-mail: ${ct.email || "-"}
+          Função: ${esc(ct.funcao) || "-"}<br>
+          Tel: ${esc(ct.telefone) || "-"}<br>
+          E-mail: ${esc(ct.email) || "-"}
           ${ct.responsavelNome
           ? `<br><br>
               <hr>
-              <strong>Responsável:</strong> ${primeiroNome(ct.responsavelNome)}`
+              <strong>Responsável:</strong> ${esc(primeiroNome(ct.responsavelNome))}`
           : ""
         }
           <br>
@@ -4746,10 +4711,10 @@ function verRepresentada(id) {
   const qtdOfertas = registros.filter((r) => r.representadaId === id).length;
 
   const html = `
-    <div class="modal-section"><strong>Nome da Representada:</strong> ${rep.nome || "-"}</div>
+    <div class="modal-section"><strong>Nome da Representada:</strong> ${esc(rep.nome) || "-"}</div>
     <div class="modal-section"><strong>Ofertas vinculadas:</strong> ${qtdOfertas}</div>
     <hr>
-    <div class="modal-section"><strong>Usuário:</strong> ${usuario}</div>
+    <div class="modal-section"><strong>Usuário:</strong> ${esc(usuario)}</div>
     <div class="modal-section"><strong>Criado em:</strong> ${formatDateTimeBR(rep.criadoEm)}</div>
     <div class="modal-section"><strong>Atualizado em:</strong> ${formatDateTimeBR(rep.atualizadoEm)}</div>
 
@@ -5044,10 +5009,14 @@ function initAuthTabs() {
   function showLogin() {
     panelLogin?.classList.remove("hidden");
     panelSignup?.classList.add("hidden");
+    tabLogin?.classList.add("active");
+    tabSignup?.classList.remove("active");
   }
   function showSignup() {
     panelSignup?.classList.remove("hidden");
     panelLogin?.classList.add("hidden");
+    tabSignup?.classList.add("active");
+    tabLogin?.classList.remove("active");
   }
 
   tabLogin?.addEventListener("click", showLogin);
@@ -5292,21 +5261,8 @@ async function carregarUsuariosPendentes() {
   tbody.innerHTML = `<tr><td colspan="5">Carregando...</td></tr>`;
 
   try {
-    console.log("Carregando usuários pendentes...");
     const snap = await db.collection("usuarios").get();
     const all = snap.docs.map((d) => ({ id: d.id, ...d.data() }));
-    console.log("Total usuarios no Firestore:", all.length, all);
-
-    console.table(
-      all.map((u) => ({
-        id: u.id,
-        uid: u.uid,
-        email: u.email,
-        aprovado: u.aprovado,
-        ativo: u.ativo,
-        criadoEm: u.criadoEm,
-      })),
-    );
 
     const pendentes = all
 
@@ -5328,7 +5284,6 @@ async function carregarUsuariosPendentes() {
 
       .sort((a, b) => (b.criadoEm || "").localeCompare(a.criadoEm || ""));
 
-    console.log("Pendentes:", pendentes.length, pendentes);
 
     if (!pendentes.length) {
       tbody.innerHTML = `<tr><td colspan="5">Nenhum usuário pendente 🎉</td></tr>`;
@@ -5670,8 +5625,8 @@ function verContatosCliente(id) {
   if (!cli) return;
 
   let html = `<div class="modal-section">
-    <strong>${cli.razao || "-"}</strong><br>
-    CNPJ: ${cli.cnpj || "-"}
+    <strong>${esc(cli.razao) || "-"}</strong><br>
+    CNPJ: ${esc(cli.cnpj) || "-"}
   </div><hr>`;
 
   const contatos = cli.contatos || [];
@@ -5685,17 +5640,15 @@ function verContatosCliente(id) {
       (ct, index) => `
     <div class="modal-section">
 <br>
-      <strong>${ct.nome || "-"}</strong>
+      <strong>${esc(ct.nome) || "-"}</strong>
       ${ct.principal ? ` <span class="modal-badge">Principal</span>` : ``}
 
-      <br>Função: ${ct.funcao || "-"}
-      <br>Tel: ${ct.telefone || "-"}
-      <br>E-mail: ${ct.email || "-"}
+      <br>Função: ${esc(ct.funcao) || "-"}
+      <br>Tel: ${esc(ct.telefone) || "-"}
+      <br>E-mail: ${esc(ct.email) || "-"}
 
       ${ct.responsavelNome
-          ? `<br><strong>Responsável:</strong> ${primeiroNome(
-            ct.responsavelNome,
-          )}`
+          ? `<br><strong>Responsável:</strong> ${esc(primeiroNome(ct.responsavelNome))}`
           : ""
         }
 
@@ -5734,35 +5687,6 @@ function cancelarEdicaoContato() {
 
   document.getElementById("btnAddContato").textContent = "Adicionar Contato";
   document.getElementById("btnCancelarEdicaoContato")?.classList.add("hidden");
-}
-
-function formatDateTimeBR(v) {
-  if (!v) return "-";
-
-  // Firestore Timestamp (compat) ou objeto com toDate()
-  if (typeof v === "object") {
-    if (typeof v.toDate === "function") v = v.toDate();
-    else if (typeof v.seconds === "number") v = new Date(v.seconds * 1000);
-  }
-
-  // Date
-  if (v instanceof Date) {
-    const dd = String(v.getDate()).padStart(2, "0");
-    const mm = String(v.getMonth() + 1).padStart(2, "0");
-    const yy = v.getFullYear();
-    const hh = String(v.getHours()).padStart(2, "0");
-    const mi = String(v.getMinutes()).padStart(2, "0");
-    return `${dd}/${mm}/${yy} ${hh}:${mi}`;
-  }
-
-  const s = String(v).trim();
-  if (!s) return "-";
-
-  // "2026-02-27T15:24:00.000Z" ou parecido
-  const d = new Date(s);
-  if (!isNaN(d.getTime())) return formatDateTimeBR(d);
-
-  return s;
 }
 
 function enableHorizontalWheel(selector = ".table-scroll") {
@@ -5994,6 +5918,21 @@ const renderTabelaDebounced = debounce(() => {
   renderTabela();
 }, 300);
 
+const renderTabelaClientesDebounced = debounce(() => {
+  clientesCurrentPage = 1;
+  renderTabelaClientes();
+}, 300);
+
+const renderTabelaProjetosDebounced = debounce(() => {
+  projetosCurrentPage = 1;
+  renderTabelaProjetos();
+}, 300);
+
+const renderTabelaRepresentadasDebounced = debounce(() => {
+  representadasCurrentPage = 1;
+  renderTabelaRepresentadas();
+}, 300);
+
 function renderActiveFilterTags() {
   const container = document.getElementById("activeFiltersTags");
   if (!container) return;
@@ -6202,10 +6141,7 @@ function renderClienteTermInput(
       renderTabelaClientes();
     });
   } else {
-    termEl.addEventListener("input", () => {
-      clientesCurrentPage = 1;
-      renderTabelaClientes();
-    });
+    termEl.addEventListener("input", renderTabelaClientesDebounced);
   }
 }
 
@@ -6281,28 +6217,40 @@ function compararValoresHistorico(a, b) {
   return normalizarValorHistorico(a) !== normalizarValorHistorico(b);
 }
 
-function montarHistoricoAlteracoes(objAntigo, objNovo, usuario, mapaCampos) {
-  const eventos = [];
+/**
+ * Função unificada de histórico.
+ * @param {object} objAntigo
+ * @param {object} objNovo
+ * @param {string} usuario
+ * @param {object} mapaCampos  — { "campo.path": "Label legível" }
+ * @param {object} [formatadores] — { "campo": (valor) => string }
+ * @param {boolean} [usarPath]  — true = usa getByPath (para campos aninhados)
+ */
+function montarEventosHistorico(objAntigo, objNovo, usuario, mapaCampos, formatadores = {}, usarPath = false) {
+  return Object.keys(mapaCampos).flatMap((path) => {
+    const antigo = usarPath
+      ? getByPath(objAntigo || {}, path)
+      : (objAntigo?.[path]);
+    const novo = usarPath
+      ? getByPath(objNovo || {}, path)
+      : (objNovo?.[path]);
 
-  Object.keys(mapaCampos).forEach((campo) => {
-    const antigo = objAntigo?.[campo];
-    const novo = objNovo?.[campo];
+    const fmt = formatadores[path];
+    const antigoFmt = fmt ? fmt(antigo) : antigo;
+    const novoFmt   = fmt ? fmt(novo)   : novo;
 
-    if (compararValoresHistorico(antigo, novo)) {
-      eventos.push(
-        criarEventoHistorico({
-          usuario,
-          acao: "alterou",
-          campo: mapaCampos[campo],
-          de: antigo,
-          para: novo,
-        }),
-      );
-    }
+    if (!compararValoresHistorico(antigoFmt, novoFmt)) return [];
+
+    return [criarEventoHistorico({
+      usuario,
+      acao: "alterou",
+      campo: mapaCampos[path],
+      de: antigoFmt,
+      para: novoFmt,
+    })];
   });
-
-  return eventos;
 }
+
 
 function formatDateTimeBR(v) {
   if (!v) return "-";
@@ -6402,32 +6350,8 @@ function fecharModalHistorico() {
   }, 180);
 }
 
-function montarHistoricoAlteracoesPath(
-  objAntigo,
-  objNovo,
-  usuario,
-  mapaCampos,
-) {
-  const eventos = [];
-
-  Object.keys(mapaCampos).forEach((path) => {
-    const antigo = getByPath(objAntigo || {}, path);
-    const novo = getByPath(objNovo || {}, path);
-
-    if (compararValoresHistorico(antigo, novo)) {
-      eventos.push(
-        criarEventoHistorico({
-          usuario,
-          acao: "alterou",
-          campo: mapaCampos[path],
-          de: antigo,
-          para: novo,
-        }),
-      );
-    }
-  });
-
-  return eventos;
+function montarHistoricoAlteracoesPath(objAntigo, objNovo, usuario, mapaCampos) {
+  return montarEventosHistorico(objAntigo, objNovo, usuario, mapaCampos, {}, true);
 }
 
 function resumoContatoHistorico(ct = {}) {
@@ -6439,8 +6363,6 @@ function resumoContatoHistorico(ct = {}) {
 }
 
 function montarHistoricoAlteracoesContato(contatoAntigo, contatoNovo, usuario) {
-  const eventos = [];
-
   const mapaCamposContato = {
     nome: "nome do contato",
     funcao: "função do contato",
@@ -6450,32 +6372,13 @@ function montarHistoricoAlteracoesContato(contatoAntigo, contatoNovo, usuario) {
     principal: "contato principal",
   };
 
-  Object.keys(mapaCamposContato).forEach((campo) => {
-    const antigo = contatoAntigo?.[campo];
-    const novo = contatoNovo?.[campo];
-
-    let antigoFmt = antigo;
-    let novoFmt = novo;
-
-    if (campo === "principal") {
-      antigoFmt = antigo ? "Sim" : "Não";
-      novoFmt = novo ? "Sim" : "Não";
-    }
-
-    if (compararValoresHistorico(antigoFmt, novoFmt)) {
-      eventos.push(
-        criarEventoHistorico({
-          usuario,
-          acao: "alterou",
-          campo: mapaCamposContato[campo],
-          de: antigoFmt,
-          para: novoFmt,
-        }),
-      );
-    }
-  });
-
-  return eventos;
+  return montarEventosHistorico(
+    contatoAntigo,
+    contatoNovo,
+    usuario,
+    mapaCamposContato,
+    { principal: (v) => (v ? "Sim" : "Não") },
+  );
 }
 
 function abrirHistoricoContato(index, nomeContato) {
@@ -7276,25 +7179,28 @@ function renderListaContatosProjeto() {
   const lista = document.getElementById("listaContatosProjeto");
   if (!lista) return;
 
+  const contatosAtivos = obterItensTemporariosAtivos(projetoContatosTemp);
+
   lista.innerHTML = "";
 
-  if (!projetoContatosTemp.length) {
+  if (!contatosAtivos.length) {
     lista.innerHTML = "<p>Nenhum contato adicionado.</p>";
+    renderMiniLixeiraContatosProjeto();
     return;
   }
 
-  projetoContatosTemp.forEach((ct, index) => {
+  contatosAtivos.forEach((ct, index) => {
     const div = document.createElement("div");
     div.className = "contato-item";
     div.innerHTML = `
-      <strong>${ct.nome}</strong>
+      <strong>${escapeHtml(ct.nome)}</strong>
       ${ct.principal ? '<span class="tag-principal">(Principal)</span>' : ""}
       <br>
-      ${ct.funcao || ""}
+      ${escapeHtml(ct.funcao || "")}
       <br>
-      Tel: ${ct.telefone || ""} • E-mail: ${ct.email || ""}
+      Tel: ${escapeHtml(ct.telefone || "")} • E-mail: ${escapeHtml(ct.email || "")}
       ${ct.responsavelNome
-        ? `<br><strong>Responsável:</strong> ${primeiroNome(ct.responsavelNome)}`
+        ? `<br><strong>Responsável:</strong> ${escapeHtml(primeiroNome(ct.responsavelNome))}`
         : ""
       }
       <br>
@@ -7304,6 +7210,8 @@ function renderListaContatosProjeto() {
     `;
     lista.appendChild(div);
   });
+
+  renderMiniLixeiraContatosProjeto();
 }
 
 function editarContatoProjeto(index) {
@@ -7327,37 +7235,15 @@ function editarContatoProjeto(index) {
 }
 
 function excluirContatoProjeto(index) {
-  const ativos = obterItensTemporariosAtivos(projetoContatosTemp);
-  const ct = ativos[index];
-  if (!ct) return;
-
-  const indiceReal = projetoContatosTemp.indexOf(ct);
-  if (indiceReal < 0) return;
-
-  if (!confirm("Tem certeza que deseja mover este contato do projeto para a mini lixeira?")) return;
-
-  const currentUser = getCurrentUserName();
-
-  marcarItemTemporarioComoRemovido(projetoContatosTemp, indiceReal, "contato do projeto");
-
-  projetoContatosTemp.historicoRemocoes =
-    projetoContatosTemp.historicoRemocoes || [];
-
-  projetoContatosTemp.historicoRemocoes.push(
-    criarEventoHistorico({
-      usuario: currentUser,
-      acao: "removeu",
-      campo: "contato do projeto",
-      de: resumoContatoHistorico(ct),
-      para: "",
-    }),
-  );
-
-  editContatoProjetoIndex = null;
-  document.getElementById("btnAddContatoProjeto").textContent = "Adicionar Contato";
-
-  renderListaContatosProjeto();
-  renderMiniLixeiraContatosProjeto();
+  excluirContatoGenerico({
+    lista: projetoContatosTemp,
+    indiceAtivo: index,
+    labelTipo: "contato do projeto",
+    btnId: "btnAddContatoProjeto",
+    renderFn: renderListaContatosProjeto,
+    renderLixeiraFn: renderMiniLixeiraContatosProjeto,
+    resetEditIndex: () => { editContatoProjetoIndex = null; },
+  });
 }
 
 function cancelarEdicaoContatoProjeto() {
@@ -7578,7 +7464,7 @@ function initSalvarProjetoUI() {
         const idx = projetos.findIndex((p) => p.id === editProjetoId);
         const antigo = projetos[idx] || {};
 
-        const eventosHistoricoBase = montarHistoricoAlteracoes(
+        const eventosHistoricoBase = montarEventosHistorico(
           antigo,
           projetoBase,
           currentUser,
@@ -7682,9 +7568,9 @@ function getProjetosFiltrados() {
 }
 
 function renderTabelaProjetos() {
-  const tbody = document.querySelector("#tabelaProjetos tbody");
-  const pageInfo = document.getElementById("pageInfoProjetos");
-  const countEl = document.getElementById("projetosCount");
+  const tbody = DOM.tabelaProjetosTbody || document.querySelector("#tabelaProjetos tbody");
+  const pageInfo = DOM.pageInfoProjetos || document.getElementById("pageInfoProjetos");
+  const countEl = DOM.projetosCount || document.getElementById("projetosCount");
   if (!tbody) return;
 
   tbody.innerHTML = "";
@@ -7693,18 +7579,10 @@ function renderTabelaProjetos() {
   const listaOrdenada =
     ordemProjetos === "asc" ? [...filtrados] : [...filtrados].reverse();
 
-  if (countEl)
-    countEl.textContent = `${filtrados.length} projeto(s) encontrado(s)`;
+  if (countEl) countEl.textContent = `${filtrados.length} projeto(s) encontrado(s)`;
 
-  const totalPages = Math.max(
-    1,
-    Math.ceil(listaOrdenada.length / projetosPageSize),
-  );
-  if (projetosCurrentPage > totalPages) projetosCurrentPage = totalPages;
-
-  const start = (projetosCurrentPage - 1) * projetosPageSize;
-  const end = start + projetosPageSize;
-  const pageData = listaOrdenada.slice(start, end);
+  const { pageData, totalPages, start, safePage } = getPaginatedData(listaOrdenada, projetosCurrentPage, projetosPageSize);
+  projetosCurrentPage = safePage;
 
   if (!pageData.length) {
     const tr = document.createElement("tr");
@@ -7730,14 +7608,14 @@ function renderTabelaProjetos() {
       tr.innerHTML = `
         <td>${ordemProjetos === "asc" ? start + index + 1 : listaOrdenada.length - (start + index)}</td>
         <td>
-          ${proj.nome || ""}
+          ${esc(proj.nome)}
           ${atrasado ? '<span class="badge-atrasado">Atrasado</span>' : ""}
         </td>
-        <td>${proj.tipo || ""}</td>
-        <td>${proj.status || ""}</td>
-        <td>${proj.numero_referencia || ""}</td>
+        <td>${esc(proj.tipo)}</td>
+        <td>${esc(proj.status)}</td>
+        <td>${esc(proj.numero_referencia)}</td>
         <td class="col-center">${qtdOfertas}</td>
-        <td>${usuario}</td>
+        <td>${esc(usuario)}</td>
         <td style="text-align:center;">
           <button class="btn-kebab" onclick="openActionsMenu(event,'projeto','${proj.id}')">...</button>
         </td>
@@ -7842,10 +7720,7 @@ function renderProjetoTermInput(
       <input class="multiTerm" type="text" placeholder="Digite para filtrar..." value="${selectedValue || ""}" />
     `;
 
-    wrap.querySelector(".multiTerm")?.addEventListener("input", () => {
-      projetosCurrentPage = 1;
-      renderTabelaProjetos();
-    });
+    wrap.querySelector(".multiTerm")?.addEventListener("input", renderTabelaProjetosDebounced);
   }
 }
 
@@ -7963,18 +7838,18 @@ function verProjeto(id) {
   let html = `
     <div class="modal-card">
       <div class="modal-card-title">Dados principais</div>
-      <div class="modal-section"><strong>Nome do Projeto:</strong> ${proj.nome || "-"}</div>
-      <div class="modal-section"><strong>Tipo:</strong> ${proj.tipo || "-"}</div>
-      <div class="modal-section"><strong>Status:</strong> ${proj.status || "-"} ${atrasado ? '<span class="badge-atrasado">Atrasado</span>' : ""}</div>
-      <div class="modal-section"><strong>Número de Referência:</strong> ${proj.numero_referencia || "-"}</div>
+      <div class="modal-section"><strong>Nome do Projeto:</strong> ${esc(proj.nome) || "-"}</div>
+      <div class="modal-section"><strong>Tipo:</strong> ${esc(proj.tipo) || "-"}</div>
+      <div class="modal-section"><strong>Status:</strong> ${esc(proj.status) || "-"} ${atrasado ? '<span class="badge-atrasado">Atrasado</span>' : ""}</div>
+      <div class="modal-section"><strong>Número de Referência:</strong> ${esc(proj.numero_referencia) || "-"}</div>
       <div class="modal-section"><strong>Prazo Final:</strong> ${formatDateBR(proj.prazo_final)}</div>
-      <div class="modal-section"><strong>Valor do investimento:</strong> ${proj.valor_investimento || "-"}</div>
+      <div class="modal-section"><strong>Valor do investimento:</strong> ${esc(proj.valor_investimento) || "-"}</div>
       <div class="modal-section"><strong>Prev. Fechamento:</strong> ${formatDateBR(proj.prev_fechamento)}</div>
       <div class="modal-section"><strong>Início das entregas:</strong> ${formatDateBR(proj.inicio_entregas)}</div>
       <div class="modal-section"><strong>Fim das entregas:</strong> ${formatDateBR(proj.fim_entregas)}</div>
-      <div class="modal-section"><strong>Obs:</strong> ${proj.obs || "-"}</div>
+      <div class="modal-section"><strong>Obs:</strong> ${esc(proj.obs) || "-"}</div>
       <div class="modal-section"><strong>Qtd. Ofertas:</strong> ${qtdOfertas}</div>
-      <div class="modal-section"><strong>Usuário:</strong> ${usuario}</div>
+      <div class="modal-section"><strong>Usuário:</strong> ${esc(usuario)}</div>
       <div class="modal-section"><strong>Criado em:</strong> ${formatDateTimeBR(proj.criadoEm)}</div>
       <div class="modal-section"><strong>Atualizado em:</strong> ${formatDateTimeBR(proj.atualizadoEm)}</div>
     </div>
@@ -7988,14 +7863,14 @@ function verProjeto(id) {
         .map(
           (ct) => `
           <div class="modal-section">
-            <strong>${ct.nome || "-"}</strong>
+            <strong>${esc(ct.nome) || "-"}</strong>
             ${ct.principal ? '<span class="modal-badge">Principal</span>' : ""}
             <br>
-            Função: ${ct.funcao || "-"}<br>
-            Tel: ${ct.telefone || "-"}<br>
-            E-mail: ${ct.email || "-"}
+            Função: ${esc(ct.funcao) || "-"}<br>
+            Tel: ${esc(ct.telefone) || "-"}<br>
+            E-mail: ${esc(ct.email) || "-"}
             ${ct.responsavelNome
-              ? `<br>Responsável: ${primeiroNome(ct.responsavelNome)}`
+              ? `<br>Responsável: ${esc(primeiroNome(ct.responsavelNome))}`
               : ""
             }
           </div>
@@ -8016,10 +7891,10 @@ function verProjeto(id) {
         .map(
           (up) => `
           <div class="modal-section">
-            <strong>${primeiroNome(up.atualizadoPor || up.criadoPor || "-")}</strong>
+            <strong>${esc(primeiroNome(up.atualizadoPor || up.criadoPor || "-"))}</strong>
             — ${formatDateTimeBR(up.atualizadoEm || up.criadoEm)}
             <br>
-            ${(up.texto || "-").toString().replace(/\n/g, "<br>")}
+            ${esc(up.texto || "-").replace(/\n/g, "<br>")}
           </div>
           <hr>
         `,
@@ -8626,10 +8501,19 @@ function gerarPdfPorSchema(titulo, schema, usarNotasFiscais = false) {
   `;
 
   const win = window.open("", "_blank");
-  win.document.write(html);
-  win.document.close();
-  win.focus();
-  win.print();
+  if (!win) {
+    alert("Não foi possível abrir a janela. Desbloqueie popups no navegador e tente novamente.");
+    return;
+  }
+  try {
+    win.document.write(html);
+    win.document.close();
+    win.focus();
+    win.print();
+  } catch (err) {
+    console.error("Erro ao gerar PDF completo:", err);
+    alert("Erro ao gerar PDF.");
+  }
 }
 
 function exportPdfResumo() {
@@ -8810,10 +8694,19 @@ function exportPdfCompleto() {
   `;
 
   const win = window.open("", "_blank");
-  win.document.write(html);
-  win.document.close();
-  win.focus();
-  win.print();
+  if (!win) {
+    alert("Não foi possível abrir a janela. Desbloqueie popups no navegador e tente novamente.");
+    return;
+  }
+  try {
+    win.document.write(html);
+    win.document.close();
+    win.focus();
+    win.print();
+  } catch (err) {
+    console.error("Erro ao gerar PDF:", err);
+    alert("Erro ao gerar PDF.");
+  }
 }
 
 function baixarModeloImportacaoExcel() {
@@ -9151,18 +9044,12 @@ async function criarBackupAutomaticoFirebase() {
 
   await manterApenasUltimos7BackupsAutomaticos();
 
-  console.log("Backup automático salvo com sucesso:", backupId);
   return { id: backupId, resumo };
 }
 
 async function verificarBackupAutomatico() {
   try {
-    if (!deveExecutarBackupAutomatico()) {
-      console.log("Backup automático ainda não necessário.");
-      return;
-    }
-
-    console.log("Iniciando backup automático...");
+    if (!deveExecutarBackupAutomatico()) return;
     await criarBackupAutomaticoFirebase();
   } catch (error) {
     console.error("Erro ao executar backup automático:", error);
@@ -9225,32 +9112,10 @@ async function manterApenasUltimos7BackupsAutomaticos() {
     ...doc.data(),
   }));
 
-  console.log("Total de backups encontrados:", backups.length);
-  console.log(
-    "Lista de backups:",
-    backups.map((b) => ({
-      id: b.id,
-      criadoEm: b.criadoEm,
-      tipo: b.tipo
-    }))
-  );
-
-  if (backups.length <= 7) {
-    console.log("Até 7 backups. Nada para apagar.");
-    return;
-  }
+  if (backups.length <= 7) return;
 
   const excedentes = backups.slice(7);
-
-  console.log(
-    "Backups que serão apagados:",
-    excedentes.map((b) => b.id)
-  );
-
-  for (const backup of excedentes) {
-    await apagarBackupCompletoFirebase(backup.id);
-    console.log("Backup apagado:", backup.id);
-  }
+  await Promise.all(excedentes.map((b) => apagarBackupCompletoFirebase(b.id)));
 }
 
 async function moverParaLixeira({ colecao, id, tipo, nomeExibicao = "" }) {
@@ -9262,16 +9127,22 @@ async function moverParaLixeira({ colecao, id, tipo, nomeExibicao = "" }) {
     tipoLixeira: tipo,
     nomeLixeira: nomeExibicao || "",
   });
+
+  // Arquiva alertas abertos da entidade — aparecem na aba "Arquivados"
+  if (typeof arquivarAlertasDeEntidade === "function") {
+    arquivarAlertasDeEntidade(id).catch(console.error);
+  }
 }
 
 async function restaurarDaLixeira(colecao, id) {
+  const del = firebase.firestore.FieldValue.delete();
   await db.collection(colecao).doc(id).update({
-    deletado: false,
-    deletadoEm: null,
-    deletadoPor: "",
-    deletadoPorEmail: "",
-    tipoLixeira: "",
-    nomeLixeira: "",
+    deletado: del,
+    deletadoEm: del,
+    deletadoPor: del,
+    deletadoPorEmail: del,
+    tipoLixeira: del,
+    nomeLixeira: del,
   });
 }
 
@@ -9334,34 +9205,39 @@ function mostrarToastDesfazer({ mensagem, onUndo }) {
   }, 8000);
 }
 
+const LIXEIRA_LIMIT_POR_COLECAO = 500;
+
 async function buscarItensLixeira() {
   const colecoes = [
-    { nome: "ofertas", tipoPadrao: "registro" },
-    { nome: "clientes", tipoPadrao: "cliente" },
+    { nome: "ofertas",       tipoPadrao: "registro" },
+    { nome: "clientes",      tipoPadrao: "cliente" },
     { nome: "representadas", tipoPadrao: "representada" },
-    { nome: "projetos", tipoPadrao: "projeto" },
+    { nome: "projetos",      tipoPadrao: "projeto" },
   ];
 
-  let itens = [];
+  // Queries em paralelo + limit para evitar carregar volumes desnecessários
+  // Sem .orderBy() no Firestore — ordering é feito em JS abaixo (evita exigir índice composto)
+  const snaps = await Promise.all(
+    colecoes.map((col) =>
+      db.collection(col.nome)
+        .where("deletado", "==", true)
+        .limit(LIXEIRA_LIMIT_POR_COLECAO)
+        .get()
+        .then((snap) => ({ snap, col }))
+    )
+  );
 
-  for (const col of colecoes) {
-    const snap = await db
-      .collection(col.nome)
-      .where("deletado", "==", true)
-      .get();
-
-    const docs = snap.docs.map((d) => ({
+  const itens = snaps.flatMap(({ snap, col }) =>
+    snap.docs.map((d) => ({
       id: d.id,
       colecao: col.nome,
       ...d.data(),
       tipoLixeira: d.data().tipoLixeira || col.tipoPadrao,
-    }));
-
-    itens.push(...docs);
-  }
+    }))
+  );
 
   return itens.sort((a, b) => {
-    const da = normalizarDataFirestore(a.deletadoEm)?.getTime?.() || 0;
+    const da  = normalizarDataFirestore(a.deletadoEm)?.getTime?.() || 0;
     const dbb = normalizarDataFirestore(b.deletadoEm)?.getTime?.() || 0;
     return dbb - da;
   });
@@ -9465,25 +9341,19 @@ function aplicarFiltrosLixeira() {
 }
 
 function renderTabelaLixeira() {
-  const tbody = document.getElementById("tbodyLixeira");
-  const pageInfo = document.getElementById("pageInfoLixeira");
-  const btnPrev = document.getElementById("btnPrevLixeira");
-  const btnNext = document.getElementById("btnNextLixeira");
+  const tbody = DOM.tbodyLixeira || document.getElementById("tbodyLixeira");
+  const pageInfo = DOM.pageInfoLixeira || document.getElementById("pageInfoLixeira");
+  const btnPrev = DOM.btnPrevLixeira || document.getElementById("btnPrevLixeira");
+  const btnNext = DOM.btnNextLixeira || document.getElementById("btnNextLixeira");
 
   if (!tbody) return;
 
   tbody.innerHTML = "";
 
-  const total = itensLixeiraFiltrados.length;
-  const totalPaginas = Math.max(1, Math.ceil(total / ITENS_POR_PAGINA_LIXEIRA));
-
-  if (paginaLixeiraAtual > totalPaginas) {
-    paginaLixeiraAtual = totalPaginas;
-  }
-
-  const inicio = (paginaLixeiraAtual - 1) * ITENS_POR_PAGINA_LIXEIRA;
-  const fim = inicio + ITENS_POR_PAGINA_LIXEIRA;
-  const itensPagina = itensLixeiraFiltrados.slice(inicio, fim);
+  const { pageData: itensPagina, totalPages: totalPaginas, safePage } = getPaginatedData(
+    itensLixeiraFiltrados, paginaLixeiraAtual, ITENS_POR_PAGINA_LIXEIRA
+  );
+  paginaLixeiraAtual = safePage;
 
   if (!itensPagina.length) {
     tbody.innerHTML = `<tr><td colspan="6">Nenhum item encontrado.</td></tr>`;
@@ -9559,6 +9429,10 @@ async function excluirItemDefinitivo(colecao, id) {
   if (!confirm("Tem certeza que deseja excluir definitivamente este item?")) return;
 
   try {
+    // Remove alertas do Firestore antes de excluir a entidade
+    if (typeof excluirAlertasDeEntidade === "function") {
+      await excluirAlertasDeEntidade(id);
+    }
     await excluirDefinitivamente(colecao, id);
     await carregarLixeira();
   } catch (e) {
@@ -9579,6 +9453,10 @@ async function limparLixeiraManual() {
     const itens = await buscarItensLixeira();
 
     for (const item of itens) {
+      // Remove alertas antes de excluir a entidade
+      if (typeof excluirAlertasDeEntidade === "function") {
+        await excluirAlertasDeEntidade(item.id);
+      }
       await db.collection(item.colecao).doc(item.id).delete();
     }
 
@@ -9700,27 +9578,6 @@ function restaurarContatoProjetoMiniLixeira(index) {
   renderMiniLixeiraContatosProjeto();
 }
 
-function renderListaContatosProjeto() {
-  const lista = document.getElementById("listaContatosProjeto");
-  if (!lista) return;
-
-  const contatosAtivos = obterItensTemporariosAtivos(projetoContatosTemp);
-
-  lista.innerHTML = "";
-
-  contatosAtivos.forEach((ct, index) => {
-    const div = document.createElement("div");
-    div.innerHTML = `
-      <span>${ct.nome || ""} - ${ct.email || ""}</span>
-      <button type="button" onclick="editarContatoProjeto(${index})">Editar</button>
-      <button type="button" onclick="excluirContatoProjeto(${index})">Excluir</button>
-    `;
-    lista.appendChild(div);
-  });
-
-  renderMiniLixeiraContatosProjeto();
-}
-
 function renderMiniLixeiraAtualizacoesProjeto() {
   const el = document.getElementById("miniLixeiraAtualizacoesProjeto");
   if (!el) return;
@@ -9801,53 +9658,6 @@ async function recarregarDadosPrincipais() {
   preencherSelectRepresentadas?.();
 }
 
-async function carregarPermissoesUsuarioLogado() {
-  const authUser = window.auth?.currentUser;
-
-  if (!authUser || !authUser.email) {
-    console.warn("Usuário não autenticado.");
-    return null;
-  }
-
-  const email = authUser.email.toLowerCase();
-
-  try {
-    const doc = await window.db.collection("usuarios").doc(email).get();
-
-    if (!doc.exists) {
-      console.warn("Usuário sem cadastro na coleção usuarios:", email);
-
-      window.usuarioLogadoCRM = {
-        email,
-        role: "user",
-        podeVerDe: [email],
-        ativo: true
-      };
-
-      window.permissoesCRM = window.usuarioLogadoCRM;
-      return window.usuarioLogadoCRM;
-    }
-
-    const dados = doc.data();
-
-    window.usuarioLogadoCRM = {
-      email: dados.email,
-      nome: dados.nome || "",
-      role: dados.role || "user",
-      podeVerDe: Array.isArray(dados.podeVerDe) ? dados.podeVerDe : [dados.email],
-      ativo: dados.ativo !== false
-    };
-
-    window.permissoesCRM = window.usuarioLogadoCRM;
-
-    console.log("Permissões carregadas:", window.usuarioLogadoCRM);
-    return window.usuarioLogadoCRM;
-  } catch (error) {
-    console.error("Erro ao carregar permissões do usuário:", error);
-    return null;
-  }
-}
-
 function usuarioEhAdmin() {
   return window.permissoesCRM?.role === "admin";
 }
@@ -9872,21 +9682,6 @@ function usuarioPodeVerResponsavel(emailResponsavel) {
     : false;
 }
 
-function filtrarRegistrosPorPermissao(lista) {
-  if (!Array.isArray(lista)) return [];
-
-  return lista.filter((item) => {
-    const responsavel =
-      item.responsavel ||
-      item.responsavelEmail ||
-      item.usuario ||
-      item.criadoPor ||
-      "";
-
-    return usuarioPodeVerResponsavel(responsavel);
-  });
-}
-
 function obterEmailResponsavelItem(item) {
   const email = String(
     item?.responsavelEmail ||
@@ -9903,23 +9698,15 @@ function obterEmailResponsavelItem(item) {
   return String(window.auth?.currentUser?.email || "").toLowerCase().trim();
 }
 
-function filtrarRegistrosPorPermissao(lista) {
+function filtrarPorPermissao(lista) {
   if (!Array.isArray(lista)) return [];
   return lista.filter((item) => usuarioPodeVerResponsavel(obterEmailResponsavelItem(item)));
 }
 
-function filtrarClientesPorPermissao(lista) {
-  if (!Array.isArray(lista)) return [];
-  return lista.filter((item) => usuarioPodeVerResponsavel(obterEmailResponsavelItem(item)));
-}
+// Aliases — mesma lógica de permissão para todos os tipos
+const filtrarRegistrosPorPermissao     = filtrarPorPermissao;
+const filtrarClientesPorPermissao      = filtrarPorPermissao;
+const filtrarProjetosPorPermissao      = filtrarPorPermissao;
+const filtrarRepresentadasPorPermissao = filtrarPorPermissao;
 
-function filtrarProjetosPorPermissao(lista) {
-  if (!Array.isArray(lista)) return [];
-  return lista.filter((item) => usuarioPodeVerResponsavel(obterEmailResponsavelItem(item)));
-}
-
-function filtrarRepresentadasPorPermissao(lista) {
-  if (!Array.isArray(lista)) return [];
-  return lista.filter((item) => usuarioPodeVerResponsavel(obterEmailResponsavelItem(item)));
-}
 

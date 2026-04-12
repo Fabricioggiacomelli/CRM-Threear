@@ -9,7 +9,7 @@ window.alertasUI = {
 };
 
 // true = tempos curtos para teste
-const DEBUG_ALERTAS = false;
+const DEBUG_ALERTAS = true;
 
 // =========================
 // BASE
@@ -97,12 +97,12 @@ function getLimiteHorasFollowUp(tipo) {
   if (DEBUG_ALERTAS) {
     if (tipoNorm === "compra") return 0.01;
     if (tipoNorm === "orcamento" || tipoNorm === "orçamento") return 0.02;
-    return null;
+    return 0.03; // fallback para demais tipos em debug
   }
 
   if (tipoNorm === "compra") return 24;
   if (tipoNorm === "orcamento" || tipoNorm === "orçamento") return 48;
-  return null;
+  return 72; // fallback: 3 dias para qualquer outro tipo de oferta
 }
 
 function getIntervaloLembreteFollowUp(tipo) {
@@ -111,12 +111,12 @@ function getIntervaloLembreteFollowUp(tipo) {
   if (DEBUG_ALERTAS) {
     if (tipoNorm === "compra") return 0.03;
     if (tipoNorm === "orcamento" || tipoNorm === "orçamento") return 0.04;
-    return null;
+    return 0.05; // fallback para demais tipos em debug
   }
 
   if (tipoNorm === "compra") return 24;
   if (tipoNorm === "orcamento" || tipoNorm === "orçamento") return 48;
-  return null;
+  return 72; // fallback: lembrete a cada 3 dias para outros tipos
 }
 
 function getLimiteHorasSemResposta() {
@@ -165,14 +165,7 @@ function labelTipoAlerta(tipo) {
 }
 
 function labelEntidadeAlerta(entidade) {
-  const mapa = {
-    oferta: "Oferta",
-    cliente: "Cliente",
-    projeto: "Projeto",
-    representada: "Representada"
-  };
-
-  return mapa[String(entidade || "").toLowerCase()] || entidade || "-";
+  return String(entidade || "-");
 }
 
 function textoReferenciaAlerta(alerta) {
@@ -240,6 +233,7 @@ function classeStatusAlerta(status) {
   if (s === "adiado") return "alerta-status-adiado";
   if (s === "aguardando_aprovacao_resolucao") return "alerta-status-aprovacao";
   if (s === "aguardando_aprovacao_ignorar") return "alerta-status-aprovacao";
+  if (s === "arquivado") return "alerta-status-arquivado";
   return "alerta-status-aberto";
 }
 
@@ -265,7 +259,8 @@ function getStatusLabel(status) {
     resolvido: "resolvido",
     ignorado: "ignorado",
     aguardando_aprovacao_resolucao: "pendente resolução",
-    aguardando_aprovacao_ignorar: "pendente ignorar"
+    aguardando_aprovacao_ignorar: "pendente ignorar",
+    arquivado: "arquivado"
   };
 
   return mapa[s] || s || "-";
@@ -528,6 +523,7 @@ async function verificarAlertaFollowUpRegistro(reg) {
       descricao: `Oferta ${numeroOferta} precisa de follow-up.`,
       responsavelEmail: email,
       prioridade: tipo === "compra" ? "alta" : "media",
+      tipoOferta: tipo,
       atraso: true,
       dataReferencia: obterUltimaDataOferta(reg),
       lembreteNumero: 1,
@@ -548,6 +544,7 @@ async function verificarAlertaFollowUpRegistro(reg) {
             ? `Oferta ${numeroOferta} precisa de follow-up.`
             : `Lembrete ${numeroLembreteCalculado} do alerta de follow-up: a oferta ${numeroOferta} ainda não foi resolvida.`,
         prioridade: tipo === "compra" ? "alta" : "media",
+        tipoOferta: tipo,
         atraso: true,
         dataReferencia: obterUltimaDataOferta(reg),
         responsavelEmail: email,
@@ -802,7 +799,6 @@ function getAlertasFiltradosUI() {
   const busca = String(document.getElementById("alertasBusca")?.value || "").trim().toLowerCase();
   const tipo = String(document.getElementById("filtroTipoAlerta")?.value || "").trim().toLowerCase();
   const prioridade = String(document.getElementById("filtroPrioridadeAlerta")?.value || "").trim().toLowerCase();
-  const entidade = String(document.getElementById("filtroEntidadeAlerta")?.value || "").trim().toLowerCase();
   const responsavel = String(document.getElementById("filtroResponsavelAlerta")?.value || "").trim().toLowerCase();
 
   if (aba === "nao_lidos") {
@@ -826,7 +822,10 @@ function getAlertasFiltradosUI() {
     );
   } else if (aba === "ignorados") {
     lista = lista.filter((a) => a.status === "ignorado");
+  } else if (aba === "arquivados") {
+    lista = lista.filter((a) => a.status === "arquivado");
   } else {
+    // aba "todos" — exclui arquivados (itens de entidades deletadas) e resolvidos/ignorados
     lista = lista.filter((a) =>
       a.status === "aberto" ||
       a.status === "adiado" ||
@@ -854,7 +853,6 @@ function getAlertasFiltradosUI() {
 
   if (tipo) lista = lista.filter((a) => String(a.tipo || "").toLowerCase() === tipo);
   if (prioridade) lista = lista.filter((a) => String(a.prioridade || "").toLowerCase() === prioridade);
-  if (entidade) lista = lista.filter((a) => String(a.entidade || "").toLowerCase() === entidade);
   if (responsavel) {
     lista = lista.filter((a) =>
       String(a.responsavelEmail || "").toLowerCase().includes(responsavel)
@@ -918,6 +916,7 @@ function renderListaAlertas() {
         <div class="alerta-meta">
           ${a.descricao || ""}<br>
           <strong>Tipo:</strong> ${labelTipoAlerta(a.tipo)}<br>
+          ${a.tipo === "followup" && a.tipoOferta ? `<strong>Tipo de oferta:</strong> ${a.tipoOferta.charAt(0).toUpperCase() + a.tipoOferta.slice(1)}<br>` : ""}
           <strong>Entidade:</strong> ${labelEntidadeAlerta(a.entidade)}<br>
           <strong>Responsável:</strong> ${a.responsavelEmail || "-"}<br>
           <strong>Lido:</strong> ${a.lido ? "Sim" : "Não"}<br>
@@ -938,7 +937,7 @@ function renderListaAlertas() {
             ? `<button type="button" class="secondary" onclick="abrirItemDoAlerta('${a.id}')">Abrir</button>`
             : ""}
 
-          ${status === "aberto" || status === "adiado"
+          ${(status === "aberto" || status === "adiado") && a.tipo !== "pedido_sem_nf"
             ? `<button type="button" class="secondary" onclick="${podeGerenciarDireto ? `resolverAlertaDireto('${a.id}')` : `solicitarResolucaoAlerta('${a.id}')`}">Resolver</button>`
             : ""}
 
@@ -1013,8 +1012,64 @@ async function solicitarResolucaoAlerta(id) {
   trocarAbaAlertas("pendentes_aprovacao");
 }
 
+// =========================
+// EFEITOS COLATERAIS AO RESOLVER
+// =========================
+
+/**
+ * Ao resolver um alerta, atualiza o dado subjacente no registro
+ * para que o loop não recrie o alerta imediatamente.
+ */
+async function aplicarEfeitoResolucaoAlerta(alerta) {
+  const tipo = String(alerta?.tipo || "").toLowerCase();
+  const entidadeId = alerta?.entidadeId;
+  if (!entidadeId) return;
+
+  if (tipo === "prazo_entrega" || tipo === "prazo_entrega_atrasado") {
+    await marcarRegistroEntregue(entidadeId);
+  } else if (tipo === "followup") {
+    await resetarFollowUpRegistro(entidadeId);
+  } else if (tipo === "sem_resposta") {
+    await resetarRespostaRegistro(entidadeId);
+  }
+  // pedido_sem_nf: sem efeito — só para quando NF for adicionada
+}
+
+async function marcarRegistroEntregue(registroId) {
+  const agora = agoraISOAlerta();
+  await window.db.collection("ofertas").doc(registroId).set(
+    { pedido: { entregue: "sim", entregueEm: agora } },
+    { merge: true }
+  );
+  const idx = (registros || []).findIndex((r) => r.id === registroId);
+  if (idx !== -1) {
+    registros[idx].pedido = { ...(registros[idx].pedido || {}), entregue: "sim", entregueEm: agora };
+  }
+}
+
+async function resetarFollowUpRegistro(registroId) {
+  const agora = agoraISOAlerta();
+  await window.db.collection("ofertas").doc(registroId).set(
+    { ultimoFollowUpEm: agora },
+    { merge: true }
+  );
+  const idx = (registros || []).findIndex((r) => r.id === registroId);
+  if (idx !== -1) registros[idx].ultimoFollowUpEm = agora;
+}
+
+async function resetarRespostaRegistro(registroId) {
+  const agora = agoraISOAlerta();
+  await window.db.collection("ofertas").doc(registroId).set(
+    { atualizadoEm: agora },
+    { merge: true }
+  );
+  const idx = (registros || []).findIndex((r) => r.id === registroId);
+  if (idx !== -1) registros[idx].atualizadoEm = agora;
+}
+
 async function resolverAlertaDireto(id) {
   const usuario = getUsuarioAcaoAlertas();
+  const alerta = (window.alertasCache || []).find((a) => a.id === id);
 
   await getAlertasRef().doc(id).set(
     {
@@ -1033,11 +1088,14 @@ async function resolverAlertaDireto(id) {
     aprovadoPor: usuario
   });
 
+  if (alerta) await aplicarEfeitoResolucaoAlerta(alerta);
+
   trocarAbaAlertas("resolvidos");
 }
 
 async function aprovarResolucaoAlerta(id) {
   const usuario = getUsuarioAcaoAlertas();
+  const alerta = (window.alertasCache || []).find((a) => a.id === id);
 
   await getAlertasRef().doc(id).set(
     {
@@ -1052,6 +1110,8 @@ async function aprovarResolucaoAlerta(id) {
   await adicionarHistoricoAlerta(id, "aprovou_resolucao", {
     aprovadoPor: usuario
   });
+
+  if (alerta) await aplicarEfeitoResolucaoAlerta(alerta);
 
   trocarAbaAlertas("resolvidos");
 }
@@ -1278,4 +1338,100 @@ function verHistoricoAlerta(id) {
   if (typeof abrirModal === "function") {
     abrirModal("Histórico do alerta", html);
   }
+}
+
+// =========================
+// CICLO DE VIDA — SAVE / LIXEIRA / EXCLUSÃO
+// =========================
+
+/**
+ * Chamado após salvar/editar um registro.
+ * Resolve automaticamente alertas de follow-up e sem_resposta abertos:
+ *   - admin/supervisor com permissão → resolve direto
+ *   - user comum → solicita aprovação (precisa de admin/supervisor aprovar)
+ */
+async function onRegistroSalvoReset(registroId) {
+  if (!registroId) return;
+
+  const TIPOS_AUTO_RESET = ["followup", "sem_resposta"];
+
+  for (const tipo of TIPOS_AUTO_RESET) {
+    const chaveUnica = montarChaveAlerta({
+      tipo,
+      entidade: "oferta",
+      entidadeId: registroId
+    });
+
+    const alerta = await buscarAlertaPorChave(chaveUnica);
+    if (!alerta) continue;
+
+    // Ignora se já encaminhado ou finalizado
+    const statusIgnorar = [
+      "resolvido", "ignorado", "arquivado",
+      "aguardando_aprovacao_resolucao", "aguardando_aprovacao_ignorar"
+    ];
+    if (statusIgnorar.includes(alerta.status)) continue;
+
+    const podeGerenciar = usuarioPodeGerenciarDiretoAlerta(alerta);
+    if (podeGerenciar) {
+      await resolverAlertaDireto(alerta.id);
+    } else {
+      await solicitarResolucaoAlerta(alerta.id);
+    }
+  }
+}
+
+/**
+ * Chamado ao mover uma entidade para a lixeira (soft-delete).
+ * Marca todos os alertas abertos da entidade como "arquivado".
+ * Eles aparecem na aba Arquivados e somem da aba Todos.
+ */
+async function arquivarAlertasDeEntidade(entidadeId) {
+  if (!entidadeId) return;
+
+  const snap = await getAlertasRef()
+    .where("entidadeId", "==", entidadeId)
+    .get();
+
+  if (snap.empty) return;
+
+  const statusFinalizado = ["resolvido", "ignorado", "arquivado"];
+  const agora = agoraISOAlerta();
+
+  for (const doc of snap.docs) {
+    const data = doc.data();
+    if (statusFinalizado.includes(data.status)) continue;
+
+    await doc.ref.set(
+      { status: "arquivado", atualizadoEm: agora },
+      { merge: true }
+    );
+
+    // Registra no histórico sem operação extra de read
+    const historicoAtual = Array.isArray(data.historico) ? data.historico : [];
+    historicoAtual.push({
+      acao: "arquivado_lixeira",
+      usuario: "system",
+      dataHora: agora
+    });
+    await doc.ref.set({ historico: historicoAtual }, { merge: true });
+  }
+}
+
+/**
+ * Chamado ao excluir definitivamente uma entidade (saída da lixeira).
+ * Remove permanentemente todos os alertas ligados a ela no Firestore.
+ */
+async function excluirAlertasDeEntidade(entidadeId) {
+  if (!entidadeId) return;
+
+  const snap = await getAlertasRef()
+    .where("entidadeId", "==", entidadeId)
+    .get();
+
+  if (snap.empty) return;
+
+  const batch = window.db.batch();
+  snap.docs.forEach((doc) => batch.delete(doc.ref));
+  await batch.commit();
 }

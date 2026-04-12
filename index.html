@@ -6,6 +6,9 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>Gestão de Ofertas</title>
 
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@300;400;500;600;700&display=swap" rel="stylesheet" />
   <link rel="stylesheet" href="style.css" />
   <link rel="manifest" href="manifest.json" />
   <link rel="icon" type="image/png" href="Imagens/LogoCRM.png" />
@@ -30,6 +33,7 @@
               <button type="button" class="alerta-tab" data-tab="atrasados" onclick="trocarAbaAlertas('atrasados')">Atrasados</button>
               <button type="button" class="alerta-tab" data-tab="ignorados" onclick="trocarAbaAlertas('ignorados')">Ignorados</button>
               <button type="button" class="alerta-tab" data-tab="resolvidos" onclick="trocarAbaAlertas('resolvidos')">Resolvidos</button>
+              <button type="button" class="alerta-tab" data-tab="arquivados" onclick="trocarAbaAlertas('arquivados')">Arquivados</button>
           </div>
 
           <div class="alertas-filtros">
@@ -42,9 +46,6 @@
               <option value="prazo_entrega_atrasado">Prazo atrasado</option>
               <option value="sem_resposta">Sem resposta</option>
               <option value="pedido_sem_nf">Pedido sem NF</option>
-              <option value="frio_cliente">Cliente frio</option>
-              <option value="frio_projeto">Projeto frio</option>
-              <option value="frio_representada">Representada fria</option>
             </select>
 
             <select id="filtroPrioridadeAlerta" onchange="renderListaAlertas()">
@@ -53,14 +54,6 @@
               <option value="media">Média</option>
               <option value="alta">Alta</option>
               <option value="critica">Crítica</option>
-            </select>
-
-            <select id="filtroEntidadeAlerta" onchange="renderListaAlertas()">
-              <option value="">Entidade: todas</option>
-              <option value="oferta">Oferta</option>
-              <option value="cliente">Cliente</option>
-              <option value="projeto">Projeto</option>
-              <option value="representada">Representada</option>
             </select>
 
             <input type="text" id="filtroResponsavelAlerta" placeholder="Responsável..."
@@ -228,47 +221,52 @@
   <div class="main-content">
 
     <div id="loginContainer" class="container">
-      <h1>
-        CRM - Three Ar
-      </h1>
-      <div style="display:flex; gap:10px; margin:12px 0;">
-        <button id="tabLogin" type="button" class="secondary" style="flex:1;">Log in</button>
-        <button id="tabSignup" type="button" class="secondary" style="flex:1;">Sign up</button>
+      <div class="login-logo-wrap">
+        <img src="Imagens/LogoCRM.png" alt="CRM Logo" class="login-logo" />
+      </div>
+      <h1 class="login-title">CRM - Three Ar</h1>
+      <p class="login-subtitle">Gestão de ofertas e clientes</p>
+
+      <div class="login-tabs">
+        <button id="tabLogin" type="button" class="login-tab active">Entrar</button>
+        <button id="tabSignup" type="button" class="login-tab">Criar conta</button>
       </div>
 
-      <div id="panelLogin">
-        <p>Entre com seu e-mail e senha.</p>
+      <div id="panelLogin" class="login-panel">
+        <div class="login-field">
+          <label for="loginUser">E-mail</label>
+          <input type="email" id="loginUser" placeholder="email@dominio.com" />
+        </div>
 
-        <label for="loginUser">E-mail</label>
-        <input type="email" id="loginUser" placeholder="email@dominio.com" />
+        <div class="login-field">
+          <label for="loginPass">Senha</label>
+          <input type="password" id="loginPass" placeholder="••••••••" />
+        </div>
 
-        <label for="loginPass">Senha</label>
-        <input type="password" id="loginPass" placeholder="********" />
+        <button id="btnLogin" type="button" class="login-btn-primary">Entrar</button>
 
-        <button id="btnLogin" type="button">Entrar</button>
+        <div id="loginMsg" class="login-msg"></div>
 
-        <button id="btnForgot" type="button" class="secondary" style="margin-top:10px;">
-          Esqueci minha senha
-        </button>
-
-        <button id="btnResendVerify" type="button" class="secondary" style="margin-top:10px;">
-          Reenviar verificação de e-mail
-        </button>
-        <div id="loginMsg" style="margin-top:10px; font-size:13px; opacity:.9;"></div>
+        <button id="btnForgot" type="button" class="login-btn-secondary">Esqueci minha senha</button>
+        <button id="btnResendVerify" type="button" class="login-btn-secondary">Reenviar verificação de e-mail</button>
       </div>
 
-      <div id="panelSignup" class="hidden">
-        <p>Crie sua conta (precisa de aprovação para acessar).</p>
+      <div id="panelSignup" class="login-panel hidden">
+        <p class="login-panel-desc">Crie sua conta. Acesso sujeito à aprovação.</p>
 
-        <label for="signupEmail">E-mail</label>
-        <input type="email" id="signupEmail" placeholder="email@dominio.com" />
+        <div class="login-field">
+          <label for="signupEmail">E-mail</label>
+          <input type="email" id="signupEmail" placeholder="email@dominio.com" />
+        </div>
 
-        <label for="signupPass">Senha</label>
-        <input type="password" id="signupPass" placeholder="Mín. 8, maiúscula, número, símbolo" />
+        <div class="login-field">
+          <label for="signupPass">Senha</label>
+          <input type="password" id="signupPass" placeholder="Mín. 8 caracteres, maiúscula e símbolo" />
+        </div>
 
-        <button id="btnSignup" type="button">Criar conta</button>
+        <button id="btnSignup" type="button" class="login-btn-primary">Criar conta</button>
 
-        <div id="signupMsg" style="margin-top:10px; font-size:13px; opacity:.9;"></div>
+        <div id="signupMsg" class="login-msg"></div>
       </div>
     </div>
 
@@ -471,6 +469,12 @@
 
                 <label for="prazo_entrega_contratual">Prazo de entrega contratual</label>
                 <input type="date" id="prazo_entrega_contratual">
+
+                <label>Entregue?</label>
+                <div class="radio-group">
+                  <label><input type="radio" name="entregue" value="sim"> Sim</label>
+                  <label><input type="radio" name="entregue" value="nao" checked> Não</label>
+                </div>
 
                 <label>Solicitação de ordem de venda?</label>
                 <div class="radio-group">
