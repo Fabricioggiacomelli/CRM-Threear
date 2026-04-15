@@ -19,5 +19,8 @@ backup_*.xlsx
 .DS_Store
 .vscode/
 
-#skills 
+#skills
 skills/
+
+# Obsidian notes
+CRM ThreeAr.md

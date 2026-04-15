@@ -631,8 +631,14 @@ function mostrarApp() {
   iniciarSistemaAlertas();
   initDOMCache();
 
-  // Sincroniza permissões do usuarios.js → Firestore silenciosamente quando admin faz login
-  if (typeof sincronizarUsuariosCRM === "function" && typeof isAdmin === "function" && isAdmin()) {
+  // Sincroniza permissões do usuarios.js → Firestore silenciosamente quando admin ou supervisor faz login
+  if (
+    typeof sincronizarUsuariosCRM === "function" &&
+    (
+      (typeof isAdmin === "function" && isAdmin()) ||
+      (typeof usuarioEhSupervisor === "function" && usuarioEhSupervisor())
+    )
+  ) {
     sincronizarUsuariosCRM().catch(console.error);
   }
 }
@@ -2320,7 +2326,19 @@ function initBackupUI() {
   inputBackupFile.dataset.bound = "1";
   if (btnModeloImportacao) btnModeloImportacao.dataset.bound = "1";
 
+  const podeExportar =
+    (typeof isAdmin === "function" && isAdmin()) ||
+    (typeof usuarioEhSupervisor === "function" && usuarioEhSupervisor());
+
+  if (!podeExportar) {
+    btnBackupExport.style.display = "none";
+  }
+
   btnBackupExport.addEventListener("click", () => {
+    if (!podeExportar) {
+      alert("Apenas administradores e supervisores podem exportar o backup.");
+      return;
+    }
     const tipo = (
       prompt("Exportar backup em qual formato? Digite 'json' ou 'excel':") || ""
     ).trim().toLowerCase();

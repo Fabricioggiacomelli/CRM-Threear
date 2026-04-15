@@ -9,7 +9,7 @@ window.alertasUI = {
 };
 
 // true = tempos curtos para teste
-const DEBUG_ALERTAS = true;
+const DEBUG_ALERTAS = false;
 
 // =========================
 // BASE
@@ -349,13 +349,37 @@ function mostrarToastAlerta(alerta) {
 async function buscarAlertaPorChave(chaveUnica) {
   const snap = await getAlertasRef()
     .where("chaveUnica", "==", chaveUnica)
-    .limit(1)
     .get();
 
   if (snap.empty) return null;
 
-  const doc = snap.docs[0];
-  return { id: doc.id, ...doc.data() };
+  // Caso simples: um único documento
+  if (snap.docs.length === 1) {
+    const doc = snap.docs[0];
+    return { id: doc.id, ref: doc.ref, ...doc.data() };
+  }
+
+  // Múltiplos documentos com mesma chave (duplicatas acumuladas).
+  // Prefere o alerta ativo; entre iguais, o mais recente.
+  const statusFinalizado = ["resolvido", "ignorado", "arquivado"];
+  const docs = snap.docs.map((d) => ({ id: d.id, ref: d.ref, ...d.data() }));
+
+  docs.sort((a, b) => {
+    const aFin = statusFinalizado.includes(a.status);
+    const bFin = statusFinalizado.includes(b.status);
+    if (aFin !== bFin) return aFin ? 1 : -1; // ativo primeiro
+    return new Date(b.dataCriacao || 0) - new Date(a.dataCriacao || 0);
+  });
+
+  // Apaga silenciosamente as duplicatas (mantém apenas o primeiro)
+  const deletar = docs.slice(1);
+  if (deletar.length) {
+    const batch = window.db.batch();
+    deletar.forEach((d) => batch.delete(d.ref));
+    batch.commit().catch(console.error);
+  }
+
+  return docs[0];
 }
 
 async function criarOuAtualizarAlerta(payload) {
@@ -937,7 +961,7 @@ function renderListaAlertas() {
             ? `<button type="button" class="secondary" onclick="abrirItemDoAlerta('${a.id}')">Abrir</button>`
             : ""}
 
-          ${(status === "aberto" || status === "adiado") && a.tipo !== "pedido_sem_nf"
+          ${status === "aberto" || status === "adiado"
             ? `<button type="button" class="secondary" onclick="${podeGerenciarDireto ? `resolverAlertaDireto('${a.id}')` : `solicitarResolucaoAlerta('${a.id}')`}">Resolver</button>`
             : ""}
 
@@ -1069,7 +1093,13 @@ async function resetarRespostaRegistro(registroId) {
 
 async function resolverAlertaDireto(id) {
   const usuario = getUsuarioAcaoAlertas();
-  const alerta = (window.alertasCache || []).find((a) => a.id === id);
+
+  // Busca no cache; se não encontrar, vai direto ao Firestore (evita race condition)
+  let alerta = (window.alertasCache || []).find((a) => a.id === id);
+  if (!alerta) {
+    const snap = await getAlertasRef().doc(id).get();
+    if (snap.exists) alerta = { id: snap.id, ...snap.data() };
+  }
 
   await getAlertasRef().doc(id).set(
     {
@@ -1095,7 +1125,12 @@ async function resolverAlertaDireto(id) {
 
 async function aprovarResolucaoAlerta(id) {
   const usuario = getUsuarioAcaoAlertas();
-  const alerta = (window.alertasCache || []).find((a) => a.id === id);
+
+  let alerta = (window.alertasCache || []).find((a) => a.id === id);
+  if (!alerta) {
+    const snap = await getAlertasRef().doc(id).get();
+    if (snap.exists) alerta = { id: snap.id, ...snap.data() };
+  }
 
   await getAlertasRef().doc(id).set(
     {
@@ -1353,7 +1388,29 @@ function verHistoricoAlerta(id) {
 async function onRegistroSalvoReset(registroId) {
   if (!registroId) return;
 
+  const STATUS_IGNORAR = [
+    "resolvido", "ignorado", "arquivado",
+    "aguardando_aprovacao_resolucao", "aguardando_aprovacao_ignorar"
+  ];
+
   const TIPOS_AUTO_RESET = ["followup", "sem_resposta"];
+
+  // Se o registro agora tem NF, também auto-resolve pedido_sem_nf
+  const reg = (registros || []).find((r) => r.id === registroId);
+  if (reg && String(reg.possuiPedido || "").toLowerCase() === "sim") {
+    const pedido = reg.pedido || {};
+    const temNF = !!(
+      pedido.numero_nf ||
+      pedido.data_nf ||
+      pedido.valor_nf ||
+      (Array.isArray(pedido.notas_fiscais) &&
+        pedido.notas_fiscais.some((nf) => nf?.numero || nf?.data || nf?.valor))
+    );
+    if (temNF) TIPOS_AUTO_RESET.push("pedido_sem_nf");
+  }
+
+  const usuario = getUsuarioAcaoAlertas();
+  const agora = agoraISOAlerta();
 
   for (const tipo of TIPOS_AUTO_RESET) {
     const chaveUnica = montarChaveAlerta({
@@ -1364,17 +1421,26 @@ async function onRegistroSalvoReset(registroId) {
 
     const alerta = await buscarAlertaPorChave(chaveUnica);
     if (!alerta) continue;
-
-    // Ignora se já encaminhado ou finalizado
-    const statusIgnorar = [
-      "resolvido", "ignorado", "arquivado",
-      "aguardando_aprovacao_resolucao", "aguardando_aprovacao_ignorar"
-    ];
-    if (statusIgnorar.includes(alerta.status)) continue;
+    if (STATUS_IGNORAR.includes(alerta.status)) continue;
 
     const podeGerenciar = usuarioPodeGerenciarDiretoAlerta(alerta);
+
     if (podeGerenciar) {
-      await resolverAlertaDireto(alerta.id);
+      // Atualiza Firestore diretamente (sem chamar resolverAlertaDireto para não mudar de aba)
+      await getAlertasRef().doc(alerta.id).set(
+        {
+          status: "resolvido",
+          resolvidoPor: usuario,
+          resolvidoEm: agora,
+          aprovadoPor: usuario,
+          aprovadoEm: agora,
+          atualizadoEm: agora
+        },
+        { merge: true }
+      );
+      await adicionarHistoricoAlerta(alerta.id, "resolvido_auto_save", { resolvidoPor: usuario });
+      // Aplica efeito com o objeto já em mãos — sem depender do cache
+      await aplicarEfeitoResolucaoAlerta(alerta);
     } else {
       await solicitarResolucaoAlerta(alerta.id);
     }
