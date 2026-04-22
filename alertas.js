@@ -717,6 +717,7 @@ function iniciarListenerAlertas() {
 
     const listaNova = snap.docs
       .map((doc) => ({ id: doc.id, ...doc.data() }))
+      .filter((a) => !alertaEhObsoleto(a))
       .filter((a) => usuarioPodeVerAlerta(a))
       .filter((a) => {
         if (a.status === "adiado" && a.lembrarNovamenteEm) {
