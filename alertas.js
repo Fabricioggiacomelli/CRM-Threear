@@ -380,10 +380,57 @@ async function buscarAlertaPorChave(chaveUnica) {
   return docs[0];
 }
 
+function alertaEhObsoleto(payload = {}) {
+  const tipo = String(payload.tipo || "").trim().toLowerCase();
+  const titulo = String(payload.titulo || "").trim().toLowerCase();
+  const descricao = String(payload.descricao || "").trim().toLowerCase();
+  const chave = String(payload.chaveUnica || "").trim().toLowerCase();
+
+  const termosObsoletos = ["sem_resposta", "sem resposta", "oferta sem resposta"];
+
+  return termosObsoletos.some((termo) =>
+    tipo.includes(termo) ||
+    titulo.includes(termo) ||
+    descricao.includes(termo) ||
+    chave.includes(termo)
+  );
+}
+
+async function apagarAlertasObsoletosParaSempre() {
+  if (!window.db) return;
+
+  const snap = await window.db.collection("alertas").get();
+  if (snap.empty) return;
+
+  const docsParaApagar = snap.docs.filter((doc) => alertaEhObsoleto(doc.data() || {}));
+  if (!docsParaApagar.length) return;
+
+  let apagados = 0;
+  for (let i = 0; i < docsParaApagar.length; i += 450) {
+    const batch = window.db.batch();
+    docsParaApagar.slice(i, i + 450).forEach((doc) => batch.delete(doc.ref));
+    await batch.commit();
+    apagados += Math.min(450, docsParaApagar.length - i);
+  }
+
+  console.log(`[alertas] ${apagados} alerta(s) obsoleto(s) apagado(s) para sempre.`);
+}
+
 async function criarOuAtualizarAlerta(payload) {
   if (!payload?.chaveUnica) return null;
 
+  if (alertaEhObsoleto(payload)) {
+    console.warn("[alertas] criação bloqueada para alerta obsoleto:", payload);
+    return null;
+  }
+
   const existente = await buscarAlertaPorChave(payload.chaveUnica);
+
+  if (existente && alertaEhObsoleto(existente)) {
+    await getAlertasRef().doc(existente.id).delete();
+    console.warn("[alertas] alerta obsoleto existente removido:", existente.id);
+    return null;
+  }
 
   if (
     existente &&
@@ -716,12 +763,13 @@ function iniciarLoopAlertas() {
   const intervaloMs = DEBUG_ALERTAS ? 10000 : 60000;
 
   window.alertasLoopHandle = setInterval(() => {
-    limparAlertasTipoObsoleto("sem_resposta").catch(console.error);
+    apagarAlertasObsoletosParaSempre().catch(console.error);
     verificarAlertasSistema().catch(console.error);
   }, intervaloMs);
 
   document.addEventListener("visibilitychange", () => {
     if (!document.hidden) {
+      apagarAlertasObsoletosParaSempre().catch(console.error);
       verificarAlertasSistema().catch(console.error);
     }
   });
@@ -739,7 +787,7 @@ async function limparAlertasTipoObsoleto(tipo) {
 function iniciarSistemaAlertas() {
   iniciarListenerAlertas();
   iniciarLoopAlertas();
-  limparAlertasTipoObsoleto("sem_resposta").catch(console.error);
+  apagarAlertasObsoletosParaSempre().catch(console.error);
   verificarAlertasSistema().catch(console.error);
 }
 
