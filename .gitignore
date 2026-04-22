@@ -26,5 +26,8 @@ skills-lock.json
 # Claude Code
 .claude/settings.local.json
 
+# Firebase
+.firebase/
+
 # Obsidian notes
 CRM ThreeAr.md
