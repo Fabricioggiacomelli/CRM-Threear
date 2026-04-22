@@ -716,6 +716,7 @@ function iniciarLoopAlertas() {
   const intervaloMs = DEBUG_ALERTAS ? 10000 : 60000;
 
   window.alertasLoopHandle = setInterval(() => {
+    limparAlertasTipoObsoleto("sem_resposta").catch(console.error);
     verificarAlertasSistema().catch(console.error);
   }, intervaloMs);
 
