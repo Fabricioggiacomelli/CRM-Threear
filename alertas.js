@@ -97,12 +97,12 @@ function getLimiteHorasFollowUp(tipo) {
   if (DEBUG_ALERTAS) {
     if (tipoNorm === "compra") return 0.01;
     if (tipoNorm === "orcamento" || tipoNorm === "orçamento") return 0.02;
-    return 0.03; // fallback para demais tipos em debug
+    return null;
   }
 
   if (tipoNorm === "compra") return 24;
   if (tipoNorm === "orcamento" || tipoNorm === "orçamento") return 48;
-  return 72; // fallback: 3 dias para qualquer outro tipo de oferta
+  return null;
 }
 
 function getIntervaloLembreteFollowUp(tipo) {
@@ -111,17 +111,14 @@ function getIntervaloLembreteFollowUp(tipo) {
   if (DEBUG_ALERTAS) {
     if (tipoNorm === "compra") return 0.03;
     if (tipoNorm === "orcamento" || tipoNorm === "orçamento") return 0.04;
-    return 0.05; // fallback para demais tipos em debug
+    return null;
   }
 
   if (tipoNorm === "compra") return 24;
   if (tipoNorm === "orcamento" || tipoNorm === "orçamento") return 48;
-  return 72; // fallback: lembrete a cada 3 dias para outros tipos
+  return null;
 }
 
-function getLimiteHorasSemResposta() {
-  return DEBUG_ALERTAS ? 0.05 : 120; // 5 dias
-}
 
 function getLimiteHorasPedidoSemNF() {
   return DEBUG_ALERTAS ? 0.05 : 72; // 3 dias
@@ -157,7 +154,6 @@ function labelTipoAlerta(tipo) {
     followup: "Follow-up",
     prazo_entrega: "Prazo de entrega",
     prazo_entrega_atrasado: "Prazo atrasado",
-    sem_resposta: "Sem resposta",
     pedido_sem_nf: "Pedido sem NF"
   };
 
@@ -237,9 +233,11 @@ function classeStatusAlerta(status) {
   return "alerta-status-aberto";
 }
 
-function statusExcluiAlertaOferta(status) {
+function statusExcluiAlertaOferta(status, reg) {
   const s = String(status || "").trim().toLowerCase();
-  return ["ganho", "perdido", "declinado", "faturado parcial"].includes(s);
+  if (s === "perdido" || s === "declinado") return true;
+  if (reg && String(reg.possuiPedido || "").trim().toLowerCase() === "sim") return true;
+  return false;
 }
 
 function obterUltimaDataOferta(reg) {
@@ -515,7 +513,7 @@ async function verificarAlertaFollowUpRegistro(reg) {
   const tipo = String(reg.tipo_oferta || "").trim().toLowerCase();
   const status = String(reg.status || "").trim().toLowerCase();
 
-  if (statusExcluiAlertaOferta(status)) return;
+  if (statusExcluiAlertaOferta(status, reg)) return;
 
   const limiteHoras = getLimiteHorasFollowUp(tipo);
   const intervaloLembrete = getIntervaloLembreteFollowUp(tipo);
@@ -591,44 +589,13 @@ async function verificarAlertasFollowUp() {
   }
 }
 
-async function verificarAlertasSemResposta() {
-  const limite = getLimiteHorasSemResposta();
-
-  for (const reg of (registros || [])) {
-    const email = normalizarEmailAlerta(reg.responsavelEmail);
-    if (!email) continue;
-
-    const status = String(reg.status || "").trim().toLowerCase();
-    if (statusExcluiAlertaOferta(status)) continue;
-
-    const horas = diferencaHorasDesdeAlerta(reg.atualizadoEm || reg.criadoEm);
-    if (horas === null || horas < limite) continue;
-
-    await criarOuAtualizarAlerta({
-      tipo: "sem_resposta",
-      entidade: "oferta",
-      entidadeId: reg.id,
-      titulo: "Oferta sem resposta",
-      descricao: `Oferta ${getNumeroOfertaTexto(reg)} está sem atualização há 5 dias ou mais.`,
-      responsavelEmail: email,
-      prioridade: "alta",
-      atraso: true,
-      dataReferencia: reg.atualizadoEm || reg.criadoEm || "",
-      chaveUnica: montarChaveAlerta({
-        tipo: "sem_resposta",
-        entidade: "oferta",
-        entidadeId: reg.id
-      })
-    });
-  }
-}
 
 async function verificarAlertasPedidoSemNF() {
   const limite = getLimiteHorasPedidoSemNF();
 
   for (const reg of (registros || [])) {
     if (String(reg.possuiPedido || "").toLowerCase() !== "sim") continue;
-    if (statusExcluiAlertaOferta(reg.status)) continue;
+    if (statusExcluiAlertaOferta(reg.status, reg)) continue;
 
     const email = normalizarEmailAlerta(reg.responsavelEmail);
     if (!email) continue;
@@ -674,7 +641,6 @@ async function verificarAlertasPedidoSemNF() {
 async function verificarAlertasSistema() {
   await verificarAlertasPrazoEntrega();
   await verificarAlertasFollowUp();
-  await verificarAlertasSemResposta();
   await verificarAlertasPedidoSemNF();
 }
 
@@ -734,7 +700,10 @@ function iniciarListenerAlertas() {
     window.alertasPrimeiraCargaFeita = true;
 
     atualizarBadgeAlertas();
-    renderListaAlertas();
+    const modalAberto = !document.getElementById("modalAlertas")?.classList.contains("hidden");
+    const temSelecao = window.getSelection()?.toString().length > 0;
+    if (modalAberto && !temSelecao) renderListaAlertas();
+    else if (!modalAberto) window._alertasRenderPendente = true;
   });
 }
 
@@ -757,9 +726,19 @@ function iniciarLoopAlertas() {
   });
 }
 
+async function limparAlertasTipoObsoleto(tipo) {
+  const snap = await getAlertasRef().where("tipo", "==", tipo).get();
+  if (snap.empty) return;
+  const batch = window.db.batch();
+  snap.docs.forEach((doc) => batch.delete(doc.ref));
+  await batch.commit();
+  console.log(`[alertas] ${snap.docs.length} alertas "${tipo}" removidos do Firestore.`);
+}
+
 function iniciarSistemaAlertas() {
   iniciarListenerAlertas();
   iniciarLoopAlertas();
+  limparAlertasTipoObsoleto("sem_resposta").catch(console.error);
   verificarAlertasSistema().catch(console.error);
 }
 
@@ -795,6 +774,7 @@ function atualizarBadgeAlertas() {
 
 function abrirModalAlertas() {
   document.getElementById("modalAlertas")?.classList.remove("hidden");
+  window._alertasRenderPendente = false;
   renderListaAlertas();
 }
 
@@ -1053,8 +1033,6 @@ async function aplicarEfeitoResolucaoAlerta(alerta) {
     await marcarRegistroEntregue(entidadeId);
   } else if (tipo === "followup") {
     await resetarFollowUpRegistro(entidadeId);
-  } else if (tipo === "sem_resposta") {
-    await resetarRespostaRegistro(entidadeId);
   }
   // pedido_sem_nf: sem efeito — só para quando NF for adicionada
 }
@@ -1081,15 +1059,6 @@ async function resetarFollowUpRegistro(registroId) {
   if (idx !== -1) registros[idx].ultimoFollowUpEm = agora;
 }
 
-async function resetarRespostaRegistro(registroId) {
-  const agora = agoraISOAlerta();
-  await window.db.collection("ofertas").doc(registroId).set(
-    { atualizadoEm: agora },
-    { merge: true }
-  );
-  const idx = (registros || []).findIndex((r) => r.id === registroId);
-  if (idx !== -1) registros[idx].atualizadoEm = agora;
-}
 
 async function resolverAlertaDireto(id) {
   const usuario = getUsuarioAcaoAlertas();
@@ -1381,7 +1350,7 @@ function verHistoricoAlerta(id) {
 
 /**
  * Chamado após salvar/editar um registro.
- * Resolve automaticamente alertas de follow-up e sem_resposta abertos:
+ * Resolve automaticamente alertas de follow-up abertos:
  *   - admin/supervisor com permissão → resolve direto
  *   - user comum → solicita aprovação (precisa de admin/supervisor aprovar)
  */
@@ -1393,7 +1362,7 @@ async function onRegistroSalvoReset(registroId) {
     "aguardando_aprovacao_resolucao", "aguardando_aprovacao_ignorar"
   ];
 
-  const TIPOS_AUTO_RESET = ["followup", "sem_resposta"];
+  const TIPOS_AUTO_RESET = ["followup"];
 
   // Se o registro agora tem NF, também auto-resolve pedido_sem_nf
   const reg = (registros || []).find((r) => r.id === registroId);

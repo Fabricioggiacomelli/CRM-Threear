@@ -21,6 +21,10 @@ backup_*.xlsx
 
 #skills
 skills/
+skills-lock.json
+
+# Claude Code
+.claude/settings.local.json
 
 # Obsidian notes
 CRM ThreeAr.md

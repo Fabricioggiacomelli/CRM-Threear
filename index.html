@@ -13,6 +13,14 @@
   <link rel="manifest" href="manifest.json" />
   <link rel="icon" type="image/png" href="Imagens/LogoCRM.png" />
   <meta name="theme-color" content="#2563eb" />
+  <script>
+    if (sessionStorage.getItem('totpVerified') === '1') {
+      document.documentElement.classList.add('skip-login-flash');
+    }
+  </script>
+  <style>
+    html.skip-login-flash #loginContainer { visibility: hidden !important; }
+  </style>
 </head>
 
 <body>
@@ -44,7 +52,6 @@
               <option value="followup">Follow-up</option>
               <option value="prazo_entrega">Prazo de entrega</option>
               <option value="prazo_entrega_atrasado">Prazo atrasado</option>
-              <option value="sem_resposta">Sem resposta</option>
               <option value="pedido_sem_nf">Pedido sem NF</option>
             </select>
 

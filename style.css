@@ -707,13 +707,18 @@ section > input + button {
   margin-top: 0 !important;
 }
 
-button:hover {
+button:not(.alerta-tab):not(.login-tab):not(.menu-item):not(.collapse-btn):not(.modal-close):not(.d-btn-apply):not(.d-btn-clear):hover {
   background: linear-gradient(135deg, var(--primary-hover) 0%, #2563EB 100%);
   transform: translateY(-1px);
   box-shadow: 0 6px 20px rgba(37, 99, 235, 0.38);
 }
 
 button:active { transform: translateY(0); }
+
+.alerta-tab:hover, .login-tab:hover, .menu-item:hover, .collapse-btn:hover {
+  transform: none !important;
+  box-shadow: none !important;
+}
 
 button.secondary {
   background: var(--bg-body);
@@ -1126,7 +1131,7 @@ body.dark .modal-content { box-shadow: 0 32px 80px rgba(0,0,0,0.6), 0 0 0 1px rg
 
 .modal-close:hover {
   background: rgba(255,255,255,0.22);
-  transform: translateY(-50%) scale(1.06);
+  transform: translateY(-50%);
   box-shadow: none;
 }
 
@@ -1139,6 +1144,8 @@ body.dark .modal-content { box-shadow: 0 32px 80px rgba(0,0,0,0.6), 0 0 0 1px rg
   background: var(--bg-body);
   overscroll-behavior: contain;
   -webkit-overflow-scrolling: touch;
+  user-select: text;
+  -webkit-user-select: text;
 }
 
 body.dark .modal-body { background: #0B0D18 !important; }
@@ -1611,6 +1618,11 @@ body.dark .alerta-card {
   font-size: 12.5px;
   white-space: nowrap;
   transition: background 0.15s ease, color 0.15s ease, border-color 0.15s ease;
+}
+
+.alerta-actions button:hover {
+  transform: none !important;
+  box-shadow: none !important;
 }
 
 /* Priority borders */

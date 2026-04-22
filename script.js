@@ -418,6 +418,7 @@ window.addEventListener("load", async () => {
         totpOk = false;
         totpIsActive = false;
         totpUserEmail = null;
+        sessionStorage.removeItem("totpVerified");
         fecharModalTOTP(true);
         mostrarLogin();
         return;
@@ -484,9 +485,13 @@ window.addEventListener("load", async () => {
       }
 
       if (!totpOk) {
-        await iniciarFluxoTOTP(user);
-        mostrarTelaBloqueada();
-        return;
+        if (sessionStorage.getItem("totpVerified") === "1") {
+          totpOk = true;
+        } else {
+          await iniciarFluxoTOTP(user);
+          mostrarTelaBloqueada();
+          return;
+        }
       }
 
       await carregarPermissoesUsuarioLogado();
@@ -631,6 +636,12 @@ function mostrarApp() {
   iniciarSistemaAlertas();
   initDOMCache();
 
+  const _podeExportar =
+    (typeof isAdmin === "function" && isAdmin()) ||
+    (typeof usuarioEhSupervisor === "function" && usuarioEhSupervisor());
+  const _btnExp = document.getElementById("btnBackupExport");
+  if (_btnExp) _btnExp.style.display = _podeExportar ? "" : "none";
+
   // Sincroniza permissões do usuarios.js → Firestore silenciosamente quando admin ou supervisor faz login
   if (
     typeof sincronizarUsuariosCRM === "function" &&
@@ -641,6 +652,34 @@ function mostrarApp() {
   ) {
     sincronizarUsuariosCRM().catch(console.error);
   }
+
+  // Drill-down vindo do dashboard
+  try {
+    const _drill = sessionStorage.getItem("crmDrillFilter");
+    if (_drill) {
+      sessionStorage.removeItem("crmDrillFilter");
+      const _p = JSON.parse(_drill);
+      const _sfEl = document.getElementById("statusFilter");
+      const _pfEl = document.getElementById("pedidoFilter");
+      const _stEl = document.getElementById("searchTerm");
+      const grupoMap = {
+        "Perdidas":   { statusFilter: "perd" },
+        "Canceladas": { statusFilter: "cancelad" },
+        "Aguardando": { statusFilter: "aguard" },
+        "Ativas":     { statusFilter: "" },
+        "Ganhas":     { pedidoFilter: "com" },
+      };
+      if (_p.statusGrupo && grupoMap[_p.statusGrupo]) {
+        const m = grupoMap[_p.statusGrupo];
+        if (_sfEl && m.statusFilter !== undefined) _sfEl.value = m.statusFilter;
+        if (_pfEl && m.pedidoFilter) _pfEl.value = m.pedidoFilter;
+      } else {
+        if (_p.status && _sfEl) _sfEl.value = _p.status;
+        if (_p.searchTerm && _stEl) _stEl.value = _p.searchTerm;
+      }
+      renderTabela();
+    }
+  } catch (_e) {}
 }
 
 function logout() {
@@ -887,11 +926,13 @@ async function confirmarTotpNoModal() {
     if (totpIsActive) {
       await apiVerify(totpUserEmail, clean);
       totpOk = true;
+      sessionStorage.setItem("totpVerified", "1");
       setTotpStatus("Código OK ✅ Entrando...");
     } else {
       await apiActivate(totpUserEmail, clean);
       totpIsActive = true;
       totpOk = true;
+      sessionStorage.setItem("totpVerified", "1");
       setTotpStatus("2FA ativado ✅ Entrando...");
     }
 
@@ -1410,7 +1451,7 @@ function initForm() {
         };
         await db.collection("ofertas").doc(editId).set(registro);
         registros[idx] = registro;
-        // Resolve/solicita aprovação dos alertas de follow-up e sem_resposta
+        // Resolve/solicita aprovação dos alertas de follow-up
         if (typeof onRegistroSalvoReset === "function") {
           onRegistroSalvoReset(editId).catch(console.error);
         }
@@ -2326,15 +2367,10 @@ function initBackupUI() {
   inputBackupFile.dataset.bound = "1";
   if (btnModeloImportacao) btnModeloImportacao.dataset.bound = "1";
 
-  const podeExportar =
-    (typeof isAdmin === "function" && isAdmin()) ||
-    (typeof usuarioEhSupervisor === "function" && usuarioEhSupervisor());
-
-  if (!podeExportar) {
-    btnBackupExport.style.display = "none";
-  }
-
   btnBackupExport.addEventListener("click", () => {
+    const podeExportar =
+      (typeof isAdmin === "function" && isAdmin()) ||
+      (typeof usuarioEhSupervisor === "function" && usuarioEhSupervisor());
     if (!podeExportar) {
       alert("Apenas administradores e supervisores podem exportar o backup.");
       return;

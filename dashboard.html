@@ -1,178 +1,273 @@
 <!DOCTYPE html>
 <html lang="pt-br">
-
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>Dashboard - CRM Three Ar</title>
-
+  <title>Dashboard — CRM Three Ar</title>
   <link rel="icon" type="image/png" href="Imagens/LogoCRM.png" />
   <link rel="stylesheet" href="style.css" />
   <link rel="stylesheet" href="dashboard.css" />
-
   <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
 </head>
-
 <body>
+
+  <!-- Sidebar padrão do CRM -->
   <aside class="sidebar collapsed" id="sidebar">
     <div class="sidebar-header">
       <img src="Imagens/Logo.png" class="logo-img" alt="logo">
       <h2 class="sidebar-title">CRM-Three Ar</h2>
     </div>
-
     <div class="sidebar-menu">
-
       <button class="menu-item" id="btnDashboard">
         <span class="icon">📊</span><span class="label">Dashboard</span>
       </button>
-
       <button type="button" class="menu-item" id="btnVoltar">
         <span class="icon">↩️</span><span class="label">Voltar</span>
       </button>
-
       <button class="menu-item" id="btnTema">
         <span class="icon">🌓</span><span class="label" id="temaLabel">Modo escuro</span>
       </button>
-
       <button class="menu-item logout" id="btnSair">
         <span class="icon">🚪</span><span class="label">Sair</span>
       </button>
     </div>
-
     <button class="collapse-btn" type="button" onclick="toggleSidebar()">⮜</button>
   </aside>
 
-
   <main class="main-content">
-    <div class="container">
-      <div class="topbar">
+    <div class="d-page">
+
+      <!-- Header -->
+      <div class="d-header">
         <div>
-          <h1>Dashboard</h1>
-          <div class="subtitle">Visão geral + filtros + métricas</div>
-          <div id="dashStatusText" style="margin-top:6px; opacity:.85;"></div>
+          <h1 class="d-title">Dashboard</h1>
+          <p class="d-subtitle">Métricas, tendências e inteligência comercial</p>
+          <div id="dashStatusText" class="d-status-text"></div>
         </div>
-
-        <div class="topbar-right">
-          <span id="userInfo">—</span>
-        </div>
-      </div>
-
-      <div class="dash-filters">
-        <div class="field">
-          <label>Período (preset)</label>
-          <select id="dashPeriodo">
-            <option value="30">Últimos 30 dias</option>
-            <option value="90">Últimos 90 dias</option>
-            <option value="365">Últimos 12 meses</option>
-            <option value="all">Tudo</option>
-            <option value="custom">Personalizado</option>
-          </select>
-        </div>
-
-        <div class="field">
-          <label>Data início</label>
-          <input type="date" id="dashIni" />
-        </div>
-
-        <div class="field">
-          <label>Data fim</label>
-          <input type="date" id="dashFim" />
-        </div>
-
-        <div class="field">
-          <label>Representada</label>
-          <select id="dashRep">
-            <option value="all">Todas</option>
-          </select>
-        </div>
-
-        <div class="field">
-          <label>Usuário</label>
-          <select id="dashUser">
-            <option value="all">Todos</option>
-          </select>
-        </div>
-
-        <div class="field">
-          <label>Status</label>
-          <select id="dashStatus">
-            <option value="all">Todos</option>
-          </select>
-        </div>
-
-        <button id="btnAplicarFiltros" type="button">Aplicar</button>
-        <button id="btnLimparFiltros" type="button">Limpar</button>
-      </div>
-
-      <div class="dash-kpis">
-        <div class="kpi">
-          <div class="kpi-title">Propostas</div>
-          <div class="kpi-value" id="kpiPropostas">0</div>
-        </div>
-        <div class="kpi">
-          <div class="kpi-title">Pedidos</div>
-          <div class="kpi-value" id="kpiPedidos">0</div>
-        </div>
-        <div class="kpi">
-          <div class="kpi-title">Revisões</div>
-          <div class="kpi-value" id="kpiRevisoes">0</div>
-        </div>
-        <div class="kpi">
-          <div class="kpi-title">Aguardando Pedido</div>
-          <div class="kpi-value" id="kpiAguardando">0</div>
-        </div>
-
-        <div class="kpi">
-          <div class="kpi-title">R$ Propostas</div>
-          <div class="kpi-value" id="kpiValorPropostas">R$ 0</div>
-        </div>
-        <div class="kpi">
-          <div class="kpi-title">R$ Pedidos</div>
-          <div class="kpi-value" id="kpiValorPedidos">R$ 0</div>
-        </div>
-        <div class="kpi">
-          <div class="kpi-title">Clientes</div>
-          <div class="kpi-value" id="kpiClientes">0</div>
-        </div>
-        <div class="kpi">
-          <div class="kpi-title">Representadas</div>
-          <div class="kpi-value" id="kpiRepresentadas">0</div>
+        <div class="d-header-right">
+          <span id="userInfo" class="d-user-chip">—</span>
         </div>
       </div>
 
+      <!-- ── Filtros ─────────────────────────────────────────── -->
+      <div class="d-filters">
+        <div class="d-filter-group">
+          <div class="d-filter-field">
+            <label class="d-filter-label">Período</label>
+            <select class="d-select" id="dashPeriodo">
+              <option value="30">Últimos 30 dias</option>
+              <option value="90">Últimos 90 dias</option>
+              <option value="365">Últimos 12 meses</option>
+              <option value="all">Todo período</option>
+              <option value="custom">Personalizado</option>
+            </select>
+          </div>
+          <div class="d-filter-field">
+            <label class="d-filter-label">Início</label>
+            <input class="d-input" type="date" id="dashIni" />
+          </div>
+          <div class="d-filter-field">
+            <label class="d-filter-label">Fim</label>
+            <input class="d-input" type="date" id="dashFim" />
+          </div>
+          <div class="d-filter-field">
+            <label class="d-filter-label">Representada</label>
+            <select class="d-select" id="dashRep"><option value="all">Todas</option></select>
+          </div>
+          <div class="d-filter-field">
+            <label class="d-filter-label">Usuário</label>
+            <select class="d-select" id="dashUser"><option value="all">Todos</option></select>
+          </div>
+          <div class="d-filter-field">
+            <label class="d-filter-label">Status</label>
+            <select class="d-select" id="dashStatus"><option value="all">Todos</option></select>
+          </div>
+        </div>
+        <div class="d-filter-actions">
+          <button class="d-btn-apply" id="btnAplicarFiltros">Aplicar</button>
+          <button class="d-btn-clear" id="btnLimparFiltros">Limpar</button>
+        </div>
+      </div>
+
+      <!-- ── KPIs ───────────────────────────────────────────── -->
+      <div class="d-kpis">
+
+        <div class="d-kpi d-kpi--blue">
+          <div class="d-kpi-label">Propostas</div>
+          <div class="d-kpi-value" id="kpiPropostas">—</div>
+          <div class="kpi-trend kpi-trend-neutral" id="kpiPropostasTrend">vs período ant.</div>
+        </div>
+
+        <div class="d-kpi d-kpi--green">
+          <div class="d-kpi-label">Pedidos</div>
+          <div class="d-kpi-value" id="kpiPedidos">—</div>
+          <div class="kpi-trend kpi-trend-neutral" id="kpiPedidosTrend">vs período ant.</div>
+        </div>
+
+        <div class="d-kpi d-kpi--blue">
+          <div class="d-kpi-label">R$ Propostas</div>
+          <div class="d-kpi-value d-kpi-value--money" id="kpiValorPropostas">—</div>
+          <div class="kpi-trend kpi-trend-neutral" id="kpiValorPropostasTrend">vs período ant.</div>
+        </div>
+
+        <div class="d-kpi d-kpi--green">
+          <div class="d-kpi-label">R$ Pedidos</div>
+          <div class="d-kpi-value d-kpi-value--money" id="kpiValorPedidos">—</div>
+          <div class="kpi-trend kpi-trend-neutral" id="kpiValorPedidosTrend">vs período ant.</div>
+        </div>
+
+        <div class="d-kpi d-kpi--amber">
+          <div class="d-kpi-label">Conversão (qtd)</div>
+          <div class="d-kpi-value" id="kpiConvQtd">—</div>
+          <div class="kpi-trend kpi-trend-neutral" id="kpiConvQtdTrend">vs período ant.</div>
+        </div>
+
+        <div class="d-kpi d-kpi--amber">
+          <div class="d-kpi-label">Conversão (valor)</div>
+          <div class="d-kpi-value" id="kpiConvValor">—</div>
+          <div class="kpi-trend kpi-trend-neutral" id="kpiConvValorTrend">vs período ant.</div>
+        </div>
+
+        <div class="d-kpi d-kpi--violet">
+          <div class="d-kpi-label">Ticket médio proposta</div>
+          <div class="d-kpi-value d-kpi-value--money" id="kpiTicketProp">—</div>
+          <div class="kpi-trend kpi-trend-neutral" id="kpiTicketPropTrend">vs período ant.</div>
+        </div>
+
+        <div class="d-kpi d-kpi--violet">
+          <div class="d-kpi-label">Ticket médio pedido</div>
+          <div class="d-kpi-value d-kpi-value--money" id="kpiTicketPed">—</div>
+          <div class="kpi-trend kpi-trend-neutral" id="kpiTicketPedTrend">vs período ant.</div>
+        </div>
+
+        <div class="d-kpi d-kpi--cyan">
+          <div class="d-kpi-label">Clientes ativos</div>
+          <div class="d-kpi-value" id="kpiClientesAtivos">—</div>
+          <div class="kpi-trend kpi-trend-neutral" id="kpiClientesAtivosTrend">vs período ant.</div>
+        </div>
+
+        <div class="d-kpi d-kpi--cyan">
+          <div class="d-kpi-label">Representadas ativas</div>
+          <div class="d-kpi-value" id="kpiRepsAtivas">—</div>
+          <div class="kpi-trend kpi-trend-neutral" id="kpiRepsAtivasTrend">vs período ant.</div>
+        </div>
+
+        <div class="d-kpi d-kpi--indigo">
+          <div class="d-kpi-label">Projetos ativos</div>
+          <div class="d-kpi-value" id="kpiProjetosAtivos">—</div>
+          <div class="kpi-trend kpi-trend-neutral">—</div>
+        </div>
+
+        <div class="d-kpi d-kpi--rose">
+          <div class="d-kpi-label">Aguardando Pedido</div>
+          <div class="d-kpi-value" id="kpiAguardando">—</div>
+          <div class="kpi-trend kpi-trend-neutral">—</div>
+        </div>
+
+      </div>
+
+      <!-- Alertas -->
       <div class="dash-alerts" id="dashAlerts"></div>
 
-      <div class="dash-grid">
-        <div class="dash-card">
-          <div class="dash-card-title">Status (reais)</div>
-          <canvas id="chartStatus"></canvas>
+      <!-- ── 01: Performance Comercial ─────────────────────── -->
+      <section class="d-section">
+        <div class="d-section-head">
+          <span class="d-section-num">01</span>
+          <h2 class="d-section-title">Performance Comercial</h2>
         </div>
+        <div class="d-grid-3">
+          <div class="d-card d-card--clickable" id="cardFunil">
+            <div class="d-card-label">Funil de status</div>
+            <canvas id="chartFunil"></canvas>
+          </div>
+          <div class="d-card">
+            <div class="d-card-label">Período atual vs anterior — propostas e pedidos</div>
+            <canvas id="chartComparativo"></canvas>
+          </div>
+          <div class="d-card" id="cardEvolucao">
+            <div class="d-card-label">Evolução mensal — propostas × pedidos</div>
+            <canvas id="chartEvolucao"></canvas>
+          </div>
+          <div class="d-card">
+            <div class="d-card-label">Período atual vs anterior — valores (R$)</div>
+            <canvas id="chartComparativoValores"></canvas>
+          </div>
+        </div>
+      </section>
 
-        <div class="dash-card">
-          <div class="dash-card-title">Evolução (Propostas x Pedidos) por mês</div>
-          <canvas id="chartEvolucao"></canvas>
+      <!-- ── 02: Clientes ───────────────────────────────────── -->
+      <section class="d-section">
+        <div class="d-section-head">
+          <span class="d-section-num">02</span>
+          <h2 class="d-section-title">Inteligência de Clientes</h2>
         </div>
+        <div class="d-grid-3">
+          <div class="d-card d-card--clickable" id="cardTopClientesPedido">
+            <div class="d-card-label">Top 10 — R$ pedido</div>
+            <canvas id="chartTopClientesPedido"></canvas>
+          </div>
+          <div class="d-card d-card--clickable" id="cardTopClientesProposta">
+            <div class="d-card-label">Top 10 — R$ proposto</div>
+            <canvas id="chartTopClientesProposta"></canvas>
+          </div>
+          <div class="d-card">
+            <div class="d-card-label">Clientes em risco — baixa conversão</div>
+            <div class="d-table-wrap" id="clientesRiscoBox"></div>
+          </div>
+        </div>
+      </section>
 
-        <div class="dash-card">
-          <div class="dash-card-title">Conversão por representada (Pedidos / Propostas)</div>
-          <canvas id="chartConversao"></canvas>
+      <!-- ── 03: Representadas ──────────────────────────────── -->
+      <section class="d-section">
+        <div class="d-section-head">
+          <span class="d-section-num">03</span>
+          <h2 class="d-section-title">Inteligência de Representadas</h2>
         </div>
+        <div class="d-grid-3">
+          <div class="d-card d-card--clickable" id="cardRepsPropPed">
+            <div class="d-card-label">Proposta × Pedido (R$)</div>
+            <canvas id="chartRepsPropPed"></canvas>
+          </div>
+          <div class="d-card" id="cardConversao">
+            <div class="d-card-label">Conversão por representada (valor %)</div>
+            <canvas id="chartConversao"></canvas>
+          </div>
+          <div class="d-card">
+            <div class="d-card-label">Top representadas — R$ em pedidos</div>
+            <div class="d-table-wrap" id="topRepsBox"></div>
+          </div>
+        </div>
+      </section>
 
-        <div class="dash-card">
-          <div class="dash-card-title">Top representadas (R$ em pedidos)</div>
-          <div id="topRepsBox" style="overflow:auto;"></div>
+      <!-- ── 04: Projetos ───────────────────────────────────── -->
+      <section class="d-section">
+        <div class="d-section-head">
+          <span class="d-section-num">04</span>
+          <h2 class="d-section-title">Inteligência de Projetos</h2>
         </div>
-      </div>
-    </div>
+        <div class="d-grid-3">
+          <div class="d-card" id="cardProjetosVolume">
+            <div class="d-card-label">Top 10 projetos — R$ proposto</div>
+            <canvas id="chartProjetosVolume"></canvas>
+          </div>
+          <div class="d-card">
+            <div class="d-card-label">Status dos projetos</div>
+            <canvas id="chartProjetosStatus"></canvas>
+          </div>
+          <div class="d-card">
+            <div class="d-card-label">Projetos sem atualização recente</div>
+            <div class="d-table-wrap" id="projetosParadosBox"></div>
+          </div>
+        </div>
+      </section>
+
+    </div><!-- /.d-page -->
   </main>
 
   <script src="https://www.gstatic.com/firebasejs/8.10.1/firebase-app.js"></script>
   <script src="https://www.gstatic.com/firebasejs/8.10.1/firebase-auth.js"></script>
   <script src="https://www.gstatic.com/firebasejs/8.10.1/firebase-firestore.js"></script>
-
   <script src="firebase.js"></script>
-
   <script src="./dashboard.js"></script>
 </body>
-
 </html>
