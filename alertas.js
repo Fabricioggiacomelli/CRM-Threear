@@ -413,7 +413,6 @@ async function apagarAlertasObsoletosParaSempre() {
     apagados += Math.min(450, docsParaApagar.length - i);
   }
 
-  console.log(`[alertas] ${apagados} alerta(s) obsoleto(s) apagado(s) para sempre.`);
 }
 
 async function criarOuAtualizarAlerta(payload) {
