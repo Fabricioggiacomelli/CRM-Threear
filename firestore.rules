@@ -66,36 +66,21 @@ service cloud.firestore {
     }
 
     // ─── ofertas ────────────────────────────────────────────────
+    // Leitura aberta a todos aprovados — filtro de permissão feito pelo cliente JS.
+    // Queries de coleção (get/onSnapshot) falham se a regra depende de resource.data.
     match /ofertas/{id} {
-      allow read:   if isAuthed() && isApproved() && (
-                      isAdmin()
-                      || (resource.data.keys().hasAll(['criadoPor'])
-                          && canSeeEmail(resource.data.criadoPor))
-                    );
+      allow read:   if isAuthed() && isApproved();
       allow create: if isAuthed() && isApproved();
-      allow update: if isAuthed() && isApproved() && (
-                      isAdmin()
-                      || (resource.data.keys().hasAll(['criadoPor'])
-                          && canSeeEmail(resource.data.criadoPor))
-                    );
+      allow update: if isAuthed() && isApproved();
       allow delete: if isAuthed() && isAdmin();
     }
 
     // ─── alertas ────────────────────────────────────────────────
-    // Alertas são criados pelo sistema (qualquer usuário aprovado pode criar).
-    // Leitura e atualização seguem o responsavelEmail do alerta.
+    // Mesma razão: leitura aberta a todos aprovados, filtro feito pelo cliente JS.
     match /alertas/{id} {
-      allow read:   if isAuthed() && isApproved() && (
-                      isAdmin()
-                      || (resource.data.keys().hasAll(['responsavelEmail'])
-                          && canSeeEmail(resource.data.responsavelEmail))
-                    );
+      allow read:   if isAuthed() && isApproved();
       allow create: if isAuthed() && isApproved();
-      allow update: if isAuthed() && isApproved() && (
-                      isAdmin()
-                      || (resource.data.keys().hasAll(['responsavelEmail'])
-                          && canSeeEmail(resource.data.responsavelEmail))
-                    );
+      allow update: if isAuthed() && isApproved();
       allow delete: if isAuthed() && isAdmin();
     }
 
