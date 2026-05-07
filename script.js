@@ -9083,14 +9083,24 @@ function verOfertasProjeto(id) {
       const usuario = formatarNomeUsuario(
         reg.atualizadoPor || reg.criadoPor || "-",
       );
+      const temPedido = reg.possuiPedido === "sim" ? "Sim" : "Não";
+      const criadoEm = reg.criadoEm
+        ? new Date(reg.criadoEm).toLocaleDateString("pt-BR")
+        : "-";
       return `
         <div class="modal-section">
-          <strong>Oferta:</strong> ${reg.oferta || "-"}<br>
-          <strong>Razão Social:</strong> ${reg.razao || "-"}<br>
-          <strong>Representada:</strong> ${reg.representadaNome || "-"}<br>
-          <strong>Status:</strong> ${reg.status || "-"}<br>
-          <strong>Tipo:</strong> ${reg.tipo_oferta || "-"}<br>
-          <strong>Usuário:</strong> ${usuario}
+          <strong>Oferta:</strong> ${escapeHtml(reg.oferta || "-")}<br>
+          <strong>Razão Social:</strong> ${escapeHtml(reg.razao || "-")}<br>
+          <strong>Representada:</strong> ${escapeHtml(reg.representadaNome || "-")}<br>
+          <strong>Status:</strong> ${escapeHtml(reg.status || "-")}<br>
+          <strong>Tipo:</strong> ${escapeHtml(reg.tipo_oferta || "-")}<br>
+          <strong>Tem pedido:</strong> ${temPedido}<br>
+          <strong>Valor total:</strong> ${escapeHtml(reg.valor_total || "-")}<br>
+          <strong>Criado em:</strong> ${criadoEm}<br>
+          <strong>Usuário:</strong> ${escapeHtml(usuario)}
+          <div style="margin-top:10px">
+            <button type="button" class="btn-ver-oferta" onclick="verOferta('${escapeHtml(reg.id)}')">Ver oferta completa →</button>
+          </div>
         </div>
         <hr>
       `;
@@ -9127,14 +9137,24 @@ function verOfertasCliente(id) {
       const usuario = formatarNomeUsuario(
         reg.atualizadoPor || reg.criadoPor || "-",
       );
+      const temPedido = reg.possuiPedido === "sim" ? "Sim" : "Não";
+      const criadoEm = reg.criadoEm
+        ? new Date(reg.criadoEm).toLocaleDateString("pt-BR")
+        : "-";
       return `
         <div class="modal-section">
-          <strong>Oferta:</strong> ${reg.oferta || "-"}<br>
-          <strong>Projeto:</strong> ${reg.nome_projeto || "-"}<br>
-          <strong>Representada:</strong> ${reg.representadaNome || "-"}<br>
-          <strong>Status:</strong> ${reg.status || "-"}<br>
-          <strong>Tipo:</strong> ${reg.tipo_oferta || "-"}<br>
-          <strong>Usuário:</strong> ${usuario}
+          <strong>Oferta:</strong> ${escapeHtml(reg.oferta || "-")}<br>
+          <strong>Projeto:</strong> ${escapeHtml(reg.nome_projeto || "-")}<br>
+          <strong>Representada:</strong> ${escapeHtml(reg.representadaNome || "-")}<br>
+          <strong>Status:</strong> ${escapeHtml(reg.status || "-")}<br>
+          <strong>Tipo:</strong> ${escapeHtml(reg.tipo_oferta || "-")}<br>
+          <strong>Tem pedido:</strong> ${temPedido}<br>
+          <strong>Valor total:</strong> ${escapeHtml(reg.valor_total || "-")}<br>
+          <strong>Criado em:</strong> ${criadoEm}<br>
+          <strong>Usuário:</strong> ${escapeHtml(usuario)}
+          <div style="margin-top:10px">
+            <button type="button" class="btn-ver-oferta" onclick="verOferta('${escapeHtml(reg.id)}')">Ver oferta completa →</button>
+          </div>
         </div>
         <hr>
       `;
@@ -9168,14 +9188,24 @@ function verOfertasRepresentada(id) {
       const usuario = formatarNomeUsuario(
         reg.atualizadoPor || reg.criadoPor || "-",
       );
+      const temPedido = reg.possuiPedido === "sim" ? "Sim" : "Não";
+      const criadoEm = reg.criadoEm
+        ? new Date(reg.criadoEm).toLocaleDateString("pt-BR")
+        : "-";
       return `
         <div class="modal-section">
-          <strong>Oferta:</strong> ${reg.oferta || "-"}<br>
-          <strong>Razão Social:</strong> ${reg.razao || "-"}<br>
-          <strong>Projeto:</strong> ${reg.nome_projeto || "-"}<br>
-          <strong>Tipo:</strong> ${reg.tipo_oferta || "-"}<br>
-          <strong>Status:</strong> ${reg.status || "-"}<br>
-          <strong>Usuário:</strong> ${usuario}
+          <strong>Oferta:</strong> ${escapeHtml(reg.oferta || "-")}<br>
+          <strong>Razão Social:</strong> ${escapeHtml(reg.razao || "-")}<br>
+          <strong>Projeto:</strong> ${escapeHtml(reg.nome_projeto || "-")}<br>
+          <strong>Tipo:</strong> ${escapeHtml(reg.tipo_oferta || "-")}<br>
+          <strong>Status:</strong> ${escapeHtml(reg.status || "-")}<br>
+          <strong>Tem pedido:</strong> ${temPedido}<br>
+          <strong>Valor total:</strong> ${escapeHtml(reg.valor_total || "-")}<br>
+          <strong>Criado em:</strong> ${criadoEm}<br>
+          <strong>Usuário:</strong> ${escapeHtml(usuario)}
+          <div style="margin-top:10px">
+            <button type="button" class="btn-ver-oferta" onclick="verOferta('${escapeHtml(reg.id)}')">Ver oferta completa →</button>
+          </div>
         </div>
         <hr>
       `;
