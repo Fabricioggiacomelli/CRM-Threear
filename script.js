@@ -630,15 +630,6 @@ function mostrarApp() {
   const userInfo = document.getElementById("userInfo");
   if (userInfo) userInfo.textContent = "Logado como: " + getCurrentUserName();
 
-  // Diagnóstico temporário — remover após investigação
-  console.log("[DEBUG] permissoesCRM:", JSON.stringify(window.permissoesCRM));
-  console.log("[DEBUG] auth.currentUser.email:", window.auth?.currentUser?.email);
-  console.log("[DEBUG] registros.length:", registros?.length);
-  if (registros?.length > 0) {
-    const r = registros[0];
-    console.log("[DEBUG] primeira oferta responsavelEmail:", r.responsavelEmail, "criadoPor:", r.criadoPor);
-    console.log("[DEBUG] filtrados:", filtrarPorPermissao(registros)?.length);
-  }
 
   preencherSelectRepresentadas();
   initUnidadesMantex();
