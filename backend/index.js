@@ -4,20 +4,36 @@ const speakeasy = require("speakeasy");
 const QRCode = require("qrcode");
 const admin = require("firebase-admin");
 
+const rateLimit = require("express-rate-limit");
+
 const app = express();
 const PORT = process.env.PORT || 3001;
 
-app.use(
-  cors({
-    origin: true,
-    methods: ["GET", "POST", "OPTIONS"],
-    allowedHeaders: ["Content-Type", "Authorization"],
-  }),
-);
+const ALLOWED_ORIGINS = (process.env.ALLOWED_ORIGINS || [
+  "http://127.0.0.1:3001",
+  "http://localhost:3001",
+  "http://127.0.0.1:5500",
+  "http://localhost:5500",
+  "http://127.0.0.1:5501",
+  "http://localhost:5501",
+  "https://crm-three-ar.web.app",
+  "https://crm-three-ar.firebaseapp.com",
+].join(",")).split(",");
+app.use(cors({
+  origin: (origin, cb) => {
+    if (!origin || origin === "null" || ALLOWED_ORIGINS.includes(origin)) return cb(null, true);
+    cb(new Error("CORS: origem não permitida"));
+  },
+  methods: ["GET", "POST"],
+}));
 app.options("*", cors());
 app.use(express.json());
 
-const serviceAccount = require("./serviceAccount.json");
+const mfaLimiter = rateLimit({ windowMs: 15 * 60 * 1000, max: 10, standardHeaders: true, legacyHeaders: false });
+
+const serviceAccount = process.env.FIREBASE_SERVICE_ACCOUNT
+  ? JSON.parse(process.env.FIREBASE_SERVICE_ACCOUNT)
+  : require("./serviceAccount.json");
 
 if (!admin.apps.length) {
   admin.initializeApp({
@@ -79,7 +95,7 @@ app.get("/mfa/qr", async (req, res) => {
     const snap = await docRef.get();
 
     if (snap.exists && (snap.data() || {}).mfaEnabled) {
-      return res.json({ ok: true, alreadyActive: true });
+      return res.json({ ok: true, message: "Se o usuário existir, o QR foi gerado." });
     }
 
     let secretBase32 = snap.exists ? (snap.data() || {}).mfaSecret : null;
@@ -123,7 +139,7 @@ app.get("/mfa/qr", async (req, res) => {
   }
 });
 
-app.post("/mfa/activate", async (req, res) => {
+app.post("/mfa/activate", mfaLimiter, async (req, res) => {
   try {
     const user = normUser(req.body.user);
     const token = cleanToken(req.body.token);
@@ -160,7 +176,7 @@ app.post("/mfa/activate", async (req, res) => {
   }
 });
 
-app.post("/mfa/verify", async (req, res) => {
+app.post("/mfa/verify", mfaLimiter, async (req, res) => {
   try {
     const user = normUser(req.body.user);
     const token = cleanToken(req.body.token);
@@ -178,9 +194,75 @@ app.post("/mfa/verify", async (req, res) => {
     if (!valid)
       return res.status(401).json({ ok: false, error: "Código inválido" });
 
+    // Setar Custom Claims para que o token carregue role/status nas próximas sessões
+    try {
+      const userRecord = await admin.auth().getUserByEmail(user);
+      const usuarioSnap = await db.collection("usuarios")
+        .where("email", "==", user).limit(1).get();
+
+      if (!usuarioSnap.empty) {
+        const ud = usuarioSnap.docs[0].data();
+        await admin.auth().setCustomUserClaims(userRecord.uid, {
+          role: ud.role || "user",
+          aprovado: ud.aprovado === true,
+          ativo: ud.ativo !== false,
+        });
+      }
+    } catch (claimsErr) {
+      console.warn("setCustomUserClaims falhou (não fatal):", claimsErr.message);
+    }
+
     res.json({ ok: true, verified: true });
   } catch (e) {
     console.error("VERIFY ERROR:", e);
+    res.status(500).json({ ok: false, error: "Erro interno" });
+  }
+});
+
+app.post("/mfa/reset", mfaLimiter, async (req, res) => {
+  try {
+    const user = normUser(req.body.user);
+    const adminToken = String(req.body.adminToken || "").trim();
+
+    if (!user || !adminToken) {
+      return res.status(400).json({ ok: false, error: "user e adminToken são obrigatórios" });
+    }
+
+    // Verifica o token Firebase do solicitante
+    let decoded;
+    try {
+      decoded = await admin.auth().verifyIdToken(adminToken);
+    } catch {
+      return res.status(401).json({ ok: false, error: "Token de autenticação inválido" });
+    }
+
+    // Confirma que o solicitante é admin no Firestore
+    const adminSnap = await db.collection("usuarios")
+      .where("email", "==", decoded.email)
+      .limit(1)
+      .get();
+
+    if (adminSnap.empty || (adminSnap.docs[0].data() || {}).role !== "admin") {
+      return res.status(403).json({ ok: false, error: "Apenas administradores podem resetar 2FA" });
+    }
+
+    const docRef = mfaRef.doc(user);
+    const snap = await docRef.get();
+
+    if (!snap.exists) {
+      return res.json({ ok: true, message: "Usuário não possuía 2FA configurado" });
+    }
+
+    await docRef.update({
+      mfaEnabled: false,
+      mfaSecret: admin.firestore.FieldValue.delete(),
+      updatedAt: admin.firestore.FieldValue.serverTimestamp(),
+      resetBy: decoded.email,
+    });
+
+    res.json({ ok: true, reset: true });
+  } catch (e) {
+    console.error("RESET MFA ERROR:", e);
     res.status(500).json({ ok: false, error: "Erro interno" });
   }
 });

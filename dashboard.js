@@ -27,6 +27,10 @@ function norm(s) {
   return String(s || "").normalize("NFD").replace(/[\u0300-\u036f]/g, "").toLowerCase().trim();
 }
 
+function escapeHtml(s) {
+  return String(s || "").replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;").replace(/'/g, "&#39;");
+}
+
 function moneyBR(v) {
   return (Number(v) || 0).toLocaleString("pt-BR", { style: "currency", currency: "BRL" });
 }
@@ -196,6 +200,8 @@ let clientesDB = [];
 let repsDB = [];
 let projetosDB = [];
 let charts = {};
+let _currentFiltered = [];
+let _dashUserRole = "user";
 
 // =============================================================
 // SIDEBAR
@@ -206,7 +212,11 @@ function bindSidebar() {
   $("btnVoltar")?.addEventListener("click", (e) => { e.preventDefault(); e.stopPropagation(); window.location.href = "index.html"; });
   $("btnSair")?.addEventListener("click", async (e) => {
     e.preventDefault();
-    try { await auth.signOut(); window.location.href = "index.html"; }
+    try {
+      window.limparSistemaAlertas?.();
+      await auth.signOut();
+      window.location.href = "index.html";
+    }
     catch (err) { console.error(err); setStatus("Erro ao sair."); }
   });
 }
@@ -256,25 +266,48 @@ function buildFilterOptions() {
     const list = Object.entries(freq).sort((a, b) => b[1] - a[1]).map(([s]) => s);
     selStatus.innerHTML = `<option value="all">Todos</option>` + list.map(s => `<option value="${s}">${s}</option>`).join("");
   }
+
+  const selBU = $("dashBU");
+  if (selBU) {
+    const bus = [...new Set(ofertasDB.map(o => String(o.bu || "").trim()))].filter(Boolean).sort((a, b) => a.localeCompare(b));
+    selBU.innerHTML = `<option value="all">Todas</option>` + bus.map(b => `<option value="${b}">${b}</option>`).join("");
+  }
+
+  const selCliente = $("dashCliente");
+  if (selCliente) {
+    const nomes = [...new Set(ofertasDB.map(getClienteLabel).filter(c => c !== "Sem cliente"))].sort((a, b) => a.localeCompare(b));
+    selCliente.innerHTML = `<option value="all">Todos</option>` + nomes.map(c => `<option value="${c}">${c}</option>`).join("");
+  }
+
+  const selProjeto = $("dashProjeto");
+  if (selProjeto) {
+    const projs = [...new Set(ofertasDB.map(getProjetoLabel))].filter(Boolean).sort((a, b) => a.localeCompare(b));
+    selProjeto.innerHTML = `<option value="all">Todos</option>` + projs.map(p => `<option value="${p}">${p}</option>`).join("");
+  }
 }
 
 function getFilterState() {
   const periodo = $("dashPeriodo")?.value || "30";
-  if (periodo !== "custom") setPresetDates(periodo);
   const rep = $("dashRep")?.value || "all";
   const user = $("dashUser")?.value || "all";
   const st = $("dashStatus")?.value || "all";
+  const bu = $("dashBU")?.value || "all";
+  const cliente = $("dashCliente")?.value || "all";
+  const projeto = $("dashProjeto")?.value || "all";
   const ini = $("dashIni")?.value ? parseDateAny($("dashIni").value) : null;
   const fim = $("dashFim")?.value ? parseDateAny($("dashFim").value) : null;
-  return { ini, fim, rep, user, st };
+  return { ini, fim, rep, user, st, bu, cliente, projeto };
 }
 
 function applyDashboardFilters() {
-  const { ini, fim, rep, user, st } = getFilterState();
+  const { ini, fim, rep, user, st, bu, cliente, projeto } = getFilterState();
   return ofertasDB.filter(o => {
     if (rep !== "all" && getRepNameFromOferta(o) !== rep) return false;
     if (user !== "all" && getUserNameFromOferta(o) !== user) return false;
     if (st !== "all" && getStatusText(o) !== st) return false;
+    if (bu !== "all" && String(o.bu || "").trim() !== bu) return false;
+    if (cliente !== "all" && getClienteLabel(o) !== cliente) return false;
+    if (projeto !== "all" && getProjetoLabel(o) !== projeto) return false;
     const dt = getOfertaDate(o);
     if (ini && dt && dt < ini) return false;
     if (fim && dt) { const end = new Date(fim.getTime() + 86400000 - 1); if (dt > end) return false; }
@@ -283,11 +316,14 @@ function applyDashboardFilters() {
 }
 
 function applyFiltersComDatas(ini, fim) {
-  const { rep, user, st } = getFilterState();
+  const { rep, user, st, bu, cliente, projeto } = getFilterState();
   return ofertasDB.filter(o => {
     if (rep !== "all" && getRepNameFromOferta(o) !== rep) return false;
     if (user !== "all" && getUserNameFromOferta(o) !== user) return false;
     if (st !== "all" && getStatusText(o) !== st) return false;
+    if (bu !== "all" && String(o.bu || "").trim() !== bu) return false;
+    if (cliente !== "all" && getClienteLabel(o) !== cliente) return false;
+    if (projeto !== "all" && getProjetoLabel(o) !== projeto) return false;
     const dt = getOfertaDate(o);
     if (!dt) return false;
     if (ini && dt < ini) return false;
@@ -304,7 +340,7 @@ function calcularPeriodoAnterior(ini, fim) {
   if (!ini || !fim) return null;
   const dur = fim.getTime() - ini.getTime();
   return {
-    iniAnt: new Date(ini.getTime() - dur - 1),
+    iniAnt: new Date(ini.getTime() - dur),
     fimAnt: new Date(ini.getTime() - 1)
   };
 }
@@ -334,7 +370,8 @@ function calcularKPIs(ofertas) {
 function setTrend(id, atual, anterior, isPercent = false) {
   const el = $(id);
   if (!el) return;
-  if (anterior === null || anterior === undefined) { el.textContent = ""; return; }
+  if (anterior == null) { el.style.display = "none"; return; }
+  el.style.display = "";
   if (anterior === 0) {
     el.textContent = atual > 0 ? "↑ novo" : "—";
     el.className = "kpi-trend " + (atual > 0 ? "kpi-trend-up" : "kpi-trend-neutral");
@@ -372,23 +409,21 @@ function renderKPIs(ofertasFiltradas, ofertasAnteriores) {
   setText("kpiProjetosAtivos", String(projetosNoPeriodo));
   setText("kpiAguardando", String(k.aguardando));
 
-  if (ka) {
-    setTrend("kpiPropostasTrend", k.propostas, ka.propostas);
-    setTrend("kpiPedidosTrend", k.pedidos, ka.pedidos);
-    setTrend("kpiConvQtdTrend", k.convQtd, ka.convQtd, true);
-    setTrend("kpiConvValorTrend", k.convValor, ka.convValor, true);
-    setTrend("kpiValorPropostasTrend", k.vProp, ka.vProp);
-    setTrend("kpiValorPedidosTrend", k.vPed, ka.vPed);
-    setTrend("kpiTicketPropTrend", k.ticketProp, ka.ticketProp);
-    setTrend("kpiTicketPedTrend", k.ticketPed, ka.ticketPed);
-    setTrend("kpiClientesAtivosTrend", k.clientesAtivos, ka.clientesAtivos);
-    setTrend("kpiRepsAtivasTrend", k.repsAtivas, ka.repsAtivas);
-  }
+  setTrend("kpiPropostasTrend",     k.propostas,    ka?.propostas    ?? null);
+  setTrend("kpiPedidosTrend",       k.pedidos,      ka?.pedidos      ?? null);
+  setTrend("kpiConvQtdTrend",       k.convQtd,      ka?.convQtd      ?? null, true);
+  setTrend("kpiConvValorTrend",     k.convValor,    ka?.convValor    ?? null, true);
+  setTrend("kpiValorPropostasTrend",k.vProp,        ka?.vProp        ?? null);
+  setTrend("kpiValorPedidosTrend",  k.vPed,         ka?.vPed         ?? null);
+  setTrend("kpiTicketPropTrend",    k.ticketProp,   ka?.ticketProp   ?? null);
+  setTrend("kpiTicketPedTrend",     k.ticketPed,    ka?.ticketPed    ?? null);
+  setTrend("kpiClientesAtivosTrend",k.clientesAtivos,ka?.clientesAtivos ?? null);
+  setTrend("kpiRepsAtivasTrend",    k.repsAtivas,   ka?.repsAtivas   ?? null);
 
   const alerts = [];
-  if (k.aguardando > 0) alerts.push({ type: "warn", text: `<strong>${k.aguardando}</strong> oferta(s) aguardando pedido.` });
+  if (k.aguardando > 0) alerts.push({ type: "warn", text: `<strong>${escapeHtml(String(k.aguardando))}</strong> oferta(s) aguardando pedido.` });
   if (k.propostas === 0) alerts.push({ type: "danger", text: "Nenhuma proposta encontrada com os filtros atuais." });
-  if (k.pedidos > 0) alerts.push({ type: "ok", text: `<strong>${k.pedidos}</strong> pedido(s) e taxa de conversão de <strong>${k.convQtd.toFixed(1)}%</strong> (qtd) / <strong>${k.convValor.toFixed(1)}%</strong> (valor) no período.` });
+  if (k.pedidos > 0) alerts.push({ type: "ok", text: `<strong>${escapeHtml(String(k.pedidos))}</strong> pedido(s) e taxa de conversão de <strong>${escapeHtml(k.convQtd.toFixed(1))}%</strong> (qtd) / <strong>${escapeHtml(k.convValor.toFixed(1))}%</strong> (valor) no período.` });
   const box = $("dashAlerts");
   if (box) box.innerHTML = alerts.map(a => `<div class="alert ${a.type}">${a.text}</div>`).join("");
 }
@@ -431,6 +466,649 @@ function paletteAlpha(color, alpha) {
 function drillDown(params) {
   sessionStorage.setItem("crmDrillFilter", JSON.stringify(params));
   window.open("index.html", "_blank");
+}
+
+function scrollToSection(id) {
+  document.getElementById(id)?.scrollIntoView({ behavior: "smooth" });
+}
+
+// =============================================================
+// KPI DETAIL MODAL
+// =============================================================
+
+function getStatusPillHtml(status, hasPed) {
+  const s = norm(status);
+  let cls;
+  if (hasPed || s.includes("ganho") || s.includes("atendido") || s.includes("producao") || s.includes("faturado")) {
+    cls = "kpi-pill--green";
+  } else if (s.includes("perdido") || s.includes("declinado") || s.includes("cancelado")) {
+    cls = "kpi-pill--red";
+  } else if (s.includes("aguard") || s.includes("parcial")) {
+    cls = "kpi-pill--amber";
+  } else if (s.includes("enviada") || s.includes("negociac") || s.includes("avaliacao") || s.includes("concorrencia") || s.includes("prysmian") || s.includes("liberacao")) {
+    cls = "kpi-pill--blue";
+  } else {
+    cls = "kpi-pill--gray";
+  }
+  return `<span class="kpi-pill ${cls}">${escapeHtml(status)}</span>`;
+}
+
+let _kpiNavStack   = [];  // stack of { title, sub, hasSearch, renderFn }
+let _kpiCurrentRows = []; // rows being shown in current offer table
+
+function _kpiShowSearch(visible) {
+  const row = $("kpiModalSearch")?.closest(".kpi-modal-search-row");
+  if (row) row.style.display = visible ? "" : "none";
+}
+
+function _kpiShowFilters(visible) {
+  const row = $("kpiModalFilterRow");
+  if (row) row.style.display = visible ? "" : "none";
+}
+
+function _kpiPopulateFilters(rows) {
+  const statuses = [...new Set(rows.map(o => getStatusText(o)).filter(s => s && s !== "Sem status"))].sort();
+  const reps     = [...new Set(rows.map(o => getRepNameFromOferta(o)).filter(Boolean))].sort();
+  const fs = $("kpiFilterStatus");
+  if (fs) {
+    const cur = fs.value;
+    fs.innerHTML = '<option value="">Todos os status</option>' +
+      statuses.map(s => `<option value="${escapeHtml(s)}"${s === cur ? " selected" : ""}>${escapeHtml(s)}</option>`).join("");
+  }
+  const fr = $("kpiFilterRep");
+  if (fr) {
+    const cur = fr.value;
+    fr.innerHTML = '<option value="">Todas as representadas</option>' +
+      reps.map(r => `<option value="${escapeHtml(r)}"${r === cur ? " selected" : ""}>${escapeHtml(r)}</option>`).join("");
+  }
+}
+
+function _kpiResetFilterValues() {
+  const fs = $("kpiFilterStatus"); if (fs) fs.value = "";
+  const fr = $("kpiFilterRep");    if (fr) fr.value = "";
+  const fp = $("kpiFilterPedido"); if (fp) fp.value = "";
+}
+
+function closeKpiModal() {
+  const m = $("kpiModal");
+  if (m) m.style.display = "none";
+  _kpiNavStack = [];
+  _kpiShowSearch(true);
+  _kpiShowFilters(false);
+  _kpiResetFilterValues();
+  const back = $("kpiModalBack");
+  if (back) back.style.display = "none";
+}
+
+// =============================================================
+// EXPORTAÇÃO
+// =============================================================
+
+function bindExportBtn() {
+  const btn = $("btnExport");
+  const menu = $("exportMenu");
+  if (!btn || !menu) return;
+
+  btn.addEventListener("click", (e) => {
+    e.stopPropagation();
+    menu.classList.toggle("open");
+  });
+  document.addEventListener("click", () => menu.classList.remove("open"));
+
+  $("btnExportExcel")?.addEventListener("click", () => { menu.classList.remove("open"); exportExcel(); });
+  $("btnExportPdf")?.addEventListener("click",   () => { menu.classList.remove("open"); exportPdf();   });
+  $("btnExportCsv")?.addEventListener("click",   () => { menu.classList.remove("open"); exportCsv();   });
+}
+
+function exportExcel() {
+  if (_dashUserRole !== "admin" && _dashUserRole !== "supervisor") {
+    if (typeof showToast === "function") showToast("Apenas administradores e supervisores podem exportar.", "error");
+    else alert("Apenas administradores e supervisores podem exportar.");
+    return;
+  }
+  if (typeof XLSX === "undefined") { alert("Biblioteca Excel não carregada. Tente recarregar a página."); return; }
+
+  const periodo = $("dashPeriodo")?.options[$("dashPeriodo")?.selectedIndex]?.text || "";
+  const ini = $("dashIni")?.value || "";
+  const fim = $("dashFim")?.value || "";
+  const periodoLabel = ini && fim ? `${ini} a ${fim}` : periodo;
+  const now = new Date();
+  const geradoEm = `${String(now.getDate()).padStart(2,"0")}/${String(now.getMonth()+1).padStart(2,"0")}/${now.getFullYear()} ${String(now.getHours()).padStart(2,"0")}:${String(now.getMinutes()).padStart(2,"0")}`;
+
+  const wb = XLSX.utils.book_new();
+
+  // ── Sheet 1: Resumo de KPIs ──────────────────────────────
+  const kpiRows = [
+    ["Dashboard CRM Three Ar"],
+    [`Período: ${periodoLabel}`],
+    [`Gerado em: ${geradoEm}`],
+    [],
+    ["KPI", "Valor"],
+    ["Propostas",            $("kpiPropostas")?.textContent?.trim()       || "—"],
+    ["Pedidos",              $("kpiPedidos")?.textContent?.trim()         || "—"],
+    ["R$ Propostas",         $("kpiValorPropostas")?.textContent?.trim()  || "—"],
+    ["R$ Pedidos",           $("kpiValorPedidos")?.textContent?.trim()    || "—"],
+    ["Conversão (qtd)",      $("kpiConvQtd")?.textContent?.trim()         || "—"],
+    ["Conversão (valor)",    $("kpiConvValor")?.textContent?.trim()       || "—"],
+    ["Ticket médio proposta",$("kpiTicketProp")?.textContent?.trim()      || "—"],
+    ["Ticket médio pedido",  $("kpiTicketPed")?.textContent?.trim()       || "—"],
+    ["Clientes ativos",      $("kpiClientesAtivos")?.textContent?.trim()  || "—"],
+    ["Representadas ativas", $("kpiRepsAtivas")?.textContent?.trim()      || "—"],
+    ["Projetos ativos",      $("kpiProjetosAtivos")?.textContent?.trim()  || "—"],
+    ["Aguardando pedido",    $("kpiAguardando")?.textContent?.trim()      || "—"],
+  ];
+  const wsKpi = XLSX.utils.aoa_to_sheet(kpiRows);
+  wsKpi["!cols"] = [{ wch: 28 }, { wch: 20 }];
+  XLSX.utils.book_append_sheet(wb, wsKpi, "Resumo");
+
+  // ── Sheet 2: Ofertas ─────────────────────────────────────
+  const ofertas = _currentFiltered;
+  const ofertaHeader = ["Nº Oferta","Cliente","Representada","Status","Data Entrada","R$ Proposto","Possui Pedido","R$ Pedido","BU","Segmento","Tipo","Projeto","Criado por","Atualizado por"];
+  const ofertaRows = ofertas.map(o => {
+    const dt = getOfertaDate(o);
+    const dtStr = dt ? `${String(dt.getDate()).padStart(2,"0")}/${String(dt.getMonth()+1).padStart(2,"0")}/${dt.getFullYear()}` : "";
+    const hasPed = isPedidoSim(o);
+    return [
+      String(o.oferta || o.numero_oferta || o.numeroOferta || "").trim(),
+      getClienteLabel(o),
+      getRepNameFromOferta(o),
+      getStatusText(o),
+      dtStr,
+      getValorProposta(o),
+      hasPed ? "Sim" : "Não",
+      hasPed ? getValorPedidoReal(o) : 0,
+      String(o.bu || "").trim(),
+      String(o.segmento || "").trim(),
+      String(o.tipo_oferta || "").trim(),
+      String(o.nome_projeto || "").trim(),
+      String(o.criadoPor || "").trim(),
+      String(o.atualizadoPor || "").trim(),
+    ];
+  });
+  const wsOfertas = XLSX.utils.aoa_to_sheet([ofertaHeader, ...ofertaRows]);
+  wsOfertas["!cols"] = [16,32,24,22,14,16,14,16,12,18,18,24,20,20].map(w => ({ wch: w }));
+  XLSX.utils.book_append_sheet(wb, wsOfertas, "Ofertas");
+
+  // ── Sheet 3: Por Cliente ─────────────────────────────────
+  const cliMap = {};
+  ofertas.forEach(o => {
+    const k = getClienteLabel(o);
+    if (!cliMap[k]) cliMap[k] = { propostas: 0, pedidos: 0, vProp: 0, vPed: 0 };
+    cliMap[k].propostas++;
+    cliMap[k].vProp += getValorProposta(o);
+    if (isPedidoSim(o)) { cliMap[k].pedidos++; cliMap[k].vPed += getValorPedidoReal(o); }
+  });
+  const cliHeader = ["Cliente","Propostas","Pedidos","R$ Proposto","R$ Pedido","Conversão %"];
+  const cliRows = Object.entries(cliMap)
+    .sort((a,b) => b[1].vProp - a[1].vProp)
+    .map(([nome, v]) => [nome, v.propostas, v.pedidos, v.vProp, v.vPed, v.propostas ? +(v.pedidos/v.propostas*100).toFixed(1) : 0]);
+  const wsCli = XLSX.utils.aoa_to_sheet([cliHeader, ...cliRows]);
+  wsCli["!cols"] = [{ wch: 36 }, { wch: 12 }, { wch: 10 }, { wch: 16 }, { wch: 16 }, { wch: 14 }];
+  XLSX.utils.book_append_sheet(wb, wsCli, "Por Cliente");
+
+  // ── Sheet 4: Por Representada ────────────────────────────
+  const repMap = {};
+  ofertas.forEach(o => {
+    const k = getRepNameFromOferta(o) || "Sem representada";
+    if (!repMap[k]) repMap[k] = { propostas: 0, pedidos: 0, vProp: 0, vPed: 0 };
+    repMap[k].propostas++;
+    repMap[k].vProp += getValorProposta(o);
+    if (isPedidoSim(o)) { repMap[k].pedidos++; repMap[k].vPed += getValorPedidoReal(o); }
+  });
+  const repHeader = ["Representada","Propostas","Pedidos","R$ Proposto","R$ Pedido","Conversão %"];
+  const repRows = Object.entries(repMap)
+    .sort((a,b) => b[1].vProp - a[1].vProp)
+    .map(([nome, v]) => [nome, v.propostas, v.pedidos, v.vProp, v.vPed, v.propostas ? +(v.pedidos/v.propostas*100).toFixed(1) : 0]);
+  const wsRep = XLSX.utils.aoa_to_sheet([repHeader, ...repRows]);
+  wsRep["!cols"] = [{ wch: 30 }, { wch: 12 }, { wch: 10 }, { wch: 16 }, { wch: 16 }, { wch: 14 }];
+  XLSX.utils.book_append_sheet(wb, wsRep, "Por Representada");
+
+  // ── Download ─────────────────────────────────────────────
+  const fileName = `dashboard-crm-${now.getFullYear()}${String(now.getMonth()+1).padStart(2,"0")}${String(now.getDate()).padStart(2,"0")}.xlsx`;
+  XLSX.writeFile(wb, fileName);
+}
+
+function exportCsv() {
+  if (_dashUserRole !== "admin" && _dashUserRole !== "supervisor") {
+    if (typeof showToast === "function") showToast("Apenas administradores e supervisores podem exportar.", "error");
+    else alert("Apenas administradores e supervisores podem exportar.");
+    return;
+  }
+  if (typeof XLSX === "undefined") { alert("Biblioteca Excel não carregada. Tente recarregar a página."); return; }
+
+  const ofertas = _currentFiltered;
+  const header = ["Nº Oferta","Cliente","Representada","Status","Data Entrada","R$ Proposto","Possui Pedido","R$ Pedido","BU","Segmento","Tipo","Projeto","Criado por","Atualizado por"];
+  const rows = ofertas.map(o => {
+    const dt = getOfertaDate(o);
+    const dtStr = dt ? `${String(dt.getDate()).padStart(2,"0")}/${String(dt.getMonth()+1).padStart(2,"0")}/${dt.getFullYear()}` : "";
+    const hasPed = isPedidoSim(o);
+    return [
+      String(o.oferta || o.numero_oferta || o.numeroOferta || "").trim(),
+      getClienteLabel(o),
+      getRepNameFromOferta(o),
+      getStatusText(o),
+      dtStr,
+      getValorProposta(o),
+      hasPed ? "Sim" : "Não",
+      hasPed ? getValorPedidoReal(o) : 0,
+      String(o.bu || "").trim(),
+      String(o.segmento || "").trim(),
+      String(o.tipo_oferta || "").trim(),
+      String(o.nome_projeto || "").trim(),
+      String(o.criadoPor || "").trim(),
+      String(o.atualizadoPor || "").trim(),
+    ];
+  });
+
+  const ws = XLSX.utils.aoa_to_sheet([header, ...rows]);
+
+  // Semicolon separator (padrão brasileiro) + BOM UTF-8 para acentos no Excel
+  const csvString = XLSX.utils.sheet_to_csv(ws, { FS: ";" });
+  const blob = new Blob(["﻿" + csvString], { type: "text/csv;charset=utf-8;" });
+  const url = URL.createObjectURL(blob);
+
+  const now = new Date();
+  const fileName = `ofertas-crm-${now.getFullYear()}${String(now.getMonth()+1).padStart(2,"0")}${String(now.getDate()).padStart(2,"0")}.csv`;
+  const a = document.createElement("a");
+  a.href = url;
+  a.download = fileName;
+  a.click();
+  URL.revokeObjectURL(url);
+}
+
+function exportPdf() {
+  if (_dashUserRole !== "admin" && _dashUserRole !== "supervisor") {
+    if (typeof showToast === "function") showToast("Apenas administradores e supervisores podem exportar.", "error");
+    else alert("Apenas administradores e supervisores podem exportar.");
+    return;
+  }
+  window.print();
+}
+
+function bindKpiModal() {
+  $("kpiModalClose")?.addEventListener("click", closeKpiModal);
+  $("kpiModalBack")?.addEventListener("click", _kpiGoBack);
+  $("kpiModal")?.addEventListener("click", (e) => {
+    if (e.target.id === "kpiModal") closeKpiModal();
+  });
+  document.addEventListener("keydown", (e) => {
+    if (e.key !== "Escape") return;
+    const m = $("kpiModal");
+    if (m && m.style.display !== "none") {
+      if (_kpiNavStack.length) _kpiGoBack();
+      else closeKpiModal();
+    }
+  });
+  ["kpiFilterStatus", "kpiFilterRep", "kpiFilterPedido"].forEach(id => {
+    $(id)?.addEventListener("change", () => {
+      const searchEl = $("kpiModalSearch");
+      if (searchEl) searchEl.dispatchEvent(new Event("input"));
+    });
+  });
+  $("kpiFilterClear")?.addEventListener("click", () => {
+    _kpiResetFilterValues();
+    const searchEl = $("kpiModalSearch");
+    if (searchEl) { searchEl.value = ""; searchEl.dispatchEvent(new Event("input")); }
+  });
+}
+
+function _kpiGoBack() {
+  if (!_kpiNavStack.length) return;
+  const { title, sub, hasSearch, hasFilters, fStatus, fRep, fPedido, renderFn } = _kpiNavStack.pop();
+  $("kpiModalTitle").textContent = title || "";
+  $("kpiModalSub").textContent   = sub  || "";
+  _kpiShowSearch(hasSearch !== false);
+  _kpiShowFilters(!!hasFilters);
+  const fs = $("kpiFilterStatus"); if (fs) fs.value = fStatus || "";
+  const fr = $("kpiFilterRep");    if (fr) fr.value = fRep    || "";
+  const fp = $("kpiFilterPedido"); if (fp) fp.value = fPedido || "";
+  if (!_kpiNavStack.length) $("kpiModalBack").style.display = "none";
+  const searchEl = $("kpiModalSearch");
+  if (searchEl) { searchEl.value = ""; searchEl.oninput = (ev) => renderFn(ev.target.value); }
+  renderFn("");
+}
+
+function _kpiPushLevel(title, sub, hasSearch, renderFn) {
+  const filterRow = $("kpiModalFilterRow");
+  _kpiNavStack.push({
+    title, sub, hasSearch, renderFn,
+    hasFilters: !!(filterRow && filterRow.style.display !== "none"),
+    fStatus:  $("kpiFilterStatus")?.value || "",
+    fRep:     $("kpiFilterRep")?.value    || "",
+    fPedido:  $("kpiFilterPedido")?.value || "",
+  });
+  $("kpiModalBack").style.display = "";
+}
+
+function openOfertaDetail(oferta) {
+  const schema = window.OFERTA_SCHEMA || [];
+  const schemaMap = Object.fromEntries(schema.map(f => [f.key, f]));
+
+  function getField(key) {
+    if (key.includes(".")) {
+      const [parent, child] = key.split(".");
+      return oferta[parent]?.[child];
+    }
+    return oferta[key];
+  }
+
+  function fmtVal(val, type) {
+    if (val === null || val === undefined || val === "") return null;
+    const s = String(val).trim();
+    if (!s) return null;
+    if (type === "money")    return moneyBR(parseMoneyBR(val));
+    if (type === "date")     { const d = parseDateAny(val); return d ? `${String(d.getDate()).padStart(2,"0")}/${String(d.getMonth()+1).padStart(2,"0")}/${d.getFullYear()}` : s; }
+    if (type === "datetime") { const d = parseDateAny(val); return d ? `${String(d.getDate()).padStart(2,"0")}/${String(d.getMonth()+1).padStart(2,"0")}/${d.getFullYear()} ${String(d.getHours()).padStart(2,"0")}:${String(d.getMinutes()).padStart(2,"0")}` : s; }
+    if (type === "yesno")    { const v = s.toLowerCase(); return (v === "sim" || v === "true") ? "Sim" : (v === "não" || v === "nao" || v === "false") ? "Não" : s; }
+    return s;
+  }
+
+  const SECTIONS = [
+    { title: "Identificação",
+      keys: ["oferta","bu","segmento","tipo_oferta","atendimentoSpot","data_entrada","data_envio"] },
+    { title: "Cliente",
+      keys: ["razao","cnpj_cliente","solicitante","telefone","email","ref_cliente"] },
+    { title: "Proposta",
+      keys: ["representadaNome","unidade","nome_projeto","valor_total","status","motivo_perda","obs_geral"] },
+    { title: "Pedido",
+      show: isPedidoSim(oferta),
+      keys: ["possuiPedido","pedido.numero_pedido","pedido.data_po","pedido.valor_pedido","pedido.cond_pagamento","pedido.ref_projeto","pedido.tipo_produto","pedido.prazo_entrega_contratual","pedido.sov","pedido.ref_ov","pedido.data_implantacao","pedido.obs"] },
+    { title: "Revisão",
+      show: isRevisaoSim(oferta),
+      keys: ["possuiRevisao","revisao.numero_oferta_anterior","revisao.mudou"] },
+    { title: "Histórico",
+      keys: ["criadoEm","criadoPor","atualizadoEm","atualizadoPor"] },
+  ];
+
+  const sections = SECTIONS
+    .filter(s => s.show !== false)
+    .map(s => ({
+      title: s.title,
+      items: s.keys.map(key => {
+        const def = schemaMap[key];
+        const raw = getField(key);
+        const val = fmtVal(raw, def?.type);
+        if (!val) return null;
+        return { label: def?.label || key, value: val };
+      }).filter(Boolean)
+    }))
+    .filter(s => s.items.length > 0);
+
+  const numOferta = String(oferta.oferta || oferta.numero_oferta || oferta.numeroOferta || "").trim();
+  const cliente   = getClienteLabel(oferta);
+  const rep       = getRepNameFromOferta(oferta);
+  const status    = getStatusText(oferta);
+
+  // Save current state for back navigation
+  const prevTitle     = $("kpiModalTitle")?.textContent || "";
+  const prevSub       = $("kpiModalSub")?.textContent   || "";
+  const capturedRows  = [..._kpiCurrentRows];
+  const prevRenderFn  = (q) => renderOfertasModal($("kpiModalBody"), $("kpiModalSub"), capturedRows, q);
+  _kpiPushLevel(prevTitle, prevSub, true, prevRenderFn);
+
+  // Navigate to detail view
+  $("kpiModalTitle").textContent = numOferta ? `Oferta ${numOferta}` : "Detalhes da Oferta";
+  $("kpiModalSub").textContent   = [cliente, rep, status].filter(Boolean).join(" · ");
+  _kpiShowSearch(false);
+  _kpiShowFilters(false);
+
+  const bodyEl = $("kpiModalBody");
+  if (bodyEl) {
+    bodyEl.innerHTML = sections.length
+      ? sections.map(sec => `
+          <div class="kpi-detail-section">
+            <div class="kpi-detail-section-title">${escapeHtml(sec.title)}</div>
+            <div class="kpi-detail-grid">
+              ${sec.items.map(item => `
+                <div class="kpi-detail-field">
+                  <div class="kpi-detail-field-label">${escapeHtml(item.label)}</div>
+                  <div class="kpi-detail-field-value">${escapeHtml(item.value)}</div>
+                </div>`).join("")}
+            </div>
+          </div>`).join("")
+      : `<div class="dash-empty">Nenhum campo preenchido nesta oferta.</div>`;
+  }
+}
+
+function _kpiGroupOfertas(ofertas, getKey) {
+  const map = {};
+  ofertas.forEach(o => {
+    const key = getKey(o);
+    if (!key) return;
+    if (!map[key]) map[key] = { propostas: 0, pedidos: 0, vProp: 0, vPed: 0 };
+    map[key].propostas++;
+    map[key].vProp += getValorProposta(o);
+    if (isPedidoSim(o)) { map[key].pedidos++; map[key].vPed += getValorPedidoReal(o); }
+  });
+  return Object.entries(map).sort((a, b) => b[1].vProp - a[1].vProp);
+}
+
+function _kpiGroupTable(bodyEl, subEl, entries, entityLabel, onDrill) {
+  if (!entries.length) {
+    bodyEl.innerHTML = `<div class="dash-empty">Nenhum ${entityLabel} encontrado.</div>`;
+    if (subEl) subEl.textContent = "";
+    return;
+  }
+  const plural = entries.length !== 1;
+  if (subEl) subEl.textContent = `${entries.length} ${entityLabel}${plural ? "s" : ""} encontrado${plural ? "s" : ""}`;
+  const label0 = entityLabel.charAt(0).toUpperCase() + entityLabel.slice(1);
+
+  bodyEl.innerHTML = `
+    <table class="dash-inner-table kpi-modal-table">
+      <thead><tr>
+        <th>${label0}</th>
+        <th style="text-align:right">Propostas</th>
+        <th style="text-align:right">Pedidos</th>
+        <th style="text-align:right">R$ Proposto</th>
+        <th style="text-align:right">R$ Pedido</th>
+        <th style="text-align:right">Conv.%</th>
+        <th></th>
+      </tr></thead>
+      <tbody>
+        ${entries.map(([nome, v]) => {
+          const conv = v.propostas ? (v.pedidos / v.propostas * 100).toFixed(1) : "0.0";
+          const convN = parseFloat(conv);
+          const convClass = convN >= 30 ? "dash-tag-ok" : convN >= 10 ? "dash-tag-warn" : "dash-tag-danger";
+          const nomeCurto = nome.length > 32 ? nome.slice(0, 30) + "…" : nome;
+          return `<tr class="dash-row-clickable" data-drill="${escapeHtml(nome)}" title="${escapeHtml(nome)}">
+            <td>${escapeHtml(nomeCurto)}</td>
+            <td style="text-align:right">${v.propostas}</td>
+            <td style="text-align:right">${v.pedidos}</td>
+            <td style="text-align:right">${moneyBRShort(v.vProp)}</td>
+            <td style="text-align:right">${moneyBRShort(v.vPed)}</td>
+            <td style="text-align:right"><span class="${convClass}">${conv}%</span></td>
+            <td style="width:32px"><button class="kpi-row-link kpi-row-drill" data-drill="${escapeHtml(nome)}" title="Ver ofertas" tabindex="-1">↗</button></td>
+          </tr>`;
+        }).join("")}
+      </tbody>
+    </table>`;
+
+  bodyEl.querySelectorAll(".dash-row-clickable[data-drill]").forEach(row => {
+    row.addEventListener("click", (e) => {
+      if (e.target.closest(".kpi-row-drill")) return;
+      if (onDrill) onDrill(row.dataset.drill);
+    });
+  });
+  bodyEl.querySelectorAll(".kpi-row-drill").forEach(btn => {
+    btn.addEventListener("click", () => { if (onDrill) onDrill(btn.dataset.drill); });
+  });
+}
+
+let _kpiShownOferts = [];
+
+function renderOfertasModal(bodyEl, subEl, rows, q) {
+  _kpiCurrentRows = rows;
+
+  const fStatus = $("kpiFilterStatus")?.value || "";
+  const fRep    = $("kpiFilterRep")?.value    || "";
+  const fPedido = $("kpiFilterPedido")?.value || "";
+
+  let filtered = rows;
+  if (fStatus) filtered = filtered.filter(o => getStatusText(o) === fStatus);
+  if (fRep)    filtered = filtered.filter(o => getRepNameFromOferta(o) === fRep);
+  if (fPedido === "sim") filtered = filtered.filter(isPedidoSim);
+  if (fPedido === "nao") filtered = filtered.filter(o => !isPedidoSim(o));
+
+  const sq = norm(q);
+  if (sq) filtered = filtered.filter(o =>
+    norm(getClienteLabel(o)).includes(sq) ||
+    norm(getRepNameFromOferta(o)).includes(sq) ||
+    norm(getStatusText(o)).includes(sq) ||
+    norm(String(o.oferta || o.numero_oferta || o.numeroOferta || "")).includes(sq)
+  );
+
+  const shown = filtered.slice(0, 250);
+  _kpiShownOferts = shown;
+  const extra = filtered.length - shown.length;
+  const plural = filtered.length !== 1;
+  if (subEl) subEl.textContent = `${filtered.length} oferta${plural ? "s" : ""} encontrada${plural ? "s" : ""}`;
+
+  if (!filtered.length) {
+    bodyEl.innerHTML = `<div class="dash-empty">Nenhuma oferta encontrada.</div>`;
+    return;
+  }
+
+  bodyEl.innerHTML = `
+    <table class="dash-inner-table kpi-modal-table">
+      <thead><tr>
+        <th style="text-align:left">Nº Oferta</th>
+        <th style="text-align:left">Cliente</th>
+        <th>Representada</th>
+        <th>Status</th>
+        <th style="text-align:right">R$ Proposto</th>
+        <th style="text-align:right">R$ Pedido</th>
+        <th style="text-align:right">Data</th>
+        <th></th>
+      </tr></thead>
+      <tbody>
+        ${shown.map((o, i) => {
+          const numRaw = String(o.oferta || o.numero_oferta || o.numeroOferta || "").trim();
+          const numOferta = numRaw ? (numRaw.length > 15 ? numRaw.slice(0, 14) + "…" : numRaw) : "Sem nº de oferta";
+          const cliente = getClienteLabel(o);
+          const clienteCurto = cliente.length > 26 ? cliente.slice(0, 24) + "…" : cliente;
+          const rep = getRepNameFromOferta(o);
+          const repCurto = rep.length > 20 ? rep.slice(0, 18) + "…" : rep;
+          const status = getStatusText(o);
+          const vProp = getValorProposta(o);
+          const hasPed = isPedidoSim(o);
+          const vPed = hasPed ? getValorPedidoReal(o) : null;
+          const dt = getOfertaDate(o);
+          const dtStr = dt ? `${String(dt.getDate()).padStart(2,"0")}/${String(dt.getMonth()+1).padStart(2,"0")}/${dt.getFullYear()}` : "—";
+          return `<tr class="dash-row-clickable" data-idx="${i}" title="${escapeHtml(cliente)} — ${escapeHtml(status)}">
+            <td class="kpi-col-num">${escapeHtml(numOferta)}</td>
+            <td>${escapeHtml(clienteCurto)}</td>
+            <td class="kpi-col-rep">${escapeHtml(repCurto)}</td>
+            <td>${getStatusPillHtml(status, hasPed)}</td>
+            <td style="text-align:right;font-variant-numeric:tabular-nums">${moneyBRShort(vProp)}</td>
+            <td style="text-align:right;font-variant-numeric:tabular-nums">${vPed !== null ? moneyBRShort(vPed) : '<span class="kpi-col-dash">—</span>'}</td>
+            <td class="kpi-col-date">${dtStr}</td>
+            <td style="width:32px"><button class="kpi-row-link kpi-row-detail" data-idx="${i}" title="Ver detalhes" tabindex="-1">⊞</button></td>
+          </tr>`;
+        }).join("")}
+      </tbody>
+    </table>
+    ${extra > 0 ? `<div class="dash-empty" style="padding:10px 16px;font-size:11.5px">+${extra} resultado${extra !== 1 ? "s" : ""} não exibido${extra !== 1 ? "s" : ""} — refine a busca.</div>` : ""}`;
+
+  bodyEl.querySelectorAll(".dash-row-clickable[data-idx]").forEach(row => {
+    row.addEventListener("click", (e) => {
+      if (e.target.closest(".kpi-row-detail")) return;
+      const o = _kpiShownOferts[parseInt(row.dataset.idx, 10)];
+      if (o) openOfertaDetail(o);
+    });
+  });
+  bodyEl.querySelectorAll(".kpi-row-detail").forEach(btn => {
+    btn.addEventListener("click", () => {
+      const o = _kpiShownOferts[parseInt(btn.dataset.idx, 10)];
+      if (o) openOfertaDetail(o);
+    });
+  });
+}
+
+function openKpiModal(type) {
+  const ofertas = _currentFiltered;
+  const modal = $("kpiModal");
+  if (!modal) return;
+
+  _kpiNavStack = [];
+  $("kpiModalBack").style.display = "none";
+  _kpiShowSearch(true);
+  _kpiShowFilters(false);
+  _kpiResetFilterValues();
+
+  const CFGS = {
+    propostas:  { title: "Propostas no período",        getRows: f => [...f].sort((a,b) => +(getOfertaDate(b)||0) - +(getOfertaDate(a)||0)) },
+    pedidos:    { title: "Pedidos confirmados",          getRows: f => f.filter(isPedidoSim).sort((a,b) => +(getOfertaDate(b)||0) - +(getOfertaDate(a)||0)) },
+    rProp:      { title: "R$ Proposto — propostas",      getRows: f => [...f].sort((a,b) => getValorProposta(b) - getValorProposta(a)) },
+    rPed:       { title: "R$ Pedido — pedidos",          getRows: f => f.filter(isPedidoSim).sort((a,b) => getValorPedidoReal(b) - getValorPedidoReal(a)) },
+    convQtd:    { title: "Conversão — por quantidade",   getRows: f => [...f].sort((a,b) => Number(isPedidoSim(b)) - Number(isPedidoSim(a))) },
+    convValor:  { title: "Conversão — por valor",        getRows: f => [...f].sort((a,b) => Number(isPedidoSim(b)) - Number(isPedidoSim(a))) },
+    ticketProp: { title: "Ticket médio — propostas",     getRows: f => [...f].sort((a,b) => getValorProposta(b) - getValorProposta(a)) },
+    ticketPed:  { title: "Ticket médio — pedidos",       getRows: f => f.filter(isPedidoSim).sort((a,b) => getValorPedidoReal(b) - getValorPedidoReal(a)) },
+    clientes:   { title: "Clientes ativos no período",   mode: "clientes" },
+    reps:       { title: "Representadas ativas",         mode: "reps" },
+    projetos:   { title: "Projetos com propostas",       mode: "projetos" },
+    aguardando: { title: "Aguardando pedido",            getRows: f => f.filter(o => !isPedidoSim(o) && norm(getStatusText(o)).includes("aguard")) },
+  };
+
+  const cfg = CFGS[type] || { title: "Detalhes", getRows: f => f };
+  const mode = cfg.mode || "ofertas";
+  const baseRows = mode !== "ofertas" ? ofertas : (cfg.getRows ? cfg.getRows(ofertas) : ofertas);
+
+  $("kpiModalTitle").textContent = cfg.title;
+  $("kpiModalSub").textContent   = "";
+  const searchEl = $("kpiModalSearch");
+  searchEl.value = "";
+
+  function makeDrillFn(getKey) {
+    return (nome) => {
+      const prevTitle      = $("kpiModalTitle").textContent;
+      const prevSub        = $("kpiModalSub").textContent;
+      const capturedRender = render;
+      _kpiPushLevel(prevTitle, prevSub, true, capturedRender);
+      $("kpiModalTitle").textContent = nome;
+      $("kpiModalSub").textContent   = "";
+      searchEl.value = "";
+      _kpiResetFilterValues();
+      const entityRows = baseRows.filter(o => getKey(o) === nome);
+      _kpiPopulateFilters(entityRows);
+      _kpiShowFilters(true);
+      const newRender = (q) => renderOfertasModal($("kpiModalBody"), $("kpiModalSub"), entityRows, q);
+      searchEl.oninput = (ev) => newRender(ev.target.value);
+      newRender("");
+    };
+  }
+
+  function render(q) {
+    const bodyEl = $("kpiModalBody");
+    const subEl  = $("kpiModalSub");
+    if (!bodyEl) return;
+    const sq = norm(q);
+    if (mode === "clientes") {
+      _kpiShowFilters(false);
+      let entries = _kpiGroupOfertas(baseRows, getClienteLabel).filter(([n]) => n !== "Sem cliente");
+      if (sq) entries = entries.filter(([n]) => norm(n).includes(sq));
+      _kpiGroupTable(bodyEl, subEl, entries, "cliente", makeDrillFn(getClienteLabel));
+    } else if (mode === "reps") {
+      _kpiShowFilters(false);
+      let entries = _kpiGroupOfertas(baseRows, getRepNameFromOferta).filter(([n]) => !!n);
+      if (sq) entries = entries.filter(([n]) => norm(n).includes(sq));
+      _kpiGroupTable(bodyEl, subEl, entries, "representada", makeDrillFn(getRepNameFromOferta));
+    } else if (mode === "projetos") {
+      _kpiShowFilters(false);
+      let entries = _kpiGroupOfertas(baseRows, getProjetoLabel).filter(([n]) => !!n);
+      if (sq) entries = entries.filter(([n]) => norm(n).includes(sq));
+      _kpiGroupTable(bodyEl, subEl, entries, "projeto", makeDrillFn(getProjetoLabel));
+    } else {
+      _kpiShowFilters(true);
+      renderOfertasModal(bodyEl, subEl, baseRows, q);
+    }
+  }
+
+  searchEl.oninput = (ev) => render(ev.target.value);
+  if (mode === "ofertas") _kpiPopulateFilters(baseRows);
+  render("");
+  modal.style.display = "flex";
+  requestAnimationFrame(() => searchEl.focus());
 }
 
 // =============================================================
@@ -571,7 +1249,7 @@ function buildEvolucaoChart(ofertasFiltradas) {
   });
 }
 
-function _comparativoPlaceholder(canvasId) {
+function _comparativoPlaceholder(canvasId, msg) {
   const el = $(canvasId);
   if (!el) return;
   const ctx = el.getContext("2d");
@@ -580,13 +1258,14 @@ function _comparativoPlaceholder(canvasId) {
   ctx.fillStyle = isDark() ? "#94A3B8" : "#64748B";
   ctx.font = "12px sans-serif";
   ctx.textAlign = "center";
-  ctx.fillText("Defina um período para ver a comparação", el.width / 2, el.height / 2);
+  ctx.fillText(msg || "Defina um período para ver a comparação", el.width / 2, el.height / 2);
 }
 
-function buildComparativoChart(ofertasFiltradas, ofertasAnteriores) {
+function buildComparativoChart(ofertasFiltradas, ofertasAnteriores, semComparacao = false) {
   if (!ofertasAnteriores) {
-    _comparativoPlaceholder("chartComparativo");
-    _comparativoPlaceholder("chartComparativoValores");
+    const msg = semComparacao ? "Período anterior sem dados suficientes para comparar" : "Defina um período para ver a comparação";
+    _comparativoPlaceholder("chartComparativo", msg);
+    _comparativoPlaceholder("chartComparativoValores", msg);
     return;
   }
 
@@ -640,31 +1319,6 @@ function buildComparativoChart(ofertasFiltradas, ofertasAnteriores) {
   });
 }
 
-function buildStatusChart(ofertasFiltradas) {
-  const freq = {};
-  ofertasFiltradas.forEach(o => { const s = getStatusText(o); freq[s] = (freq[s] || 0) + 1; });
-  const sorted = Object.entries(freq).sort((a, b) => b[1] - a[1]);
-  const top = sorted.slice(0, 10);
-  const rest = sorted.slice(10);
-  const labels = top.map(x => x[0]);
-  const data = top.map(x => x[1]);
-  if (rest.length) { labels.push("Outros"); data.push(rest.reduce((acc, x) => acc + x[1], 0)); }
-
-  charts.status = safeChart("chartStatus", {
-    type: "bar",
-    data: { labels, datasets: [{ label: "Qtde", data, backgroundColor: PALETTE.map(c => paletteAlpha(c, 0.75)), borderRadius: 4 }] },
-    options: {
-      responsive: true, maintainAspectRatio: false, indexAxis: "y",
-      plugins: { legend: { display: false } },
-      onClick: (_, elements) => {
-        if (!elements.length) return;
-        drillDown({ status: labels[elements[0].index] });
-      },
-      onHover: (event, elements) => { event.native.target.style.cursor = elements.length ? "pointer" : "default"; }
-    }
-  });
-}
-
 // =============================================================
 // SEÇÃO: CLIENTES
 // =============================================================
@@ -676,7 +1330,9 @@ function buildTopClientesPedidoChart(ofertasFiltradas) {
     map[c] = (map[c] || 0) + getValorPedidoReal(o);
   });
   const top = Object.entries(map).sort((a, b) => b[1] - a[1]).slice(0, 10);
-  if (!top.length) { const box = $("chartTopClientesPedido")?.parentElement; if (box) box.innerHTML += '<div class="dash-empty">Sem pedidos no período.</div>'; return; }
+  const box = $("chartTopClientesPedido")?.parentElement;
+  box?.querySelectorAll(".dash-empty").forEach(el => el.remove());
+  if (!top.length) { if (box) box.insertAdjacentHTML("beforeend", '<div class="dash-empty">Sem pedidos no período.</div>'); return; }
 
   const labels = top.map(x => x[0].length > 20 ? x[0].slice(0, 18) + "…" : x[0]);
   const fullLabels = top.map(x => x[0]);
@@ -765,8 +1421,8 @@ function buildClientesRiscoTable(ofertasFiltradas) {
         ${risco.map(([nome, v]) => {
           const conv = (v.pedidos / v.propostas * 100).toFixed(0);
           const nomeCurto = nome.length > 22 ? nome.slice(0, 20) + "…" : nome;
-          return `<tr class="dash-row-clickable" onclick="drillDown({searchTerm:'${nome.replace(/'/g,"\\'")}'})" title="${nome}">
-            <td>${nomeCurto}</td>
+          return `<tr class="dash-row-clickable" data-search="${escapeHtml(nome)}" title="${escapeHtml(nome)}">
+            <td>${escapeHtml(nomeCurto)}</td>
             <td style="text-align:right">${v.propostas}</td>
             <td style="text-align:right">${v.pedidos}</td>
             <td style="text-align:right">${moneyBRShort(v.vProp)}</td>
@@ -775,6 +1431,9 @@ function buildClientesRiscoTable(ofertasFiltradas) {
         }).join("")}
       </tbody>
     </table>`;
+  box.querySelectorAll(".dash-row-clickable[data-search]").forEach(row => {
+    row.addEventListener("click", () => drillDown({ searchTerm: row.dataset.search }));
+  });
 }
 
 // =============================================================
@@ -847,6 +1506,88 @@ function buildConversaoChart(ofertasFiltradas) {
   });
 }
 
+function buildWinRateRepsChart(ofertasFiltradas) {
+  const map = {};
+  ofertasFiltradas.forEach(o => {
+    const r = getRepNameFromOferta(o) || "Sem representada";
+    if (!map[r]) map[r] = { total: 0, ganhas: 0 };
+    map[r].total++;
+    const s = norm(getStatusText(o));
+    if (isPedidoSim(o) || s.includes("ganho")) map[r].ganhas++;
+  });
+
+  const arr = Object.entries(map)
+    .filter(([, v]) => v.total >= 2)
+    .map(([rep, v]) => ({ rep, rate: (v.ganhas / v.total) * 100, ganhas: v.ganhas, total: v.total }))
+    .sort((a, b) => b.rate - a.rate)
+    .slice(0, 15);
+
+  const winRateBox = $("winRateRepsBox");
+  if (!arr.length) {
+    if (winRateBox) winRateBox.innerHTML = `<div class="dash-empty">Sem dados suficientes no período.</div>`;
+    return;
+  }
+
+  const colors = arr.map(x =>
+    x.rate >= 60 ? paletteAlpha("#10B981", 0.8) :
+    x.rate >= 35 ? paletteAlpha("#F59E0B", 0.8) :
+                   paletteAlpha("#EF4444", 0.8)
+  );
+
+  charts.winRateReps = safeChart("chartWinRateReps", {
+    type: "bar",
+    data: {
+      labels: arr.map(x => x.rep.length > 22 ? x.rep.slice(0, 20) + "…" : x.rep),
+      datasets: [{
+        label: "Win Rate %",
+        data: arr.map(x => Number(x.rate.toFixed(1))),
+        backgroundColor: colors,
+        borderRadius: 6
+      }]
+    },
+    options: {
+      responsive: true,
+      maintainAspectRatio: false,
+      plugins: {
+        legend: { display: false },
+        tooltip: {
+          callbacks: {
+            label: ctx => {
+              const d = arr[ctx.dataIndex];
+              return ` ${ctx.parsed.x.toFixed(1)}%  (${d.ganhas} ganhas / ${d.total} total)`;
+            }
+          }
+        }
+      },
+      scales: {
+        x: { ticks: { maxRotation: 40, minRotation: 40, font: { size: 10 } }, grid: { display: false } },
+        y: { min: 0, max: 100, ticks: { callback: v => v + "%" } }
+      }
+    }
+  });
+
+  if (winRateBox) {
+    winRateBox.innerHTML = `
+      <table class="dash-inner-table">
+        <thead><tr>
+          <th>Representada</th>
+          <th style="text-align:right">Ganhas</th>
+          <th style="text-align:right">Total</th>
+          <th style="text-align:right">Win Rate</th>
+        </tr></thead>
+        <tbody>
+          ${arr.map(x => `
+            <tr>
+              <td>${x.rep}</td>
+              <td style="text-align:right">${x.ganhas}</td>
+              <td style="text-align:right">${x.total}</td>
+              <td style="text-align:right;font-weight:600;color:${x.rate >= 60 ? "#10B981" : x.rate >= 35 ? "#F59E0B" : "#EF4444"}">${x.rate.toFixed(1)}%</td>
+            </tr>`).join("")}
+        </tbody>
+      </table>`;
+  }
+}
+
 function buildTopRepsTable(ofertasFiltradas) {
   const box = $("topRepsBox");
   if (!box) return;
@@ -875,8 +1616,8 @@ function buildTopRepsTable(ofertasFiltradas) {
         ${top.map(([rep, v]) => {
           const conv = v.vProp > 0 ? (v.vPed / v.vProp * 100).toFixed(1) : "0.0";
           const nome = rep.length > 22 ? rep.slice(0, 20) + "…" : rep;
-          return `<tr class="dash-row-clickable" onclick="drillDown({searchTerm:'${rep.replace(/'/g,"\\'")}'})" title="${rep}">
-            <td>${nome}</td>
+          return `<tr class="dash-row-clickable" data-search="${escapeHtml(rep)}" title="${escapeHtml(rep)}">
+            <td>${escapeHtml(nome)}</td>
             <td style="text-align:right">${moneyBRShort(v.vProp)}</td>
             <td style="text-align:right">${moneyBRShort(v.vPed)}</td>
             <td style="text-align:right">${conv}%</td>
@@ -884,6 +1625,9 @@ function buildTopRepsTable(ofertasFiltradas) {
         }).join("")}
       </tbody>
     </table>`;
+  box.querySelectorAll(".dash-row-clickable[data-search]").forEach(row => {
+    row.addEventListener("click", () => drillDown({ searchTerm: row.dataset.search }));
+  });
 }
 
 // =============================================================
@@ -899,7 +1643,9 @@ function buildProjetosVolumeChart(ofertasFiltradas) {
   });
 
   const top = Object.entries(map).sort((a, b) => b[1] - a[1]).slice(0, 10);
-  if (!top.length) { const el = $("chartProjetosVolume"); if (el) { const ctx = el.getContext("2d"); if (ctx) { ctx.clearRect(0,0,el.width,el.height); } } const card = el?.closest(".dash-card"); if (card) card.innerHTML += '<div class="dash-empty">Nenhum projeto vinculado às ofertas do período.</div>'; return; }
+  const card = $("chartProjetosVolume")?.closest(".d-card");
+  card?.querySelectorAll(".dash-empty").forEach(el => el.remove());
+  if (!top.length) { if (card) card.insertAdjacentHTML("beforeend", '<div class="dash-empty">Nenhum projeto vinculado às ofertas do período.</div>'); return; }
 
   const labels = top.map(x => x[0].length > 20 ? x[0].slice(0, 18) + "…" : x[0]);
 
@@ -992,14 +1738,14 @@ function buildProjetosParadosTable() {
 // ORQUESTRAÇÃO
 // =============================================================
 
-function buildDashboardVisuals(ofertasFiltradas, ofertasAnteriores) {
+function buildDashboardVisuals(ofertasFiltradas, ofertasAnteriores, semComparacao = false) {
   destroyCharts();
   applyChartTheme();
 
   // Performance
   buildFunilChart(ofertasFiltradas);
   buildEvolucaoChart(ofertasFiltradas);
-  buildComparativoChart(ofertasFiltradas, ofertasAnteriores);
+  buildComparativoChart(ofertasFiltradas, ofertasAnteriores, semComparacao);
 
   // Clientes
   buildTopClientesPedidoChart(ofertasFiltradas);
@@ -1009,6 +1755,7 @@ function buildDashboardVisuals(ofertasFiltradas, ofertasAnteriores) {
   // Representadas
   buildRepsPropPedChart(ofertasFiltradas);
   buildConversaoChart(ofertasFiltradas);
+  buildWinRateRepsChart(ofertasFiltradas);
   buildTopRepsTable(ofertasFiltradas);
 
   // Projetos
@@ -1024,6 +1771,8 @@ function buildDashboardVisuals(ofertasFiltradas, ofertasAnteriores) {
 async function initDashboard() {
   initTheme();
   bindSidebar();
+  bindKpiModal();
+  bindExportBtn();
 
   setStatus("Carregando Firebase...");
   await esperarFirebase();
@@ -1035,18 +1784,43 @@ async function initDashboard() {
       return;
     }
 
+    const ADMIN_EMAILS_DASH = [
+      "fabricio.giacomelli@threear.com.br",
+      "ronaldo.giacomelli@threear.com.br",
+    ];
+    const emailNorm = String(user.email || "").toLowerCase().trim();
+
+    try {
+      const doc = await window.db.collection("usuarios").doc(user.uid).get();
+      const dados = doc.exists ? (doc.data() || {}) : {};
+      _dashUserRole = dados.role || (ADMIN_EMAILS_DASH.includes(emailNorm) ? "admin" : "user");
+    } catch (_) {
+      _dashUserRole = ADMIN_EMAILS_DASH.includes(emailNorm) ? "admin" : "user";
+    }
+
+    const podeExportar = _dashUserRole === "admin" || _dashUserRole === "supervisor";
+    const exportWrap = $("exportWrap");
+    if (exportWrap) exportWrap.style.display = podeExportar ? "" : "none";
+
     $("userInfo").textContent =
       (typeof getCurrentUserName === "function" && getCurrentUserName()) ||
       user.displayName || user.email || "Usuário";
 
     setStatus("Carregando dados...");
 
-    const [ofertas, clientes, reps, projetos] = await Promise.all([
-      carregarColecao("ofertas"),
-      carregarColecao("clientes"),
-      carregarColecao("representadas"),
-      carregarColecao("projetos"),
-    ]);
+    let ofertas, clientes, reps, projetos;
+    try {
+      [ofertas, clientes, reps, projetos] = await Promise.all([
+        carregarColecao("ofertas"),
+        carregarColecao("clientes"),
+        carregarColecao("representadas"),
+        carregarColecao("projetos"),
+      ]);
+    } catch (err) {
+      console.error("Erro ao carregar dados do Firestore:", err);
+      setStatus("Erro ao carregar dados. Recarregue a página.");
+      return;
+    }
 
     ofertasDB = ofertas;
     clientesDB = clientes;
@@ -1059,27 +1833,41 @@ async function initDashboard() {
       const filtered = applyDashboardFilters();
       const { ini, fim } = getFilterState();
       const periodoAnt = calcularPeriodoAnterior(ini, fim);
-      const anterior = periodoAnt ? applyFiltersComDatas(periodoAnt.iniAnt, periodoAnt.fimAnt) : null;
+      const anteriorRaw = periodoAnt ? applyFiltersComDatas(periodoAnt.iniAnt, periodoAnt.fimAnt) : null;
+      const minParaComparar = Math.max(5, Math.ceil(filtered.length * 0.1));
+      const anterior = anteriorRaw?.length >= minParaComparar ? anteriorRaw : null;
+      const semComparacao = periodoAnt && anteriorRaw !== null && anterior === null;
+      _currentFiltered = filtered;
       renderKPIs(filtered, anterior);
-      buildDashboardVisuals(filtered, anterior);
+      buildDashboardVisuals(filtered, anterior, semComparacao);
       setStatus(`OK — ${filtered.length} oferta(s) no filtro`);
     };
 
     window._dashRun = run;
 
-    $("btnAplicarFiltros")?.addEventListener("click", run);
+    let _runDebounce = null;
+    $("btnAplicarFiltros")?.addEventListener("click", () => {
+      clearTimeout(_runDebounce);
+      _runDebounce = setTimeout(run, 200);
+    });
     $("dashPeriodo")?.addEventListener("change", (e) => { if (e.target.value !== "custom") setPresetDates(e.target.value); run(); });
     $("dashIni")?.addEventListener("change", () => { $("dashPeriodo").value = "custom"; run(); });
     $("dashFim")?.addEventListener("change", () => { $("dashPeriodo").value = "custom"; run(); });
     $("dashRep")?.addEventListener("change", run);
     $("dashUser")?.addEventListener("change", run);
     $("dashStatus")?.addEventListener("change", run);
+    $("dashBU")?.addEventListener("change", run);
+    $("dashCliente")?.addEventListener("change", run);
+    $("dashProjeto")?.addEventListener("change", run);
     $("btnLimparFiltros")?.addEventListener("click", () => {
       $("dashPeriodo").value = "30";
       setPresetDates("30");
       $("dashRep").value = "all";
       $("dashUser").value = "all";
       $("dashStatus").value = "all";
+      if ($("dashBU")) $("dashBU").value = "all";
+      if ($("dashCliente")) $("dashCliente").value = "all";
+      if ($("dashProjeto")) $("dashProjeto").value = "all";
       run();
     });
 
@@ -1091,3 +1879,4 @@ async function initDashboard() {
 window.addEventListener("DOMContentLoaded", () => {
   initDashboard().catch(err => { console.error(err); setStatus("Erro ao inicializar. Veja o console."); });
 });
+

@@ -158,6 +158,7 @@
   </div>
 
   <div class="mobile-toggle" onclick="toggleSidebar()">☰</div>
+  <div id="sidebarOverlay" class="sidebar-overlay hidden" onclick="fecharSidebarMobile()"></div>
 
   <aside class="sidebar collapsed" id="sidebar">
     <div class="sidebar-header">
@@ -336,13 +337,16 @@
               </div>
 
               <label for="solicitante">Solicitante *</label>
-              <input type="text" id="solicitante">
+              <input type="text" id="solicitante" list="listSolicitantes" autocomplete="off">
+              <datalist id="listSolicitantes"></datalist>
 
               <label for="telefone">Telefone *</label>
-              <input type="text" id="telefone" placeholder="(11) 98888-7777">
+              <input type="text" id="telefone" placeholder="(11) 98888-7777" list="listTelefones" autocomplete="off">
+              <datalist id="listTelefones"></datalist>
 
               <label for="email">E-mail *</label>
-              <input type="email" id="email">
+              <input type="email" id="email" list="listEmails" autocomplete="off">
+              <datalist id="listEmails"></datalist>
 
               <label for="oferta">N° da Oferta</label>
               <input type="text" id="oferta">
@@ -375,11 +379,24 @@
               <label for="ref_cliente">Ref. do Cliente</label>
               <input id="ref_cliente" type="text">
 
-              <label for="data_entrada">Data Entrada</label>
+              <label for="data_entrada">Data Entrada *</label>
               <input type="date" id="data_entrada">
 
               <label for="status">Status *</label>
               <select id="status"></select>
+
+              <div id="blocoMotivoPerda" class="hidden" style="display:contents">
+                <label for="motivo_perda">Motivo da Perda *</label>
+                <select id="motivo_perda">
+                  <option value="">Selecione o motivo</option>
+                  <option value="Preço">Preço</option>
+                  <option value="Prazo de entrega">Prazo de entrega</option>
+                  <option value="Especificação técnica">Especificação técnica</option>
+                  <option value="Já possui fornecedor">Já possui fornecedor</option>
+                  <option value="Cancelamento do projeto">Cancelamento do projeto</option>
+                  <option value="Outro">Outro</option>
+                </select>
+              </div>
 
               <label for="tipo_oferta">Tipo *</label>
               <select id="tipo_oferta">
@@ -766,7 +783,7 @@
 
             <div id="listaContatosProjeto" class="contatos-lista"></div>
             <div id="miniLixeiraContatosProjeto" class="mini-lixeira"></div>
-            <div id="blocoAtualizacoesProjetoWrap" class="hidden" style="margin-top: 16px;">
+            <div id="blocoAtualizacoesProjetoWrap" style="margin-top: 16px;">
               <h4>Atualizações do Projeto</h4>
 
               <label for="proj_update_texto">Nova atualização</label>
@@ -1047,6 +1064,17 @@
           <tbody></tbody>
         </table>
 
+        <hr style="margin:24px 0 18px; opacity:.25">
+
+        <h3>Gestão de Equipes e Cargos</h3>
+        <p style="opacity:.85">Visualize e edite cargos e equipes de todos os usuários aprovados.</p>
+
+        <div class="actions-row">
+          <button id="btnReloadGestaoEquipes" class="secondary" type="button">Atualizar</button>
+        </div>
+
+        <div id="gestaoEquipesContainer"></div>
+
       </section>
 
     </div>
@@ -1073,6 +1101,7 @@
   <script src="https://www.gstatic.com/firebasejs/9.23.0/firebase-firestore-compat.js"></script>
 
   <script src="./firebase.js"></script>
+  <script src="toast.js"></script>
 
   <script src="schema.js" defer></script>
   <script src="usuarios.js"></script>

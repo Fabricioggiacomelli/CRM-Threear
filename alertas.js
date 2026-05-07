@@ -8,6 +8,7 @@ window.alertasUI = {
   aba: "todos"
 };
 
+// ATENÇÃO: mantenha DEBUG_ALERTAS = false em produção — timers mudam de horas para segundos
 // true = tempos curtos para teste
 const DEBUG_ALERTAS = false;
 
@@ -81,7 +82,7 @@ function usuarioPodeGerenciarDiretoAlerta(alerta) {
     if (typeof usuarioPodeVerResponsavel === "function") {
       return usuarioPodeVerResponsavel(email);
     }
-    return true;
+    return false;
   }
 
   return false;
@@ -268,76 +269,79 @@ function getStatusLabel(status) {
 // TOAST / POPUP
 // =========================
 
-function garantirContainerToastAlertas() {
-  let wrap = document.getElementById("alertasToastContainer");
-  if (wrap) return wrap;
-
-  wrap = document.createElement("div");
-  wrap.id = "alertasToastContainer";
-  wrap.style.position = "fixed";
-  wrap.style.top = "18px";
-  wrap.style.right = "18px";
-  wrap.style.zIndex = "999999";
-  wrap.style.display = "flex";
-  wrap.style.flexDirection = "column";
-  wrap.style.gap = "10px";
-  wrap.style.maxWidth = "380px";
-  document.body.appendChild(wrap);
-  return wrap;
-}
-
 function mostrarToastAlerta(alerta) {
-  const wrap = garantirContainerToastAlertas();
+  let container = document.getElementById("crm-toast-container");
+  if (!container) {
+    container = document.createElement("div");
+    container.id = "crm-toast-container";
+    container.setAttribute("style",
+      "position:fixed;top:20px;right:20px;z-index:2147483647;" +
+      "width:380px;max-width:calc(100vw - 32px);pointer-events:none;" +
+      "display:block;margin:0;padding:0;border:none;background:none;"
+    );
+    document.body.appendChild(container);
+  }
 
-  const toast = document.createElement("div");
-  toast.style.background = "#1e293b";
-  toast.style.border = "1px solid rgba(255,255,255,0.08)";
-  toast.style.borderLeft = "4px solid #3b82f6";
-  toast.style.color = "#fff";
-  toast.style.padding = "14px 16px";
-  toast.style.borderRadius = "16px";
-  toast.style.boxShadow = "0 18px 40px rgba(0,0,0,0.28)";
-  toast.style.opacity = "0";
-  toast.style.transform = "translateY(-8px)";
-  toast.style.transition = "all 0.25s ease";
-  toast.style.cursor = "pointer";
+  const dur = 6000;
 
-  const titulo = document.createElement("div");
-  titulo.textContent = alerta.titulo || "Novo alerta";
-  titulo.style.fontWeight = "700";
-  titulo.style.marginBottom = "6px";
-  titulo.style.fontSize = "14px";
+  const spacer = document.createElement("div");
+  spacer.style.cssText = "height:10px;display:block;";
 
-  const desc = document.createElement("div");
-  desc.textContent = alerta.descricao || "";
-  desc.style.fontSize = "13px";
-  desc.style.lineHeight = "1.45";
-  desc.style.color = "#e2e8f0";
+  const card = document.createElement("div");
+  card.className = "crm-alert-notif";
+  card.style.opacity = "0";
+  card.style.transform = "translateX(16px)";
 
-  toast.appendChild(titulo);
-  toast.appendChild(desc);
-  wrap.appendChild(toast);
+  const icon = document.createElement("div");
+  icon.className = "crm-alert-notif-icon";
+  icon.innerHTML =
+    '<svg width="18" height="18" viewBox="0 0 20 20" fill="currentColor">' +
+    '<path d="M10 2a6 6 0 00-6 6v2.586l-.707.707A1 1 0 004 13h12a1 1 0 00' +
+    '.707-1.707L16 10.586V8a6 6 0 00-6-6zM10 18a2 2 0 01-2-2h4a2 2 0 01-2 2z"/></svg>';
 
-  requestAnimationFrame(() => {
-    toast.style.opacity = "1";
-    toast.style.transform = "translateY(0)";
-  });
+  const btnClose = document.createElement("button");
+  btnClose.className = "crm-alert-notif-close";
+  btnClose.innerHTML = "&#x2715;";
+  btnClose.setAttribute("aria-label", "Fechar");
 
-  toast.onclick = () => {
-    abrirModalAlertas();
-    const remover = () => {
-      toast.style.opacity = "0";
-      toast.style.transform = "translateY(-8px)";
-      setTimeout(() => toast.remove(), 250);
-    };
-    remover();
+  const titleEl = document.createElement("div");
+  titleEl.className = "crm-alert-notif-title";
+  titleEl.textContent = alerta.titulo || "Novo alerta";
+
+  const bar = document.createElement("div");
+  bar.className = "crm-alert-notif-bar";
+  bar.style.transition = "width " + dur + "ms linear";
+
+  card.appendChild(icon);
+  card.appendChild(btnClose);
+  card.appendChild(titleEl);
+
+  if (alerta.descricao) {
+    const bodyEl = document.createElement("div");
+    bodyEl.className = "crm-alert-notif-body";
+    bodyEl.textContent = alerta.descricao;
+    card.appendChild(bodyEl);
+  }
+
+  card.appendChild(bar);
+  container.appendChild(card);
+  container.appendChild(spacer);
+
+  requestAnimationFrame(() => requestAnimationFrame(() => {
+    card.style.opacity = "1";
+    card.style.transform = "translateX(0)";
+    bar.style.width = "0%";
+  }));
+
+  const close = () => {
+    card.style.opacity = "0";
+    card.style.transform = "translateX(16px)";
+    setTimeout(() => { card.remove(); spacer.remove(); }, 260);
   };
 
-  setTimeout(() => {
-    toast.style.opacity = "0";
-    toast.style.transform = "translateY(-8px)";
-    setTimeout(() => toast.remove(), 250);
-  }, 5000);
+  btnClose.addEventListener("click", (e) => { e.stopPropagation(); close(); });
+  card.addEventListener("click", () => { abrirModalAlertas(); close(); });
+  setTimeout(close, dur);
 }
 
 // =========================
@@ -700,7 +704,7 @@ function usuarioPodeVerAlerta(alerta) {
   const email = String(alerta?.responsavelEmail || "").toLowerCase().trim();
   return typeof usuarioPodeVerResponsavel === "function"
     ? usuarioPodeVerResponsavel(email)
-    : true;
+    : false;
 }
 
 function iniciarListenerAlertas() {
@@ -767,13 +771,31 @@ function iniciarLoopAlertas() {
     verificarAlertasSistema().catch(console.error);
   }, intervaloMs);
 
-  document.addEventListener("visibilitychange", () => {
+  window._alertasVisibilityHandler = () => {
     if (!document.hidden) {
       apagarAlertasObsoletosParaSempre().catch(console.error);
       verificarAlertasSistema().catch(console.error);
     }
-  });
+  };
+  document.addEventListener("visibilitychange", window._alertasVisibilityHandler);
 }
+
+function limparSistemaAlertas() {
+  if (window.alertasLoopHandle) {
+    clearInterval(window.alertasLoopHandle);
+    window.alertasLoopHandle = null;
+  }
+
+  window.unsubscribeAlertas?.();
+  window.unsubscribeAlertas = null;
+
+  if (window._alertasVisibilityHandler) {
+    document.removeEventListener("visibilitychange", window._alertasVisibilityHandler);
+    window._alertasVisibilityHandler = null;
+  }
+}
+
+window.limparSistemaAlertas = limparSistemaAlertas;
 
 async function limparAlertasTipoObsoleto(tipo) {
   const snap = await getAlertasRef().where("tipo", "==", tipo).get();
@@ -986,55 +1008,59 @@ function renderListaAlertas() {
         </div>
 
         <div class="alerta-actions">
-          ${status === "aberto" || status === "adiado"
-            ? `<button type="button" class="secondary" onclick="abrirItemDoAlerta('${a.id}')">Abrir</button>`
+          ${a.entidade === "oferta" && a.entidadeId
+            ? `<button type="button" class="btn-ver-oferta" onclick="abrirItemDoAlerta('${a.id}')">Ver oferta →</button>`
             : ""}
 
           ${status === "aberto" || status === "adiado"
             ? `<button type="button" class="secondary" onclick="${podeGerenciarDireto ? `resolverAlertaDireto('${a.id}')` : `solicitarResolucaoAlerta('${a.id}')`}">Resolver</button>`
             : ""}
 
-          ${status === "aberto" || status === "adiado"
-            ? `<button type="button" class="secondary" onclick="lembrarDepoisAlerta('${a.id}', 1)">+1 dia</button>`
-            : ""}
-
-          ${status === "aberto" || status === "adiado"
-            ? `<button type="button" class="secondary" onclick="lembrarDepoisAlerta('${a.id}', 3)">+3 dias</button>`
-            : ""}
-
-          ${status === "aberto" || status === "adiado"
-            ? `<button type="button" class="secondary" onclick="lembrarDepoisAlerta('${a.id}', 7)">+7 dias</button>`
-            : ""}
-
-          ${status === "aberto" || status === "adiado"
-            ? `<button type="button" class="secondary" onclick="lembrarDepoisDataAlerta('${a.id}')">Escolher data</button>`
-            : ""}
-
-          ${status === "aberto" || status === "adiado"
-            ? `<button type="button" class="secondary" onclick="${podeGerenciarDireto ? `ignorarAlertaDireto('${a.id}')` : `solicitarIgnorarAlerta('${a.id}')`}">Ignorar</button>`
-            : ""}
-
           ${status === "aguardando_aprovacao_resolucao" && podeAprovar
             ? `<button type="button" class="secondary" onclick="aprovarResolucaoAlerta('${a.id}')">Aprovar resolução</button>`
-            : ""}
-
-          ${status === "aguardando_aprovacao_resolucao" && podeAprovar
-            ? `<button type="button" class="secondary" onclick="rejeitarResolucaoAlerta('${a.id}')">Rejeitar</button>`
             : ""}
 
           ${status === "aguardando_aprovacao_ignorar" && podeAprovar
             ? `<button type="button" class="secondary" onclick="aprovarIgnorarAlerta('${a.id}')">Aprovar ignorar</button>`
             : ""}
 
-          ${status === "aguardando_aprovacao_ignorar" && podeAprovar
-            ? `<button type="button" class="secondary" onclick="rejeitarIgnorarAlerta('${a.id}')">Rejeitar</button>`
-            : ""}
-
-          <button type="button" class="secondary" onclick="verHistoricoAlerta('${a.id}')">Histórico</button>
-
           ${status === "resolvido"
             ? `<button type="button" class="secondary" onclick="reabrirAlerta('${a.id}')">Reabrir</button>`
             : ""}
+
+          <button type="button" class="btn-alerta-mais" onclick="toggleAlertaSecondary(this)" aria-label="Mais ações">⋯</button>
+
+          <div class="alerta-actions-secondary">
+            ${status === "aberto" || status === "adiado"
+              ? `<button type="button" class="secondary" onclick="lembrarDepoisAlerta('${a.id}', 1)">+1 dia</button>`
+              : ""}
+
+            ${status === "aberto" || status === "adiado"
+              ? `<button type="button" class="secondary" onclick="lembrarDepoisAlerta('${a.id}', 3)">+3 dias</button>`
+              : ""}
+
+            ${status === "aberto" || status === "adiado"
+              ? `<button type="button" class="secondary" onclick="lembrarDepoisAlerta('${a.id}', 7)">+7 dias</button>`
+              : ""}
+
+            ${status === "aberto" || status === "adiado"
+              ? `<button type="button" class="secondary" onclick="lembrarDepoisDataAlerta('${a.id}')">Escolher data</button>`
+              : ""}
+
+            ${status === "aberto" || status === "adiado"
+              ? `<button type="button" class="secondary" onclick="${podeGerenciarDireto ? `ignorarAlertaDireto('${a.id}')` : `solicitarIgnorarAlerta('${a.id}')`}">Ignorar</button>`
+              : ""}
+
+            ${status === "aguardando_aprovacao_resolucao" && podeAprovar
+              ? `<button type="button" class="secondary" onclick="rejeitarResolucaoAlerta('${a.id}')">Rejeitar</button>`
+              : ""}
+
+            ${status === "aguardando_aprovacao_ignorar" && podeAprovar
+              ? `<button type="button" class="secondary" onclick="rejeitarIgnorarAlerta('${a.id}')">Rejeitar</button>`
+              : ""}
+
+            <button type="button" class="secondary" onclick="verHistoricoAlerta('${a.id}')">Histórico</button>
+          </div>
         </div>
       </div>
     `;
@@ -1301,7 +1327,7 @@ async function lembrarDepoisDataAlerta(id) {
 
   const data = new Date(`${valor}T09:00:00`);
   if (isNaN(data.getTime())) {
-    alert("Data inválida.");
+    showToast("Data inválida.", "error");
     return;
   }
 
@@ -1342,6 +1368,7 @@ async function abrirItemDoAlerta(alertaId) {
   const entidadeId = alerta.entidadeId;
 
   if (entidade === "oferta" && typeof verOferta === "function") {
+    window._voltarParaAlertas = true;
     verOferta(entidadeId);
     return;
   }
@@ -1518,4 +1545,12 @@ async function excluirAlertasDeEntidade(entidadeId) {
   const batch = window.db.batch();
   snap.docs.forEach((doc) => batch.delete(doc.ref));
   await batch.commit();
+}
+
+function toggleAlertaSecondary(btn) {
+  const secondary = btn.parentElement.querySelector(".alerta-actions-secondary");
+  if (!secondary) return;
+  const isOpen = secondary.classList.toggle("open");
+  btn.textContent = isOpen ? "✕" : "⋯";
+  btn.setAttribute("aria-expanded", String(isOpen));
 }

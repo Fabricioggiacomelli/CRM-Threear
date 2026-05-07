@@ -14,6 +14,7 @@ window.OFERTA_SCHEMA = [
   { key: "ref_cliente", label: "Ref. do Cliente" },
   { key: "data_entrada", label: "Data Entrada", type: "date" },
   { key: "status", label: "Status" },
+  { key: "motivo_perda", label: "Motivo da Perda" },
   { key: "tipo_oferta", label: "Tipo (Compra / Orçamento)" },
   { key: "atendimentoSpot", label: "Atendimento spot?", type: "yesno" },
   { key: "data_envio", label: "Data Envio", type: "date" },

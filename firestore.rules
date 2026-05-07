@@ -1,0 +1,143 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+
+    // ─── Helpers ────────────────────────────────────────────────
+
+    function userDoc() {
+      return get(/databases/$(database)/documents/usuarios/$(request.auth.uid)).data;
+    }
+
+    function isAuthed() {
+      return request.auth != null;
+    }
+
+    function isApproved() {
+      let u = userDoc();
+      return u.aprovado == true && u.ativo != false;
+    }
+
+    function userRole() {
+      return userDoc().role;
+    }
+
+    function isAdmin() {
+      return userRole() == 'admin';
+    }
+
+    function isSupervisor() {
+      return userRole() == 'supervisor';
+    }
+
+    // Verifica se o usuário logado tem permissão de ver dados de 'email'
+    // Admin vê tudo; supervisor verifica podeVerDe; user sempre vê o próprio
+    function canSeeEmail(email) {
+      let u = userDoc();
+      return u.role == 'admin'
+        || email == request.auth.token.email
+        || (u.keys().hasAll(['podeVerDe'])
+            && (u.podeVerDe.hasAny(['*']) || u.podeVerDe.hasAny([email])));
+    }
+
+    // ─── usuarios ───────────────────────────────────────────────
+    // Cada usuário lê e cria o próprio doc (necessário no primeiro login).
+    // Admin pode ler e atualizar qualquer doc.
+    // Ninguém (exceto admin) pode alterar campos de segurança no próprio doc.
+    match /usuarios/{uid} {
+      allow read:   if isAuthed() && (request.auth.uid == uid || isAdmin());
+      allow create: if isAuthed() && request.auth.uid == uid;
+      allow update: if isAuthed() && (
+        isAdmin()
+        || (
+          request.auth.uid == uid
+          // Bloqueia alteração de campos de segurança pelo próprio usuário
+          && !request.resource.data.diff(resource.data).affectedKeys()
+              .hasAny(['role', 'aprovado', 'ativo', 'podeVerDe'])
+        )
+      );
+      allow delete: if isAuthed() && isAdmin();
+    }
+
+    // ─── usuarios_mfa (apenas Admin SDK) ────────────────────────
+    // O cliente nunca acessa esta coleção diretamente.
+    // Toda escrita/leitura é feita pelo backend Express via Admin SDK.
+    match /usuarios_mfa/{uid} {
+      allow read, write: if false;
+    }
+
+    // ─── ofertas ────────────────────────────────────────────────
+    match /ofertas/{id} {
+      allow read:   if isAuthed() && isApproved() && (
+                      isAdmin()
+                      || (resource.data.keys().hasAll(['criadoPor'])
+                          && canSeeEmail(resource.data.criadoPor))
+                    );
+      allow create: if isAuthed() && isApproved();
+      allow update: if isAuthed() && isApproved() && (
+                      isAdmin()
+                      || (resource.data.keys().hasAll(['criadoPor'])
+                          && canSeeEmail(resource.data.criadoPor))
+                    );
+      allow delete: if isAuthed() && isAdmin();
+    }
+
+    // ─── alertas ────────────────────────────────────────────────
+    // Alertas são criados pelo sistema (qualquer usuário aprovado pode criar).
+    // Leitura e atualização seguem o responsavelEmail do alerta.
+    match /alertas/{id} {
+      allow read:   if isAuthed() && isApproved() && (
+                      isAdmin()
+                      || (resource.data.keys().hasAll(['responsavelEmail'])
+                          && canSeeEmail(resource.data.responsavelEmail))
+                    );
+      allow create: if isAuthed() && isApproved();
+      allow update: if isAuthed() && isApproved() && (
+                      isAdmin()
+                      || (resource.data.keys().hasAll(['responsavelEmail'])
+                          && canSeeEmail(resource.data.responsavelEmail))
+                    );
+      allow delete: if isAuthed() && isAdmin();
+    }
+
+    // ─── clientes ───────────────────────────────────────────────
+    // Catálogo compartilhado: todos aprovados leem, criam, editam e mandam p/ lixeira.
+    // Delete físico permanente: apenas admin.
+    match /clientes/{id} {
+      allow read:   if isAuthed() && isApproved();
+      allow create: if isAuthed() && isApproved();
+      allow update: if isAuthed() && isApproved();
+      allow delete: if isAuthed() && isAdmin();
+    }
+
+    // ─── representadas ──────────────────────────────────────────
+    match /representadas/{id} {
+      allow read:   if isAuthed() && isApproved();
+      allow create: if isAuthed() && isApproved();
+      allow update: if isAuthed() && isApproved();
+      allow delete: if isAuthed() && isAdmin();
+    }
+
+    // ─── projetos ───────────────────────────────────────────────
+    match /projetos/{id} {
+      allow read:   if isAuthed() && isApproved();
+      allow create: if isAuthed() && isApproved();
+      allow update: if isAuthed() && isApproved();
+      allow delete: if isAuthed() && isAdmin();
+    }
+
+    // ─── equipes (apenas admin gerencia) ────────────────────────
+    match /equipes/{id} {
+      allow read:   if isAuthed() && isApproved();
+      allow write:  if isAuthed() && isAdmin();
+    }
+
+    // ─── backups (apenas admin) ──────────────────────────────────
+    match /backups/{id} {
+      allow read, write: if isAuthed() && isAdmin();
+
+      match /{subcollection=**} {
+        allow read, write: if isAuthed() && isAdmin();
+      }
+    }
+  }
+}

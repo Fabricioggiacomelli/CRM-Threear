@@ -7,7 +7,7 @@
   <link rel="icon" type="image/png" href="Imagens/LogoCRM.png" />
   <link rel="stylesheet" href="style.css" />
   <link rel="stylesheet" href="dashboard.css" />
-  <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.9/dist/chart.umd.min.js"></script>
 </head>
 <body>
 
@@ -24,6 +24,21 @@
       <button type="button" class="menu-item" id="btnVoltar">
         <span class="icon">↩️</span><span class="label">Voltar</span>
       </button>
+
+      <div class="sidebar-nav-sep"><span class="label">Seções</span></div>
+      <button class="menu-item" onclick="scrollToSection('sec-performance')">
+        <span class="icon">📈</span><span class="label">Ofertas</span>
+      </button>
+      <button class="menu-item" onclick="scrollToSection('sec-clientes')">
+        <span class="icon">👥</span><span class="label">Clientes</span>
+      </button>
+      <button class="menu-item" onclick="scrollToSection('sec-representadas')">
+        <span class="icon">🏭</span><span class="label">Representadas</span>
+      </button>
+      <button class="menu-item" onclick="scrollToSection('sec-projetos')">
+        <span class="icon">📁</span><span class="label">Projetos</span>
+      </button>
+
       <button class="menu-item" id="btnTema">
         <span class="icon">🌓</span><span class="label" id="temaLabel">Modo escuro</span>
       </button>
@@ -31,6 +46,7 @@
         <span class="icon">🚪</span><span class="label">Sair</span>
       </button>
     </div>
+
     <button class="collapse-btn" type="button" onclick="toggleSidebar()">⮜</button>
   </aside>
 
@@ -45,6 +61,26 @@
           <div id="dashStatusText" class="d-status-text"></div>
         </div>
         <div class="d-header-right">
+          <div class="d-export-wrap" id="exportWrap">
+            <button class="d-export-btn" id="btnExport" type="button">
+              <svg width="14" height="14" viewBox="0 0 16 16" fill="none"><path d="M8 2v8M5 7l3 3 3-3M3 12h10" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/></svg>
+              Exportar
+            </button>
+            <div class="d-export-menu" id="exportMenu">
+              <button class="d-export-opt" id="btnExportExcel" type="button">
+                <svg width="13" height="13" viewBox="0 0 16 16" fill="none"><rect x="2" y="2" width="12" height="12" rx="2" stroke="currentColor" stroke-width="1.5"/><path d="M5 6l2 2-2 2M9 10h2" stroke="currentColor" stroke-width="1.4" stroke-linecap="round"/></svg>
+                Excel (.xlsx)
+              </button>
+              <button class="d-export-opt" id="btnExportPdf" type="button">
+                <svg width="13" height="13" viewBox="0 0 16 16" fill="none"><rect x="2" y="2" width="12" height="12" rx="2" stroke="currentColor" stroke-width="1.5"/><path d="M5 5h4M5 8h6M5 11h3" stroke="currentColor" stroke-width="1.4" stroke-linecap="round"/></svg>
+                PDF / Imprimir
+              </button>
+              <button class="d-export-opt" id="btnExportCsv" type="button">
+                <svg width="13" height="13" viewBox="0 0 16 16" fill="none"><rect x="2" y="2" width="12" height="12" rx="2" stroke="currentColor" stroke-width="1.5"/><path d="M5 6h2M5 10h6M9 6l2 2-2 2" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round"/></svg>
+                CSV (dados brutos)
+              </button>
+            </div>
+          </div>
           <span id="userInfo" class="d-user-chip">—</span>
         </div>
       </div>
@@ -82,6 +118,18 @@
             <label class="d-filter-label">Status</label>
             <select class="d-select" id="dashStatus"><option value="all">Todos</option></select>
           </div>
+          <div class="d-filter-field">
+            <label class="d-filter-label">BU</label>
+            <select class="d-select" id="dashBU"><option value="all">Todas</option></select>
+          </div>
+          <div class="d-filter-field">
+            <label class="d-filter-label">Cliente</label>
+            <select class="d-select" id="dashCliente"><option value="all">Todos</option></select>
+          </div>
+          <div class="d-filter-field">
+            <label class="d-filter-label">Projeto</label>
+            <select class="d-select" id="dashProjeto"><option value="all">Todos</option></select>
+          </div>
         </div>
         <div class="d-filter-actions">
           <button class="d-btn-apply" id="btnAplicarFiltros">Aplicar</button>
@@ -92,73 +140,73 @@
       <!-- ── KPIs ───────────────────────────────────────────── -->
       <div class="d-kpis">
 
-        <div class="d-kpi d-kpi--blue">
+        <div class="d-kpi d-kpi--blue d-kpi--drill" onclick="openKpiModal('propostas')" title="Ver propostas">
           <div class="d-kpi-label">Propostas</div>
           <div class="d-kpi-value" id="kpiPropostas">—</div>
           <div class="kpi-trend kpi-trend-neutral" id="kpiPropostasTrend">vs período ant.</div>
         </div>
 
-        <div class="d-kpi d-kpi--green">
+        <div class="d-kpi d-kpi--green d-kpi--drill" onclick="openKpiModal('pedidos')" title="Ver pedidos">
           <div class="d-kpi-label">Pedidos</div>
           <div class="d-kpi-value" id="kpiPedidos">—</div>
           <div class="kpi-trend kpi-trend-neutral" id="kpiPedidosTrend">vs período ant.</div>
         </div>
 
-        <div class="d-kpi d-kpi--blue">
+        <div class="d-kpi d-kpi--blue d-kpi--drill" onclick="openKpiModal('rProp')" title="Ver propostas por valor">
           <div class="d-kpi-label">R$ Propostas</div>
           <div class="d-kpi-value d-kpi-value--money" id="kpiValorPropostas">—</div>
           <div class="kpi-trend kpi-trend-neutral" id="kpiValorPropostasTrend">vs período ant.</div>
         </div>
 
-        <div class="d-kpi d-kpi--green">
+        <div class="d-kpi d-kpi--green d-kpi--drill" onclick="openKpiModal('rPed')" title="Ver pedidos por valor">
           <div class="d-kpi-label">R$ Pedidos</div>
           <div class="d-kpi-value d-kpi-value--money" id="kpiValorPedidos">—</div>
           <div class="kpi-trend kpi-trend-neutral" id="kpiValorPedidosTrend">vs período ant.</div>
         </div>
 
-        <div class="d-kpi d-kpi--amber">
+        <div class="d-kpi d-kpi--amber d-kpi--drill" onclick="openKpiModal('convQtd')" title="Ver conversão por quantidade">
           <div class="d-kpi-label">Conversão (qtd)</div>
           <div class="d-kpi-value" id="kpiConvQtd">—</div>
           <div class="kpi-trend kpi-trend-neutral" id="kpiConvQtdTrend">vs período ant.</div>
         </div>
 
-        <div class="d-kpi d-kpi--amber">
+        <div class="d-kpi d-kpi--amber d-kpi--drill" onclick="openKpiModal('convValor')" title="Ver conversão por valor">
           <div class="d-kpi-label">Conversão (valor)</div>
           <div class="d-kpi-value" id="kpiConvValor">—</div>
           <div class="kpi-trend kpi-trend-neutral" id="kpiConvValorTrend">vs período ant.</div>
         </div>
 
-        <div class="d-kpi d-kpi--violet">
+        <div class="d-kpi d-kpi--violet d-kpi--drill" onclick="openKpiModal('ticketProp')" title="Ver propostas por ticket">
           <div class="d-kpi-label">Ticket médio proposta</div>
           <div class="d-kpi-value d-kpi-value--money" id="kpiTicketProp">—</div>
           <div class="kpi-trend kpi-trend-neutral" id="kpiTicketPropTrend">vs período ant.</div>
         </div>
 
-        <div class="d-kpi d-kpi--violet">
+        <div class="d-kpi d-kpi--violet d-kpi--drill" onclick="openKpiModal('ticketPed')" title="Ver pedidos por ticket">
           <div class="d-kpi-label">Ticket médio pedido</div>
           <div class="d-kpi-value d-kpi-value--money" id="kpiTicketPed">—</div>
           <div class="kpi-trend kpi-trend-neutral" id="kpiTicketPedTrend">vs período ant.</div>
         </div>
 
-        <div class="d-kpi d-kpi--cyan">
+        <div class="d-kpi d-kpi--cyan d-kpi--drill" onclick="openKpiModal('clientes')" title="Ver clientes ativos">
           <div class="d-kpi-label">Clientes ativos</div>
           <div class="d-kpi-value" id="kpiClientesAtivos">—</div>
           <div class="kpi-trend kpi-trend-neutral" id="kpiClientesAtivosTrend">vs período ant.</div>
         </div>
 
-        <div class="d-kpi d-kpi--cyan">
+        <div class="d-kpi d-kpi--cyan d-kpi--drill" onclick="openKpiModal('reps')" title="Ver representadas ativas">
           <div class="d-kpi-label">Representadas ativas</div>
           <div class="d-kpi-value" id="kpiRepsAtivas">—</div>
           <div class="kpi-trend kpi-trend-neutral" id="kpiRepsAtivasTrend">vs período ant.</div>
         </div>
 
-        <div class="d-kpi d-kpi--indigo">
+        <div class="d-kpi d-kpi--indigo d-kpi--drill" onclick="openKpiModal('projetos')" title="Ver projetos com propostas">
           <div class="d-kpi-label">Projetos ativos</div>
           <div class="d-kpi-value" id="kpiProjetosAtivos">—</div>
           <div class="kpi-trend kpi-trend-neutral">—</div>
         </div>
 
-        <div class="d-kpi d-kpi--rose">
+        <div class="d-kpi d-kpi--rose d-kpi--drill" onclick="openKpiModal('aguardando')" title="Ver propostas aguardando pedido">
           <div class="d-kpi-label">Aguardando Pedido</div>
           <div class="d-kpi-value" id="kpiAguardando">—</div>
           <div class="kpi-trend kpi-trend-neutral">—</div>
@@ -170,7 +218,7 @@
       <div class="dash-alerts" id="dashAlerts"></div>
 
       <!-- ── 01: Performance Comercial ─────────────────────── -->
-      <section class="d-section">
+      <section class="d-section" id="sec-performance">
         <div class="d-section-head">
           <span class="d-section-num">01</span>
           <h2 class="d-section-title">Performance Comercial</h2>
@@ -178,25 +226,25 @@
         <div class="d-grid-3">
           <div class="d-card d-card--clickable" id="cardFunil">
             <div class="d-card-label">Funil de status</div>
-            <canvas id="chartFunil"></canvas>
+            <canvas id="chartFunil" role="img" aria-label="Gráfico de funil de ofertas por status"></canvas>
           </div>
           <div class="d-card">
             <div class="d-card-label">Período atual vs anterior — propostas e pedidos</div>
-            <canvas id="chartComparativo"></canvas>
+            <canvas id="chartComparativo" role="img" aria-label="Gráfico de comparação de propostas e pedidos — período atual vs anterior"></canvas>
           </div>
           <div class="d-card" id="cardEvolucao">
             <div class="d-card-label">Evolução mensal — propostas × pedidos</div>
-            <canvas id="chartEvolucao"></canvas>
+            <canvas id="chartEvolucao" role="img" aria-label="Gráfico de evolução mensal de propostas e pedidos"></canvas>
           </div>
           <div class="d-card">
             <div class="d-card-label">Período atual vs anterior — valores (R$)</div>
-            <canvas id="chartComparativoValores"></canvas>
+            <canvas id="chartComparativoValores" role="img" aria-label="Gráfico de comparação de valores em reais — período atual vs anterior"></canvas>
           </div>
         </div>
       </section>
 
       <!-- ── 02: Clientes ───────────────────────────────────── -->
-      <section class="d-section">
+      <section class="d-section" id="sec-clientes">
         <div class="d-section-head">
           <span class="d-section-num">02</span>
           <h2 class="d-section-title">Inteligência de Clientes</h2>
@@ -204,11 +252,11 @@
         <div class="d-grid-3">
           <div class="d-card d-card--clickable" id="cardTopClientesPedido">
             <div class="d-card-label">Top 10 — R$ pedido</div>
-            <canvas id="chartTopClientesPedido"></canvas>
+            <canvas id="chartTopClientesPedido" role="img" aria-label="Gráfico dos top 10 clientes por valor de pedido"></canvas>
           </div>
           <div class="d-card d-card--clickable" id="cardTopClientesProposta">
             <div class="d-card-label">Top 10 — R$ proposto</div>
-            <canvas id="chartTopClientesProposta"></canvas>
+            <canvas id="chartTopClientesProposta" role="img" aria-label="Gráfico dos top 10 clientes por valor proposto"></canvas>
           </div>
           <div class="d-card">
             <div class="d-card-label">Clientes em risco — baixa conversão</div>
@@ -218,7 +266,7 @@
       </section>
 
       <!-- ── 03: Representadas ──────────────────────────────── -->
-      <section class="d-section">
+      <section class="d-section" id="sec-representadas">
         <div class="d-section-head">
           <span class="d-section-num">03</span>
           <h2 class="d-section-title">Inteligência de Representadas</h2>
@@ -226,21 +274,31 @@
         <div class="d-grid-3">
           <div class="d-card d-card--clickable" id="cardRepsPropPed">
             <div class="d-card-label">Proposta × Pedido (R$)</div>
-            <canvas id="chartRepsPropPed"></canvas>
+            <canvas id="chartRepsPropPed" role="img" aria-label="Gráfico de proposta versus pedido por representada em reais"></canvas>
           </div>
           <div class="d-card" id="cardConversao">
             <div class="d-card-label">Conversão por representada (valor %)</div>
-            <canvas id="chartConversao"></canvas>
+            <canvas id="chartConversao" role="img" aria-label="Gráfico de taxa de conversão por representada em percentual de valor"></canvas>
           </div>
           <div class="d-card">
             <div class="d-card-label">Top representadas — R$ em pedidos</div>
             <div class="d-table-wrap" id="topRepsBox"></div>
           </div>
         </div>
+        <div class="d-grid-3" style="margin-top:12px">
+          <div class="d-card" id="cardWinRateReps">
+            <div class="d-card-label">Win Rate por representada (% propostas ganhas)</div>
+            <canvas id="chartWinRateReps" role="img" aria-label="Gráfico de taxa de ganho por representada em percentual de propostas ganhas"></canvas>
+          </div>
+          <div class="d-card" id="cardWinRateRepsTable">
+            <div class="d-card-label">Ranking win rate — detalhes</div>
+            <div class="d-table-wrap" id="winRateRepsBox"></div>
+          </div>
+        </div>
       </section>
 
       <!-- ── 04: Projetos ───────────────────────────────────── -->
-      <section class="d-section">
+      <section class="d-section" id="sec-projetos">
         <div class="d-section-head">
           <span class="d-section-num">04</span>
           <h2 class="d-section-title">Inteligência de Projetos</h2>
@@ -248,11 +306,11 @@
         <div class="d-grid-3">
           <div class="d-card" id="cardProjetosVolume">
             <div class="d-card-label">Top 10 projetos — R$ proposto</div>
-            <canvas id="chartProjetosVolume"></canvas>
+            <canvas id="chartProjetosVolume" role="img" aria-label="Gráfico dos top 10 projetos por valor proposto"></canvas>
           </div>
           <div class="d-card">
             <div class="d-card-label">Status dos projetos</div>
-            <canvas id="chartProjetosStatus"></canvas>
+            <canvas id="chartProjetosStatus" role="img" aria-label="Gráfico de distribuição de projetos por status"></canvas>
           </div>
           <div class="d-card">
             <div class="d-card-label">Projetos sem atualização recente</div>
@@ -262,12 +320,48 @@
       </section>
 
     </div><!-- /.d-page -->
+
+    <!-- ── KPI Detail Modal ──────────────────────────────────── -->
+    <div id="kpiModal" class="kpi-modal-overlay" style="display:none" role="dialog" aria-modal="true" aria-labelledby="kpiModalTitle">
+      <div class="kpi-modal-card">
+        <div class="kpi-modal-hdr">
+          <button class="kpi-modal-back" id="kpiModalBack" style="display:none" aria-label="Voltar">
+            <svg width="12" height="12" viewBox="0 0 12 12" fill="none"><path d="M7.5 9L4.5 6L7.5 3" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/></svg>
+            Voltar
+          </button>
+          <div class="kpi-modal-title" id="kpiModalTitle"></div>
+          <div class="kpi-modal-sub" id="kpiModalSub"></div>
+        </div>
+        <button class="kpi-modal-close" id="kpiModalClose" aria-label="Fechar">✕</button>
+        <div class="kpi-modal-search-row">
+          <div class="kpi-search-wrap">
+            <svg class="kpi-search-icon" viewBox="0 0 16 16" fill="none"><circle cx="6.5" cy="6.5" r="4.5" stroke="currentColor" stroke-width="1.5"/><path d="M10 10L13.5 13.5" stroke="currentColor" stroke-width="1.5" stroke-linecap="round"/></svg>
+            <input class="kpi-modal-search" id="kpiModalSearch" type="text" placeholder="Buscar por cliente, representada, status..." autocomplete="off" />
+          </div>
+        </div>
+        <div class="kpi-modal-filter-row" id="kpiModalFilterRow" style="display:none">
+          <select class="kpi-fsel" id="kpiFilterStatus"><option value="">Todos os status</option></select>
+          <select class="kpi-fsel" id="kpiFilterRep"><option value="">Todas as representadas</option></select>
+          <select class="kpi-fsel" id="kpiFilterPedido">
+            <option value="">Com e sem pedido</option>
+            <option value="sim">Com pedido</option>
+            <option value="nao">Sem pedido</option>
+          </select>
+          <button class="kpi-filter-clear" id="kpiFilterClear" type="button">Limpar filtros</button>
+        </div>
+        <div class="kpi-modal-body" id="kpiModalBody"></div>
+      </div>
+    </div>
+
+
   </main>
 
   <script src="https://www.gstatic.com/firebasejs/8.10.1/firebase-app.js"></script>
   <script src="https://www.gstatic.com/firebasejs/8.10.1/firebase-auth.js"></script>
   <script src="https://www.gstatic.com/firebasejs/8.10.1/firebase-firestore.js"></script>
   <script src="firebase.js"></script>
+  <script src="schema.js"></script>
+  <script src="https://cdn.sheetjs.com/xlsx-latest/package/dist/xlsx.full.min.js"></script>
   <script src="./dashboard.js"></script>
 </body>
 </html>

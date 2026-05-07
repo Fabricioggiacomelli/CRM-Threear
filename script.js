@@ -145,6 +145,7 @@ const OFERTA_SCHEMA_RESUMIDO = [
   { key: "representadaNome", label: "Representada" },
   { key: "tipo_oferta", label: "Tipo" },
   { key: "status", label: "Status" },
+  { key: "motivo_perda", label: "Motivo da Perda" },
   { key: "valor_total", label: "Valor Total" },
   { key: "data_entrada", label: "Data Entrada", type: "date" },
   { key: "data_envio", label: "Data Envio", type: "date" },
@@ -408,6 +409,7 @@ window.addEventListener("load", async () => {
 
   initAprovacaoUsuariosUI();
   initUsuariosExistentesUI();
+  initTecladoAtalhos();
 
   await esperarFirebase();
 
@@ -462,7 +464,7 @@ window.addEventListener("load", async () => {
       await user.reload();
       if (!user.emailVerified) {
         await auth.signOut();
-        alert("Verifique seu e-mail antes de acessar.");
+        showToast("Verifique seu e-mail antes de acessar.", "info");
         mostrarLogin();
         return;
       }
@@ -473,7 +475,7 @@ window.addEventListener("load", async () => {
       const ativo = udata.ativo === undefined ? true : !!udata.ativo;
 
       if (!aprovado || !ativo) {
-        alert("Usuário ainda não autorizado.");
+        showToast("Usuário ainda não autorizado.", "error");
         await auth.signOut();
         mostrarLogin();
         return;
@@ -500,7 +502,7 @@ window.addEventListener("load", async () => {
       mostrarApp();
     } catch (e) {
       console.error("Erro no onAuthStateChanged:", e);
-      alert("Erro ao inicializar login. Veja o console.");
+      showToast("Erro ao inicializar login. Veja o console.", "error");
       mostrarLogin();
     }
   });
@@ -575,7 +577,9 @@ async function carregarClientesFirebase() {
 async function carregarUsuariosFirebase() {
   try {
     const snap = await db.collection("usuarios").get();
-    usuarios = snap.docs.map((doc) => ({ id: doc.id, ...doc.data() }));
+    usuarios = snap.docs
+      .map((doc) => ({ id: doc.id, ...doc.data() }))
+      .filter((u) => !u.deletado);
   } catch (e) {
     console.error("ERRO ao carregar usuarios:", e);
     usuarios = [];
@@ -626,6 +630,18 @@ function mostrarApp() {
   preencherSelectPadrao("status", STATUS_OPTIONS, "");
   preencherSelectPadrao("cli_segmento", SEGMENTO_OPTIONS, "");
 
+  document.getElementById("status")?.addEventListener("change", function () {
+    const bloco = document.getElementById("blocoMotivoPerda");
+    if (!bloco) return;
+    if (this.value === "Perdido") {
+      bloco.classList.remove("hidden");
+    } else {
+      bloco.classList.add("hidden");
+      const sel = document.getElementById("motivo_perda");
+      if (sel) sel.value = "";
+    }
+  });
+
   renderTabela();
   renderTabelaClientes();
   renderTabelaRepresentadas();
@@ -635,6 +651,7 @@ function mostrarApp() {
   renderTabelaProjetos();
   iniciarSistemaAlertas();
   initDOMCache();
+  initFiltrosPersistidos();
 
   const _podeExportar =
     (typeof isAdmin === "function" && isAdmin()) ||
@@ -683,9 +700,11 @@ function mostrarApp() {
 }
 
 function logout() {
+  window.limparSistemaAlertas?.();
+  window.alertasCache = [];
   auth.signOut().catch((err) => {
     console.error(err);
-    alert("Erro ao sair: " + err.message);
+    showToast("Erro ao sair: " + err.message, "error");
   });
 }
 
@@ -702,18 +721,18 @@ function initLogin() {
     setLoginMsg("");
 
     if (!email || !pass) {
-      alert("Preencha e-mail e senha.");
+      showToast("Preencha e-mail e senha.", "error");
       return;
     }
 
     if (!senhaForteLogin(pass)) {
-      alert(msgSenhaForteLogin());
+      showToast(msgSenhaForteLogin(), "error");
 
       try {
         setLoginMsg("Senha fraca. Enviando e-mail para troca de senha...");
         await auth.sendPasswordResetEmail(email);
         setLoginMsg("✅ Enviamos um e-mail para você trocar a senha.");
-        alert("Enviamos um e-mail para trocar a senha.");
+        showToast("Enviamos um e-mail para trocar a senha.", "success");
       } catch (e) {
         console.error(e);
         setLoginMsg(
@@ -743,7 +762,7 @@ function initLogin() {
               ? "Email inválido."
               : "Erro ao fazer login: " + (err?.message || err);
 
-      alert(msg);
+      showToast(msg, "error");
     } finally {
       btnLogin.disabled = false;
       btnLogin.textContent = "Entrar";
@@ -787,7 +806,7 @@ function fecharModalTOTP(forceClose = false) {
   if (!m) return;
 
   if (!forceClose && !totpOk) {
-    alert("Para acessar o sistema, confirme o código do Google Authenticator.");
+    showToast("Para acessar o sistema, confirme o código do Google Authenticator.", "info");
     return;
   }
 
@@ -831,6 +850,39 @@ async function apiVerify(userEmail, token) {
   if (!r.ok || !j.ok)
     throw new Error(j.error || j.message || "Falha ao validar");
   return j;
+}
+
+async function apiResetMfa(targetEmail) {
+  const adminToken = await auth.currentUser.getIdToken();
+  const r = await fetch(`${API_BASE}/mfa/reset`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ user: targetEmail, adminToken }),
+  });
+  const j = await r.json().catch(() => ({}));
+  if (!r.ok || !j.ok)
+    throw new Error(j.error || j.message || "Falha ao resetar 2FA");
+  return j;
+}
+
+async function resetarMfaUsuario(email) {
+  if (!isAdmin()) {
+    showToast("Apenas administradores podem resetar o 2FA.", "error");
+    return;
+  }
+
+  const ok = await showConfirm(
+    `Isso vai apagar o código 2FA de ${email}.\nNa próxima vez que ele fizer login, precisará escanear um novo QR code.`,
+    { title: "Resetar 2FA", confirmText: "Resetar", danger: true }
+  );
+  if (!ok) return;
+
+  try {
+    await apiResetMfa(email);
+    showToast({ title: "2FA resetado", description: `${email} precisará escanear o QR na próxima vez.` }, "success");
+  } catch (e) {
+    showToast({ title: "Erro ao resetar 2FA", description: e.message }, "error");
+  }
 }
 
 async function iniciarFluxoTOTP(user) {
@@ -967,6 +1019,10 @@ function abrirModal(titulo, html) {
 function fecharModalDetalhes() {
   const modal = document.getElementById("modalDetalhes");
   if (modal) modal.classList.add("hidden");
+  if (window._voltarParaAlertas) {
+    window._voltarParaAlertas = false;
+    if (typeof abrirModalAlertas === "function") abrirModalAlertas();
+  }
 }
 
 function applyTheme(theme) {
@@ -993,8 +1049,20 @@ function toggleSidebar() {
   const sidebar = document.getElementById("sidebar");
   if (!sidebar) return;
 
-  if (window.innerWidth <= 780) sidebar.classList.toggle("open");
-  else sidebar.classList.toggle("collapsed");
+  if (window.innerWidth <= 780) {
+    const isOpen = sidebar.classList.toggle("open");
+    const overlay = document.getElementById("sidebarOverlay");
+    if (overlay) overlay.classList.toggle("hidden", !isOpen);
+  } else {
+    sidebar.classList.toggle("collapsed");
+  }
+}
+
+function fecharSidebarMobile() {
+  const sidebar = document.getElementById("sidebar");
+  const overlay = document.getElementById("sidebarOverlay");
+  if (sidebar) sidebar.classList.remove("open");
+  if (overlay) overlay.classList.add("hidden");
 }
 
 function initMoneyMask() {
@@ -1122,7 +1190,7 @@ function onCnpjBlur(e) {
     input.dataset.invalidAlertShown = "1";
 
     setTimeout(() => {
-      alert("CNPJ inválido. Deve conter 14 dígitos.");
+      showToast("CNPJ inválido. Deve conter 14 dígitos.", "error");
       setTimeout(() => input.focus(), 50);
     }, 50);
   }
@@ -1131,6 +1199,66 @@ function onCnpjBlur(e) {
 function onCnpjInput(e) {
   e.target.dataset.invalidAlertShown = "0";
   e.target.value = formatCnpjValue(e.target.value);
+}
+
+function initTecladoAtalhos() {
+  // ── Enter nos campos de login ────────────────────────────────
+  ["loginUser", "loginPass"].forEach((id) => {
+    document.getElementById(id)?.addEventListener("keydown", (e) => {
+      if (e.key === "Enter") { e.preventDefault(); document.getElementById("btnLogin")?.click(); }
+    });
+  });
+
+  // ── Enter no código TOTP ─────────────────────────────────────
+  document.getElementById("totp_code")?.addEventListener("keydown", (e) => {
+    if (e.key === "Enter") { e.preventDefault(); document.getElementById("btnTotpConfirm")?.click(); }
+  });
+
+  // ── ESC global — fecha o modal mais superficial visível ──────
+  document.addEventListener("keydown", (e) => {
+    if (e.key !== "Escape") return;
+
+    // Não interfere quando showConfirm estiver ativo (ele trata o próprio ESC)
+    if (window._confirmAtivo) return;
+
+    // Actions menu flutuante
+    if (actionsMenuState?.open) { closeActionsMenu(); return; }
+
+    // TOTP — ESC cancela o login
+    const totp = document.getElementById("modalTOTP");
+    if (totp && !totp.classList.contains("hidden")) {
+      logout();
+      return;
+    }
+
+    // Modal de importação
+    const importacao = document.getElementById("modalImportacao");
+    if (importacao && !importacao.classList.contains("hidden")) {
+      importacao.classList.add("hidden");
+      return;
+    }
+
+    // Modal de alertas
+    const alertas = document.getElementById("modalAlertas");
+    if (alertas && !alertas.classList.contains("hidden")) {
+      if (typeof fecharModalAlertas === "function") fecharModalAlertas();
+      return;
+    }
+
+    // Modal de detalhes / ver ofertas
+    const detalhes = document.getElementById("modalDetalhes");
+    if (detalhes && !detalhes.classList.contains("hidden")) {
+      if (typeof fecharModalDetalhes === "function") fecharModalDetalhes();
+      return;
+    }
+
+    // Modal de histórico
+    const historico = document.getElementById("modalHistorico");
+    if (historico && historico.classList.contains("show")) {
+      if (typeof fecharModalHistorico === "function") fecharModalHistorico();
+      return;
+    }
+  });
 }
 
 function initForm() {
@@ -1236,6 +1364,7 @@ function initForm() {
 
     const segmentoVisivel = segmentoEl && segmentoEl.offsetParent !== null;
 
+    const motivoPerdaEl = document.getElementById("motivo_perda");
     const valido = validarCamposObrigatorios([
       { el: bu, nome: "B.U" },
       { el: segmentoEl, nome: "Segmento", condicao: segmentoVisivel },
@@ -1245,15 +1374,17 @@ function initForm() {
       { el: email, nome: "E-mail" },
       { el: representadaSelect, nome: "Representada" },
       { el: valor_total, nome: "Valor Total" },
+      { el: data_entrada, nome: "Data Entrada" },
       { el: status, nome: "Status" },
       { el: tipoNegocio, nome: "Tipo" },
+      { el: motivoPerdaEl, nome: "Motivo da Perda", condicao: status.value === "Perdido" },
     ]);
 
     if (!valido) return;
 
     if (cnpj_cliente.value && !validarCNPJ(cnpj_cliente.value)) {
       marcarErroCampo(cnpj_cliente);
-      alert("CNPJ inválido. Verifique os números informados.");
+      showToast("CNPJ inválido. Verifique os números informados.", "error");
       cnpj_cliente.focus();
       return;
     }
@@ -1261,7 +1392,7 @@ function initForm() {
     const telDigits = (telefone.value || "").replace(/\D/g, "");
     if (telDigits && (telDigits.length < 10 || telDigits.length > 11)) {
       marcarErroCampo(telefone);
-      alert("Telefone inválido. Informe DDD + 8 ou 9 dígitos.");
+      showToast("Telefone inválido. Informe DDD + 8 ou 9 dígitos.", "error");
       telefone.focus();
       return;
     }
@@ -1286,6 +1417,9 @@ function initForm() {
       ref_cliente: ref_cliente?.value?.trim() || "",
       data_entrada: data_entrada.value,
       status: status.value,
+      motivo_perda: status.value === "Perdido"
+        ? (document.getElementById("motivo_perda")?.value || "")
+        : "",
       data_envio: data_envio.value,
       responsavelEmail: (window.auth?.currentUser?.email || "").toLowerCase(),
       possuiPedido,
@@ -1371,6 +1505,29 @@ function initForm() {
       registroBase.revisao = null;
     }
 
+    // Detecção de duplicata (CNPJ + Projeto + N° Oferta)
+    const _cnpj    = (registroBase.cnpj_cliente || "").replace(/\D/g, "");
+    const _projeto = (registroBase.nome_projeto || "").trim().toLowerCase();
+    const _oferta  = (registroBase.oferta || "").trim().toLowerCase();
+    const _duplicatas = registros.filter((r) => {
+      if (r.id === editId || r.deletado) return false;
+      const mesmoCnpj    = _cnpj && (r.cnpj_cliente || "").replace(/\D/g, "") === _cnpj;
+      const mesmoProjeto = _projeto && (r.nome_projeto || "").trim().toLowerCase() === _projeto;
+      const mesmaOferta  = _oferta && (r.oferta || "").trim().toLowerCase() === _oferta;
+      return mesmoCnpj && mesmoProjeto;
+    });
+    if (_duplicatas.length) {
+      const ref = _duplicatas[0];
+      const _mesmaCnpjProjetoOferta = _oferta && (ref.oferta || "").trim().toLowerCase() === _oferta;
+      const _campos = _mesmaCnpjProjetoOferta
+        ? "CNPJ, N° da Oferta e Projeto"
+        : "CNPJ e Projeto";
+      showToast(
+        `Duplicata: mesmos ${_campos} — Oferta <strong>${ref.oferta || "s/n"}</strong> (${ref.status || "?"})`,
+        "warning",
+      );
+    }
+
     if (!editId) {
       const id = gerarId();
       const registro = {
@@ -1392,7 +1549,7 @@ function initForm() {
       };
       await db.collection("ofertas").doc(id).set(registro);
       registros.push(registro);
-      alert("Registro adicionado!");
+      showToast("Registro adicionado!", "success");
     } else {
       const idx = registros.findIndex((r) => r.id === editId);
       const antigo = registros[idx] || {};
@@ -1455,7 +1612,7 @@ function initForm() {
         if (typeof onRegistroSalvoReset === "function") {
           onRegistroSalvoReset(editId).catch(console.error);
         }
-        alert("Registro atualizado!");
+        showToast("Registro atualizado!", "success");
       }
       editId = null;
       btnAdicionar.textContent = "Adicionar";
@@ -1492,7 +1649,7 @@ function initForm() {
   );
 }
 
-let actionsMenuState = { open: false, type: null, id: null };
+let actionsMenuState = { open: false, type: null, id: null, extra: null };
 
 function ensureActionsMenu() {
   let menu = document.getElementById("actionsMenu");
@@ -1506,6 +1663,13 @@ function ensureActionsMenu() {
   <button id="actVerOfertas" type="button">Ver ofertas</button>
   <button id="actEditar" type="button">Editar</button>
   <button id="actExcluir" type="button" class="danger">Excluir</button>
+  <button id="actAprovar" type="button">Aprovar</button>
+  <button id="actBloquear" type="button" class="danger">Bloquear</button>
+  <button id="actToggleAtivo" type="button">Ativar</button>
+  <button id="actExcluirFirestore" type="button" class="danger">Excluir (Firestore)</button>
+  <button id="actResetMfa" type="button">Resetar 2FA</button>
+  <button id="actRestaurar" type="button">Restaurar</button>
+  <button id="actExcluirDefinitivo" type="button" class="danger">Excluir definitivo</button>
 `;
   document.body.appendChild(menu);
 
@@ -1517,18 +1681,104 @@ function ensureActionsMenu() {
   return menu;
 }
 
-function openActionsMenu(ev, type, id) {
+function openActionsMenu(ev, type, id, extra = null) {
   ev.preventDefault();
   ev.stopPropagation();
 
   const menu = ensureActionsMenu();
-  actionsMenuState = { open: true, type, id };
+  actionsMenuState = { open: true, type, id, extra };
 
   const btnVer = document.getElementById("actVer");
   const btnVerContatos = document.getElementById("actVerContatos");
   const btnVerOfertas = document.getElementById("actVerOfertas");
   const btnEditar = document.getElementById("actEditar");
   const btnExcluir = document.getElementById("actExcluir");
+  const btnAprovar = document.getElementById("actAprovar");
+  const btnBloquear = document.getElementById("actBloquear");
+  const btnToggleAtivo = document.getElementById("actToggleAtivo");
+  const btnExcluirFirestore = document.getElementById("actExcluirFirestore");
+  const btnResetMfa = document.getElementById("actResetMfa");
+  const btnRestaurar = document.getElementById("actRestaurar");
+  const btnExcluirDefinitivo = document.getElementById("actExcluirDefinitivo");
+
+  const isUsuario = type === "usuario_pendente" || type === "usuario_existente";
+  const isLixeira = type === "lixeira_item";
+
+  // Botões de lixeira
+  if (btnRestaurar) {
+    btnRestaurar.style.display = isLixeira ? "block" : "none";
+    btnRestaurar.onclick = () => { closeActionsMenu(); restaurarItemLixeira(extra?.colecao, id); };
+  }
+  if (btnExcluirDefinitivo) {
+    btnExcluirDefinitivo.style.display = isLixeira && isAdmin() ? "block" : "none";
+    btnExcluirDefinitivo.onclick = () => { closeActionsMenu(); excluirItemDefinitivo(extra?.colecao, id); };
+  }
+
+  if (isLixeira) {
+    if (btnVer) btnVer.style.display = "none";
+    if (btnVerContatos) btnVerContatos.style.display = "none";
+    if (btnVerOfertas) btnVerOfertas.style.display = "none";
+    if (btnEditar) btnEditar.style.display = "none";
+    if (btnExcluir) btnExcluir.style.display = "none";
+    if (btnAprovar) btnAprovar.style.display = "none";
+    if (btnBloquear) btnBloquear.style.display = "none";
+    if (btnToggleAtivo) btnToggleAtivo.style.display = "none";
+    if (btnExcluirFirestore) btnExcluirFirestore.style.display = "none";
+    if (btnResetMfa) btnResetMfa.style.display = "none";
+
+    const r = ev.currentTarget.getBoundingClientRect();
+    const margin = 10;
+    menu.classList.add("open");
+    menu.style.left = "0px";
+    menu.style.top = "0px";
+    menu.style.transformOrigin = "top center";
+    const mw = menu.offsetWidth;
+    const mh = menu.offsetHeight;
+    let left = r.left + r.width / 2 - mw / 2;
+    let top = r.bottom + margin;
+    if (left < margin) left = margin;
+    if (left + mw > window.innerWidth - margin) left = window.innerWidth - mw - margin;
+    if (top + mh > window.innerHeight - margin) { top = r.top - mh - margin; menu.setAttribute("data-placement", "top"); }
+    else menu.setAttribute("data-placement", "bottom");
+    menu.style.left = left + "px";
+    menu.style.top = top + "px";
+    return;
+  }
+
+  // Botões gerais só aparecem fora das seções de usuário e lixeira
+  if (btnVer) btnVer.style.display = isUsuario ? "none" : "block";
+  if (btnVerContatos) btnVerContatos.style.display = "none";
+  if (btnVerOfertas) btnVerOfertas.style.display = "none";
+  if (btnEditar) btnEditar.style.display = isUsuario ? "none" : "block";
+  if (btnExcluir) btnExcluir.style.display = isUsuario ? "none" : "block";
+
+  // Botões de usuário pendente
+  if (btnAprovar) btnAprovar.style.display = type === "usuario_pendente" ? "block" : "none";
+  if (btnBloquear) btnBloquear.style.display = type === "usuario_pendente" ? "block" : "none";
+
+  // Botões de usuário existente
+  if (btnToggleAtivo) {
+    btnToggleAtivo.style.display = type === "usuario_existente" ? "block" : "none";
+    btnToggleAtivo.textContent = extra?.ativo ? "Desativar" : "Ativar";
+  }
+  if (btnExcluirFirestore) btnExcluirFirestore.style.display = type === "usuario_existente" ? "block" : "none";
+  if (btnResetMfa) {
+    btnResetMfa.style.display = type === "usuario_existente" && isAdmin() ? "block" : "none";
+    btnResetMfa.onclick = () => { closeActionsMenu(); resetarMfaUsuario(extra?.email || ""); };
+  }
+
+  if (btnAprovar) {
+    btnAprovar.onclick = () => { closeActionsMenu(); aprovarUsuario(id); };
+  }
+  if (btnBloquear) {
+    btnBloquear.onclick = () => { closeActionsMenu(); bloquearUsuario(id); };
+  }
+  if (btnToggleAtivo) {
+    btnToggleAtivo.onclick = () => { closeActionsMenu(); toggleAtivoUsuario(id, !extra?.ativo); };
+  }
+  if (btnExcluirFirestore) {
+    btnExcluirFirestore.onclick = () => { closeActionsMenu(); excluirUsuarioFirestore(id); };
+  }
 
   btnVer.onclick = () => {
     closeActionsMenu();
@@ -1930,6 +2180,7 @@ function editarRegistro(id) {
   const cnpjInput = document.getElementById("cnpj_cliente");
   cnpjInput.value = reg.cnpj_cliente || "";
   cnpjInput.dataset.clienteId = reg.clienteId || "";
+  popularDatalistsCamposContato(reg.cnpj_cliente || "");
 
   document.getElementById("solicitante").value = reg.solicitante || "";
   document.getElementById("telefone").value = reg.telefone || "";
@@ -1942,6 +2193,17 @@ function editarRegistro(id) {
   document.getElementById("ref_cliente").value = reg.ref_cliente || "";
   document.getElementById("data_entrada").value = reg.data_entrada || "";
   document.getElementById("status").value = reg.status || "";
+  const _blocoPerda = document.getElementById("blocoMotivoPerda");
+  const _motivoSel = document.getElementById("motivo_perda");
+  if (_blocoPerda && _motivoSel) {
+    if (reg.status === "Perdido") {
+      _blocoPerda.classList.remove("hidden");
+      _motivoSel.value = reg.motivo_perda || "";
+    } else {
+      _blocoPerda.classList.add("hidden");
+      _motivoSel.value = "";
+    }
+  }
   document.getElementById("data_envio").value = reg.data_envio || "";
   document.getElementById("obs_geral").value = reg.obs_geral || "";
 
@@ -1962,18 +2224,21 @@ function editarRegistro(id) {
     }
   }, 0);
 
+  const _valPedido = (reg.possuiPedido || "nao").replace(/["\\]/g, "");
   document
-    .querySelector(`input[name="pedido"][value="${reg.possuiPedido || "nao"}"]`)
+    .querySelector(`input[name="pedido"][value="${_valPedido}"]`)
     ?.click();
+  const _valRevisao = (reg.possuiRevisao || "nao").replace(/["\\]/g, "");
   document
     .querySelector(
-      `input[name="revisao"][value="${reg.possuiRevisao || "nao"}"]`,
+      `input[name="revisao"][value="${_valRevisao}"]`,
     )
     ?.click();
 
+  const _valSpot = (reg.atendimentoSpot || "nao").replace(/["\\]/g, "");
   document
     .querySelector(
-      `input[name="spot"][value="${reg.atendimentoSpot || "nao"}"]`,
+      `input[name="spot"][value="${_valSpot}"]`,
     )
     ?.click();
 
@@ -1997,14 +2262,16 @@ function editarRegistro(id) {
     document.getElementById("data_implantacao").value =
       reg.pedido?.data_implantacao || "";
 
+    const _valSolOc = (reg.pedido.solicitacao_oc || "nao").replace(/["\\]/g, "");
     document
       .querySelector(
-        `input[name="sol_oc"][value="${reg.pedido.solicitacao_oc || "nao"}"]`,
+        `input[name="sol_oc"][value="${_valSolOc}"]`,
       )
       ?.click();
+    const _valEntregue = (reg.pedido?.entregue || "nao").replace(/["\\]/g, "");
     document
       .querySelector(
-        `input[name="entregue"][value="${reg.pedido?.entregue || "nao"}"]`,
+        `input[name="entregue"][value="${_valEntregue}"]`,
       )
       ?.click();
   } else {
@@ -2033,11 +2300,7 @@ async function excluirRegistro(id) {
   const nomeExibicao =
     `${registro.oferta || "Sem nº"} - ${registro.razao || "Sem razão social"}`;
 
-  if (
-    !confirm(
-      "Tem certeza que deseja mover este registro para a lixeira?\n\nVocê poderá restaurá-lo em até 7 dias."
-    )
-  ) return;
+  if (!await showConfirm("Tem certeza que deseja mover este registro para a lixeira?\n\nVocê poderá restaurá-lo em até 7 dias.", { title: "Mover para Lixeira", confirmText: "Mover" })) return;
 
   try {
     await moverParaLixeira({
@@ -2059,14 +2322,14 @@ async function excluirRegistro(id) {
     });
   } catch (e) {
     console.error(e);
-    alert("Erro ao mover registro para a lixeira.");
+    showToast("Erro ao mover registro para a lixeira.", "error");
   }
 }
 
 function exportExcel() {
   const filtrados = getRegistrosFiltrados();
   if (filtrados.length === 0) {
-    alert("Nenhum registro para exportar.");
+    showToast("Nenhum registro para exportar.", "info");
     return;
   }
 
@@ -2148,7 +2411,7 @@ function exportExcel() {
 function exportPdf() {
   const filtrados = getRegistrosFiltrados();
   if (filtrados.length === 0) {
-    alert("Nenhum registro para exportar.");
+    showToast("Nenhum registro para exportar.", "info");
     return;
   }
 
@@ -2290,7 +2553,7 @@ function exportPdf() {
 
   const win = window.open("", "_blank");
   if (!win) {
-    alert("Não foi possível abrir a janela. Desbloqueie popups no navegador e tente novamente.");
+    showToast("Não foi possível abrir a janela. Desbloqueie popups no navegador e tente novamente.", "error");
     return;
   }
   try {
@@ -2300,7 +2563,7 @@ function exportPdf() {
     win.print();
   } catch (err) {
     console.error("Erro ao gerar PDF:", err);
-    alert("Erro ao gerar PDF.");
+    showToast("Erro ao gerar PDF.", "error");
   }
 }
 
@@ -2353,6 +2616,64 @@ function formatDateBR(v) {
   return s;
 }
 
+function escolherFormatoBackup(titulo) {
+  return new Promise(function (resolve) {
+    const overlay = document.createElement("div");
+    overlay.className = "crm-formato-overlay";
+
+    const card = document.createElement("div");
+    card.className = "crm-formato-card";
+
+    const titleEl = document.createElement("div");
+    titleEl.className = "crm-formato-title";
+    titleEl.textContent = titulo;
+
+    const msgEl = document.createElement("div");
+    msgEl.className = "crm-formato-msg";
+    msgEl.textContent = "Escolha o formato do arquivo:";
+
+    const row = document.createElement("div");
+    row.className = "crm-formato-row";
+
+    const btnCancel = document.createElement("button");
+    btnCancel.textContent = "Cancelar";
+    btnCancel.className = "secondary";
+
+    const btnJson = document.createElement("button");
+    btnJson.textContent = "JSON";
+
+    const btnExcel = document.createElement("button");
+    btnExcel.textContent = "Excel";
+    btnExcel.className = "crm-formato-btn-excel";
+
+    const close = (result) => {
+      overlay.style.opacity = "0";
+      overlay.style.transition = "opacity 0.18s";
+      setTimeout(() => { overlay.remove(); }, 200);
+      resolve(result);
+    };
+
+    btnCancel.addEventListener("click", () => close(null));
+    btnJson.addEventListener("click",   () => close("json"));
+    btnExcel.addEventListener("click",  () => close("excel"));
+    overlay.addEventListener("click", (e) => { if (e.target === overlay) close(null); });
+    document.addEventListener("keydown", function handler(e) {
+      if (e.key === "Escape") { document.removeEventListener("keydown", handler); close(null); }
+    });
+
+    row.appendChild(btnCancel);
+    row.appendChild(btnJson);
+    row.appendChild(btnExcel);
+    card.appendChild(titleEl);
+    card.appendChild(msgEl);
+    card.appendChild(row);
+    overlay.appendChild(card);
+    document.body.appendChild(overlay);
+
+    requestAnimationFrame(() => { btnExcel.focus(); });
+  });
+}
+
 function initBackupUI() {
   const btnBackupExport = document.getElementById("btnBackupExport");
   const btnBackupImport = document.getElementById("btnBackupImport");
@@ -2367,17 +2688,16 @@ function initBackupUI() {
   inputBackupFile.dataset.bound = "1";
   if (btnModeloImportacao) btnModeloImportacao.dataset.bound = "1";
 
-  btnBackupExport.addEventListener("click", () => {
+  btnBackupExport.addEventListener("click", async () => {
     const podeExportar =
       (typeof isAdmin === "function" && isAdmin()) ||
       (typeof usuarioEhSupervisor === "function" && usuarioEhSupervisor());
     if (!podeExportar) {
-      alert("Apenas administradores e supervisores podem exportar o backup.");
+      showToast("Apenas administradores e supervisores podem exportar o backup.", "error");
       return;
     }
-    const tipo = (
-      prompt("Exportar backup em qual formato? Digite 'json' ou 'excel':") || ""
-    ).trim().toLowerCase();
+    const tipo = await escolherFormatoBackup("Exportar Backup");
+    if (!tipo) return;
 
     if (tipo === "json") {
       const data = { registros, clientes, representadas, projetos };
@@ -2394,20 +2714,12 @@ function initBackupUI() {
       URL.revokeObjectURL(url);
     } else if (tipo === "excel") {
       exportBackupExcel();
-    } else if (tipo) {
-      alert("Opção inválida. Use 'json' ou 'excel'.");
     }
   });
 
-  btnBackupImport.addEventListener("click", () => {
-    const tipo = (
-      prompt("Importar backup de qual formato? Digite 'json' ou 'excel':") || ""
-    ).trim().toLowerCase();
-
-    if (tipo !== "json" && tipo !== "excel") {
-      if (tipo) alert("Opção inválida. Use 'json' ou 'excel'.");
-      return;
-    }
+  btnBackupImport.addEventListener("click", async () => {
+    const tipo = await escolherFormatoBackup("Importar Backup");
+    if (!tipo) return;
 
     backupImportMode = tipo;
     inputBackupFile.value = "";
@@ -2449,10 +2761,10 @@ function initBackupUI() {
           if (typeof renderTabelaProjetos === "function") renderTabelaProjetos();
           preencherSelectRepresentadas();
 
-          alert("Backup JSON restaurado com sucesso!");
+          showToast("Backup JSON restaurado com sucesso!", "success");
         } catch (err) {
           console.error(err);
-          alert("Arquivo de backup JSON inválido.");
+          showToast("Arquivo de backup JSON inválido.", "error");
         } finally {
           backupImportMode = null;
           inputBackupFile.value = "";
@@ -3704,7 +4016,7 @@ function initClientesUI() {
     if (telefone && (telDigits.length < 10 || telDigits.length > 11)) {
       const campoTel = document.getElementById("ct_tel");
       marcarErroCampo(campoTel);
-      alert("Telefone do contato inválido. Informe DDD + 8 ou 9 dígitos.");
+      showToast("Telefone do contato inválido. Informe DDD + 8 ou 9 dígitos.", "error");
       campoTel?.focus();
       return;
     }
@@ -3811,7 +4123,7 @@ function initClientesUI() {
     const cliCnpjEl = document.getElementById("cli_cnpj");
     if (!validarCNPJ(cnpj)) {
       marcarErroCampo(cliCnpjEl);
-      alert("CNPJ inválido. Verifique os números informados.");
+      showToast("CNPJ inválido. Verifique os números informados.", "error");
       cliCnpjEl?.focus();
       return;
     }
@@ -3853,7 +4165,7 @@ function initClientesUI() {
         };
         await db.collection("clientes").doc(id).set(cliente);
         clientes.push(cliente);
-        alert("Cliente salvo!");
+        showToast("Cliente salvo!", "success");
       } else {
         const idx = clientes.findIndex((c) => c.id === editClienteId);
         const antigo = clientes[idx] || {};
@@ -3882,7 +4194,7 @@ function initClientesUI() {
           atualizarSugestoesCnpj();
         }
 
-        alert("Cliente atualizado!");
+        showToast("Cliente atualizado!", "success");
         editClienteId = null;
         btnSalvarCliente.textContent = "Salvar Cliente";
         document
@@ -3911,7 +4223,7 @@ function initClientesUI() {
       document.getElementById("cli_sap").value = "";
     } catch (e) {
       console.error(e);
-      alert("Erro ao salvar cliente: " + (e?.message || e));
+      showToast("Erro ao salvar cliente: " + (e?.message || e), "error");
     }
   });
 
@@ -3992,7 +4304,7 @@ function editarContato(index) {
  * Lógica unificada de exclusão de contato temporário.
  * Usada por excluirContato (clientes) e excluirContatoProjeto (projetos).
  */
-function excluirContatoGenerico({ lista, indiceAtivo, labelTipo, btnId, renderFn, renderLixeiraFn, resetEditIndex }) {
+async function excluirContatoGenerico({ lista, indiceAtivo, labelTipo, btnId, renderFn, renderLixeiraFn, resetEditIndex }) {
   const ativos = obterItensTemporariosAtivos(lista);
   const ct = ativos[indiceAtivo];
   if (!ct) return;
@@ -4000,7 +4312,7 @@ function excluirContatoGenerico({ lista, indiceAtivo, labelTipo, btnId, renderFn
   const indiceReal = lista.indexOf(ct);
   if (indiceReal < 0) return;
 
-  if (!confirm(`Tem certeza que deseja mover este ${labelTipo} para a mini lixeira?`)) return;
+  if (!await showConfirm(`Tem certeza que deseja mover este ${labelTipo} para a mini lixeira?`, { title: "Mover para Lixeira", confirmText: "Mover" })) return;
 
   const currentUser = getCurrentUserName();
   marcarItemTemporarioComoRemovido(lista, indiceReal, labelTipo);
@@ -4054,6 +4366,12 @@ function renderTabelaClientes() {
     tr.appendChild(td);
     tbody.appendChild(tr);
   } else {
+    const ofertasPorCnpj = {};
+    filtrarPorPermissao(registros).forEach((r) => {
+      const cnpj = (r.cnpj_cliente || "").replace(/\D/g, "");
+      if (cnpj) ofertasPorCnpj[cnpj] = (ofertasPorCnpj[cnpj] || 0) + 1;
+    });
+
     pageData.forEach((cli, index) => {
       const tr = document.createElement("tr");
       const qtdContatos = cli.contatos ? cli.contatos.length : 0;
@@ -4062,9 +4380,7 @@ function renderTabelaClientes() {
       );
 
       const cnpjClean = (cli.cnpj || "").replace(/\D/g, "");
-      const qtdOfertas = registros.filter(
-        (r) => (r.cnpj_cliente || "").replace(/\D/g, "") === cnpjClean,
-      ).length;
+      const qtdOfertas = ofertasPorCnpj[cnpjClean] || 0;
 
       tr.innerHTML = `
 <td>${ordemClientes === "asc"
@@ -4152,11 +4468,23 @@ async function excluirCliente(id) {
 
   const nomeExibicao = cliente.razao || cliente.nome || "Cliente";
 
-  if (
-    !confirm(
-      "Tem certeza que deseja mover este cliente para a lixeira?\n\nVocê poderá restaurá-lo em até 7 dias."
-    )
-  ) return;
+  const ofertasAtivas = registros.filter((r) =>
+    !r.deletado &&
+    ((r.clienteId && r.clienteId === id) || (!r.clienteId && r.cnpj_cliente === cliente.cnpj))
+  );
+  if (ofertasAtivas.length > 0) {
+    const lista = ofertasAtivas.slice(0, 3)
+      .map((r) => `• ${r.razao || r.cnpj_cliente} — Oferta ${r.oferta || r.id}`)
+      .join("\n");
+    const mais = ofertasAtivas.length > 3 ? `\n...e mais ${ofertasAtivas.length - 3} oferta(s)` : "";
+    await showConfirm(
+      `Não é possível mover "${nomeExibicao}" para a lixeira.\n\nHá ${ofertasAtivas.length} oferta(s) ativa(s) vinculada(s):\n${lista}${mais}\n\nMova ou finalize essas ofertas primeiro.`,
+      { title: "Cliente com Ofertas Ativas", confirmText: "Entendido" }
+    );
+    return;
+  }
+
+  if (!await showConfirm("Tem certeza que deseja mover este cliente para a lixeira?\n\nVocê poderá restaurá-lo em até 7 dias.", { title: "Mover para Lixeira", confirmText: "Mover" })) return;
 
   try {
     await moverParaLixeira({
@@ -4179,7 +4507,7 @@ async function excluirCliente(id) {
     });
   } catch (e) {
     console.error(e);
-    alert("Erro ao mover cliente para a lixeira.");
+    showToast("Erro ao mover cliente para a lixeira.", "error");
   }
 }
 
@@ -4202,16 +4530,14 @@ function abrirPainelCliente(id) {
     const div = document.createElement("div");
     div.className = "contato-item";
     div.innerHTML = `
-      <strong>${ct.nome}</strong>
+      <strong>${esc(ct.nome)}</strong>
       ${ct.principal ? '<span class="tag-principal">(Principal)</span>' : ""}
       <br>
-      ${ct.funcao || ""}
+      ${esc(ct.funcao || "")}
       <br>
-      Tel: ${ct.telefone || ""} • E-mail: ${ct.email || ""}
+      Tel: ${esc(ct.telefone || "")} • E-mail: ${esc(ct.email || "")}
       ${ct.responsavelNome
-        ? `<br><strong>Responsável:</strong> ${primeiroNome(
-          ct.responsavelNome,
-        )}`
+        ? `<br><strong>Responsável:</strong> ${esc(primeiroNome(ct.responsavelNome))}`
         : ""
       }
       <hr>
@@ -4232,6 +4558,47 @@ function buscarClientePorCnpj(cnpj) {
   return clientes.find((c) => (c.cnpj || "").replace(/\D/g, "") === clean);
 }
 
+function popularDatalistsCamposContato(cnpj) {
+  const nomes = new Set();
+  const telefones = new Set();
+  const emails = new Set();
+
+  const cnpjClean = (cnpj || "").replace(/\D/g, "");
+
+  // Contatos cadastrados do cliente
+  if (cnpjClean) {
+    const cli = buscarClientePorCnpj(cnpj);
+    if (cli && Array.isArray(cli.contatos)) {
+      cli.contatos.forEach((ct) => {
+        if (ct.nome) nomes.add(ct.nome.trim());
+        if (ct.telefone) telefones.add(ct.telefone.trim());
+        if (ct.email) emails.add(ct.email.trim().toLowerCase());
+      });
+    }
+  }
+
+  // Valores de ofertas anteriores (filtradas pelo cliente se CNPJ informado)
+  const base = cnpjClean
+    ? registros.filter((r) => (r.cnpj_cliente || "").replace(/\D/g, "") === cnpjClean)
+    : registros;
+
+  base.forEach((r) => {
+    if (r.solicitante) nomes.add(r.solicitante.trim());
+    if (r.telefone) telefones.add(r.telefone.trim());
+    if (r.email) emails.add(r.email.trim().toLowerCase());
+  });
+
+  const preencher = (id, valores) => {
+    const dl = document.getElementById(id);
+    if (!dl) return;
+    dl.innerHTML = [...valores].map((v) => `<option value="${esc(v)}">`).join("");
+  };
+
+  preencher("listSolicitantes", nomes);
+  preencher("listTelefones", telefones);
+  preencher("listEmails", emails);
+}
+
 function initLigacaoClienteOferta() {
   const cnpjInput = document.getElementById("cnpj_cliente");
   if (!cnpjInput || cnpjInput.dataset.bound_blur) return;
@@ -4241,11 +4608,13 @@ function initLigacaoClienteOferta() {
     const cli = buscarClientePorCnpj(cnpjInput.value);
     if (!cli) {
       cnpjInput.dataset.clienteId = "";
+      popularDatalistsCamposContato("");
       return;
     }
     cnpjInput.dataset.clienteId = cli.id;
     const razao = document.getElementById("razao");
     if (razao) razao.value = cli.razao || "";
+    popularDatalistsCamposContato(cnpjInput.value);
   });
 }
 
@@ -4259,7 +4628,7 @@ function initRepresentadasUI() {
     const nowIso = new Date().toISOString();
 
     if (!nome) {
-      alert("Informe o nome da representada.");
+      showToast("Informe o nome da representada.", "error");
       return;
     }
 
@@ -4285,7 +4654,7 @@ function initRepresentadasUI() {
       };
       await db.collection("representadas").doc(id).set(rep);
       representadas.push(rep);
-      alert("Representada salva!");
+      showToast("Representada salva!", "success");
     } else {
       const idx = representadas.findIndex((r) => r.id === editRepresentadaId);
       const antigo = representadas[idx] || {};
@@ -4326,7 +4695,7 @@ function initRepresentadasUI() {
       });
       salvarRegistros();
 
-      alert("Representada atualizada!");
+      showToast("Representada atualizada!", "success");
       editRepresentadaId = null;
       btn.textContent = "Salvar Representada";
       document
@@ -4428,7 +4797,7 @@ function renderTabelaRepresentadas() {
     const usuario = formatarNomeUsuario(
       rep.atualizadoPor || rep.criadoPor || "",
     );
-    const qtdOfertas = registros.filter(
+    const qtdOfertas = filtrarPorPermissao(registros).filter(
       (r) => r.representadaId === rep.id,
     ).length;
 
@@ -4501,11 +4870,20 @@ async function excluirRepresentada(id) {
   const nomeExibicao =
     representada.nome || representada.razao || "Representada";
 
-  if (
-    !confirm(
-      "Tem certeza que deseja mover esta representada para a lixeira?\n\nVocê poderá restaurá-la em até 7 dias."
-    )
-  ) return;
+  const ofertasAtivas = registros.filter((r) => !r.deletado && r.representadaId === id);
+  if (ofertasAtivas.length > 0) {
+    const lista = ofertasAtivas.slice(0, 3)
+      .map((r) => `• ${r.razao || r.cnpj_cliente} — Oferta ${r.oferta || r.id}`)
+      .join("\n");
+    const mais = ofertasAtivas.length > 3 ? `\n...e mais ${ofertasAtivas.length - 3} oferta(s)` : "";
+    await showConfirm(
+      `Não é possível mover "${nomeExibicao}" para a lixeira.\n\nHá ${ofertasAtivas.length} oferta(s) ativa(s) vinculada(s):\n${lista}${mais}\n\nMova ou finalize essas ofertas primeiro.`,
+      { title: "Representada com Ofertas Ativas", confirmText: "Entendido" }
+    );
+    return;
+  }
+
+  if (!await showConfirm("Tem certeza que deseja mover esta representada para a lixeira?\n\nVocê poderá restaurá-la em até 7 dias.", { title: "Mover para Lixeira", confirmText: "Mover" })) return;
 
   try {
     await moverParaLixeira({
@@ -4529,7 +4907,7 @@ async function excluirRepresentada(id) {
     });
   } catch (e) {
     console.error(e);
-    alert("Erro ao mover representada para a lixeira.");
+    showToast("Erro ao mover representada para a lixeira.", "error");
   }
 }
 
@@ -4561,118 +4939,89 @@ function verOferta(id) {
           ? reg.tipo_oferta
           : "-";
 
-  let html = `
-    <div class="modal-grid">
-      <div class="modal-card">
-        <div class="modal-card-title">Dados do Cliente</div>
-        <div class="modal-section"><strong>Razão Social:</strong> ${esc(reg.razao) || "-"}</div>
-        <div class="modal-section"><strong>CNPJ:</strong> ${esc(reg.cnpj_cliente) || "-"}</div>
-        <div class="modal-section"><strong>B.U:</strong> ${esc(reg.bu) || "-"}</div>
-        <div class="modal-section"><strong>Segmento:</strong> ${esc(reg.segmento) || "-"}</div>
-      </div>
+  const criadoPor = formatarNomeUsuario(reg.criadoPor || "-");
+  const atualizadoPor = formatarNomeUsuario(reg.atualizadoPor || reg.criadoPor || "-");
 
-      <div class="modal-card">
-        <div class="modal-card-title">Projeto & Representada</div>
-        <div class="modal-section"><strong>Projeto:</strong> ${esc(reg.nome_projeto) || "-"}</div>
-        <div class="modal-section"><strong>Representada:</strong> ${esc(reg.representadaNome) || "-"}</div>
-        ${String(reg.representadaNome || "")
-      .toLowerCase()
-      .includes("mantex") && reg.unidade
-      ? `<div class="modal-section"><strong>Unidade:</strong> ${esc(reg.unidade)}</div>`
-      : ""
-    }
-      </div>
-    </div>
-
-    <div class="modal-card">
-      <div class="modal-card-title">Oferta</div>
-
-      <div class="modal-section"><strong>N° Oferta:</strong> ${esc(reg.oferta) || "-"}</div>
-      <div class="modal-section"><strong>Solicitante:</strong> ${esc(reg.solicitante) || "-"}</div>
-      <div class="modal-section"><strong>Telefone:</strong> ${esc(reg.telefone) || "-"}</div>
-      <div class="modal-section"><strong>E-mail:</strong> ${esc(reg.email) || "-"}</div>
-
-      <div class="modal-section"><strong>Tipo:</strong> ${esc(tipoTexto)}</div>
-      <div class="modal-section"><strong>Valor:</strong> ${esc(reg.valor_total) || "-"}</div>
-      <div class="modal-section"><strong>Status:</strong> ${esc(reg.status) || "-"}</div>
-      <div class="modal-section"><strong>Atendimento spot?</strong> ${reg.atendimentoSpot === "sim" ? "Sim" : "Não"}</div>
-      <div class="modal-section"><strong>Referência:</strong> ${esc(reg.ref_cliente) || "-"}</div>
-
-      <div class="modal-section"><strong>Data Entrada:</strong> ${formatDateBR(reg.data_entrada) || "-"}</div>
-      <div class="modal-section"><strong>Data Envio:</strong> ${formatDateBR(reg.data_envio) || "-"}</div>
-    </div>
-
-    <div class="modal-card">
-      <div class="modal-card-title">Usuário</div>
-      <div class="modal-section"><strong>Responsável:</strong> ${usuario}</div>
-      <div class="modal-section"><strong>Criado em:</strong> ${formatDateTimeBR(reg.criadoEm)}</div>
-      <div class="modal-section"><strong>Atualizado em:</strong> ${formatDateTimeBR(reg.atualizadoEm)}</div>
-    </div>
-  `;
-
-  if (reg.obs_geral && String(reg.obs_geral).trim()) {
-    html += `
-      <div class="modal-card">
-        <div class="modal-card-title">Observações Gerais</div>
-        <div class="modal-section">${esc(reg.obs_geral).replace(/\n/g, "<br>")}</div>
-      </div>
-    `;
+  function field(label, value, full) {
+    if (!value && value !== 0) return "";
+    return '<div class="md-detail-field' + (full ? ' md-detail-field--full' : '') + '">' +
+      '<div class="md-detail-field-label">' + label + '</div>' +
+      '<div class="md-detail-field-value">' + value + '</div>' +
+      '</div>';
+  }
+  function section(title, fieldsHtml) {
+    if (!fieldsHtml.trim()) return "";
+    return '<div class="md-detail-section">' +
+      '<div class="md-detail-section-title">' + title + '</div>' +
+      '<div class="md-detail-grid">' + fieldsHtml + '</div>' +
+      '</div>';
   }
 
+  let html = section("Identificação",
+    field("N° Oferta", esc(reg.oferta) || "-") +
+    field("Tipo", esc(tipoTexto)) +
+    field("Atendimento Spot?", reg.atendimentoSpot === "sim" ? "Sim" : "Não") +
+    field("Data Entrada", formatDateBR(reg.data_entrada) || "-") +
+    field("Data Envio", formatDateBR(reg.data_envio) || "") +
+    field("B.U.", esc(reg.bu) || "") +
+    field("Segmento", esc(reg.segmento) || "")
+  );
+
+  html += section("Cliente",
+    field("Razão Social", esc(reg.razao) || "-") +
+    field("CNPJ", esc(reg.cnpj_cliente) || "-") +
+    field("Solicitante", esc(reg.solicitante) || "") +
+    field("Telefone", esc(reg.telefone) || "") +
+    field("E-mail", esc(reg.email) || "") +
+    field("Ref. do Cliente", esc(reg.ref_cliente) || "")
+  );
+
+  html += section("Proposta",
+    field("Representada", esc(reg.representadaNome) || "-") +
+    field("Valor Total", esc(reg.valor_total) || "-") +
+    field("Status", esc(reg.status) || "-") +
+    (reg.status === "Perdido" && reg.motivo_perda ? field("Motivo da Perda", esc(reg.motivo_perda), true) : "") +
+    field("Projeto", esc(reg.nome_projeto) || "") +
+    (String(reg.representadaNome || "").toLowerCase().includes("mantex") && reg.unidade ? field("Unidade", esc(reg.unidade)) : "") +
+    (reg.obs_geral && String(reg.obs_geral).trim() ? field("Observações Gerais", esc(reg.obs_geral).replace(/\n/g, "<br>"), true) : "")
+  );
+
   if (reg.possuiPedido === "sim") {
-    html += `
-      <hr>
-      <div class="modal-card">
-        <div class="modal-card-title">Pedido</div>
-        <div class="modal-section">
-          <strong>N° Pedido:</strong> ${pedido.numero_pedido || "-"}<br>
-          <strong>Data P.O:</strong> ${formatDateBR(pedido.data_po)}<br>
-          <strong>Valor Pedido:</strong> ${pedido.valor_pedido || "-"}<br>
-          <strong>Condição de Pagamento:</strong> ${pedido.cond_pagamento || "-"}<br>
-          <strong>Ref./Projeto:</strong> ${pedido.ref_projeto || "-"}<br>
-          <strong>Tipo de Produto:</strong> ${pedido.tipo_produto || "-"}<br>
-          <strong>Obs:</strong> ${pedido.obs || "-"}<br><br>
-
-          ${formatarNotasFiscaisHtml(pedido)}
-
-          <strong>Prazo entrega contratual:</strong> ${formatDateBR(pedido.prazo_entrega_contratual)}<br>
-          <strong>Entregue:</strong> ${pedido.entregue === "sim" ? "Sim" : "Não"}<br>
-          <strong>SOV?</strong> ${pedido.solicitacao_oc === "sim" ? "Sim" : "Não"}<br>
-          <strong>Ref. OV:</strong> ${pedido.ref_oc || "-"}<br>
-          <strong>Data de Implantação:</strong> ${formatDateBR(pedido.data_implantacao)}<br>
-        </div>
-      </div>
-    `;
-  } else {
-    html += `<div class="modal-section"><strong>Pedido?</strong> Não</div>`;
+    const nfHtml = formatarNotasFiscaisHtml(pedido);
+    html += section("Pedido",
+      field("N° Pedido", pedido.numero_pedido || "") +
+      field("Data P.O.", formatDateBR(pedido.data_po) || "") +
+      field("Valor Pedido", pedido.valor_pedido || "") +
+      field("Cond. Pagamento", pedido.cond_pagamento || "") +
+      field("Ref./Projeto", pedido.ref_projeto || "") +
+      field("Tipo de Produto", pedido.tipo_produto || "") +
+      field("Prazo Entrega Contratual", formatDateBR(pedido.prazo_entrega_contratual) || "") +
+      field("Entregue", pedido.entregue === "sim" ? "Sim" : "Não") +
+      field("SOV?", pedido.solicitacao_oc === "sim" ? "Sim" : "Não") +
+      field("Ref. OV", pedido.ref_oc || "") +
+      field("Data Implantação", formatDateBR(pedido.data_implantacao) || "") +
+      (pedido.obs ? field("Obs. Pedido", esc(pedido.obs).replace(/\n/g, "<br>"), true) : "") +
+      (nfHtml ? '<div class="md-detail-field md-detail-field--full"><div class="md-detail-field-label">Notas Fiscais</div><div class="md-detail-field-value">' + nfHtml + '</div></div>' : "")
+    );
   }
 
   if (reg.possuiRevisao === "sim") {
-    html += `
-      <hr>
-      <div class="modal-card">
-        <div class="modal-card-title">Revisão</div>
-        <div class="modal-section"><strong>N° Oferta anterior:</strong> ${revisao.numero_oferta_anterior || "-"}</div>
-        <div class="modal-section"><strong>O que mudou:</strong> ${(revisao.mudou || "-").toString().replace(/\n/g, "<br>")}</div>
-      </div>
-    `;
+    html += section("Revisão",
+      field("N° Oferta Anterior", revisao.numero_oferta_anterior || "") +
+      field("O que mudou", (revisao.mudou || "-").toString().replace(/\n/g, "<br>"), true)
+    );
   }
 
-  html += `
-    <hr>
-    <div class="modal-section"><strong>Usuário:</strong> ${usuario}</div>
-  `;
+  html += section("Histórico",
+    field("Criado em", formatDateTimeBR(reg.criadoEm)) +
+    field("Criado por", criadoPor) +
+    field("Atualizado em", formatDateTimeBR(reg.atualizadoEm)) +
+    field("Atualizado por", atualizadoPor)
+  );
 
-  html += `
-    <hr>
-    <div class="modal-card">
-      <div class="modal-card-title">Histórico de Atividades</div>
-      <button type="button" class="secondary" onclick='abrirHistoricoAtual("Histórico da Oferta ${escapeHtml(reg.oferta || "")}")'>
-        Visualizar histórico
-      </button>
-    </div>
-  `;
-
+  const _ofertaLabel = escapeHtml(reg.oferta || "");
+  html += '<div class="md-history-section"><button type="button" class="secondary" onclick="abrirHistoricoAtual(\'' + 'Histórico da Oferta ' + _ofertaLabel + '\')">' +
+    'Visualizar histórico de atividades</button></div>';
   abrirModal(`Oferta ${reg.oferta || ""}`, html);
 }
 
@@ -4692,64 +5041,59 @@ function verCliente(id) {
     cli.atualizadoPor || cli.criadoPor || "-",
   );
 
-  let html = `
-    <div class="modal-section">
-      <strong>Razão Social:</strong> ${esc(cli.razao) || "-"}<br>
-      <strong>CNPJ:</strong> ${esc(cli.cnpj) || "-"}<br>
-      <strong>Inscrição Estadual:</strong> ${esc(cli.ie) || "-"}<br>
-      <strong>Segmento:</strong> ${esc(cli.segmento) || "-"}<br>
-      <strong>Endereço:</strong> ${esc(cli.endereco) || "-"}<br>
-      <strong>Código SAP:</strong> ${esc(cli.codigo_sap || cli.sap) || "-"}<br>
-      <br><strong>Ofertas cadastradas:</strong> ${totalOfertas}
-    </div>
-     <br>
-  `;
-
-  html += `
-    <hr>
-    <div class="modal-section"><strong>Usuário:</strong> ${usuario}</div>
-    <div class="modal-section"><strong>Criado em:</strong> ${formatDateTimeBR(cli.criadoEm)}</div>
-    <div class="modal-section"><strong>Atualizado em:</strong> ${formatDateTimeBR(cli.atualizadoEm)}</div>
-  `;
-
-  if (cli.contatos && cli.contatos.length) {
-    html += `<br><hr><div class="modal-section"><strong>Contatos:</strong><br><br>`;
-    cli.contatos.forEach((ct) => {
-      html += `
-        <div style="margin-bottom:6px;">
-          <strong>${esc(ct.nome) || "-"}</strong>
-          ${ct.principal ? '<span class="modal-badge">Principal</span>' : ""}
-          <br>
-          Função: ${esc(ct.funcao) || "-"}<br>
-          Tel: ${esc(ct.telefone) || "-"}<br>
-          E-mail: ${esc(ct.email) || "-"}
-          ${ct.responsavelNome
-          ? `<br><br>
-              <hr>
-              <strong>Responsável:</strong> ${esc(primeiroNome(ct.responsavelNome))}`
-          : ""
-        }
-          <br>
-Criado em: ${formatDateTimeBR(ct.criadoEm)}<br>
-Atualizado em: ${formatDateTimeBR(ct.atualizadoEm)}
-        </div>
-      `;
-    });
-    html += `</div>`;
-  } else {
-    html += `<div class="modal-section"><strong>Contatos:</strong> nenhum cadastrado.</div>`;
+  function field(label, value, full) {
+    if (!value && value !== 0) return "";
+    return '<div class="md-detail-field' + (full ? ' md-detail-field--full' : '') + '">' +
+      '<div class="md-detail-field-label">' + label + '</div>' +
+      '<div class="md-detail-field-value">' + value + '</div>' +
+      '</div>';
+  }
+  function section(title, fieldsHtml) {
+    if (!fieldsHtml.trim()) return "";
+    return '<div class="md-detail-section">' +
+      '<div class="md-detail-section-title">' + title + '</div>' +
+      '<div class="md-detail-grid">' + fieldsHtml + '</div>' +
+      '</div>';
   }
 
-  html += `
-    <hr>
-    <div class="modal-card">
-      <div class="modal-card-title">Histórico de Atividades</div>
-      <button type="button" class="secondary" onclick='abrirHistoricoAtual("Histórico do Cliente ${escapeHtml(cli.razao || "")}")'>
-        Visualizar histórico
-      </button>
-    </div>
-  `;
+  let html = section("Cadastro",
+    field("Razão Social", esc(cli.razao) || "-") +
+    field("CNPJ", esc(cli.cnpj) || "-") +
+    field("Inscrição Estadual", esc(cli.ie) || "") +
+    field("Segmento", esc(cli.segmento) || "") +
+    field("Endereço", esc(cli.endereco) || "") +
+    field("Código SAP", esc(cli.codigo_sap || cli.sap) || "") +
+    field("Ofertas Cadastradas", String(totalOfertas))
+  );
 
+  if (cli.contatos && cli.contatos.length) {
+    html += '<div class="md-detail-section"><div class="md-detail-section-title">Contatos</div>';
+    cli.contatos.forEach((ct) => {
+      html += '<div class="md-contact-card">' +
+        '<div class="md-contact-name">' + (esc(ct.nome) || "-") +
+          (ct.principal ? '<span class="modal-badge">Principal</span>' : "") +
+        '</div>' +
+        '<div class="md-contact-detail">' +
+          (ct.funcao ? 'Função: ' + esc(ct.funcao) + '<br>' : "") +
+          (ct.telefone ? 'Tel: ' + esc(ct.telefone) + '<br>' : "") +
+          (ct.email ? 'E-mail: ' + esc(ct.email) + '<br>' : "") +
+          (ct.responsavelNome ? 'Responsável: ' + esc(primeiroNome(ct.responsavelNome)) : "") +
+        '</div></div>';
+    });
+    html += '</div>';
+  } else {
+    html += section("Contatos", field("Status", "Nenhum contato cadastrado.", true));
+  }
+
+  html += section("Histórico",
+    field("Responsável", formatarNomeUsuario(cli.atualizadoPor || cli.criadoPor || "-")) +
+    field("Criado em", formatDateTimeBR(cli.criadoEm)) +
+    field("Atualizado em", formatDateTimeBR(cli.atualizadoEm))
+  );
+
+  const _cliLabel = escapeHtml(cli.razao || "");
+  html += '<div class="md-history-section"><button type="button" class="secondary" onclick="abrirHistoricoAtual(\'' + 'Histórico do Cliente ' + _cliLabel + '\')">' +
+    'Visualizar histórico de atividades</button></div>';
   abrirModal(`Cliente - ${cli.razao || ""}`, html);
 }
 
@@ -4764,23 +5108,30 @@ function verRepresentada(id) {
   );
   const qtdOfertas = registros.filter((r) => r.representadaId === id).length;
 
-  const html = `
-    <div class="modal-section"><strong>Nome da Representada:</strong> ${esc(rep.nome) || "-"}</div>
-    <div class="modal-section"><strong>Ofertas vinculadas:</strong> ${qtdOfertas}</div>
-    <hr>
-    <div class="modal-section"><strong>Usuário:</strong> ${esc(usuario)}</div>
-    <div class="modal-section"><strong>Criado em:</strong> ${formatDateTimeBR(rep.criadoEm)}</div>
-    <div class="modal-section"><strong>Atualizado em:</strong> ${formatDateTimeBR(rep.atualizadoEm)}</div>
+  function field(label, value, full) {
+    if (!value && value !== 0) return "";
+    return '<div class="md-detail-field' + (full ? ' md-detail-field--full' : '') + '">' +
+      '<div class="md-detail-field-label">' + label + '</div>' +
+      '<div class="md-detail-field-value">' + value + '</div>' +
+      '</div>';
+  }
+  function section(title, fieldsHtml) {
+    if (!fieldsHtml.trim()) return "";
+    return '<div class="md-detail-section">' +
+      '<div class="md-detail-section-title">' + title + '</div>' +
+      '<div class="md-detail-grid">' + fieldsHtml + '</div>' +
+      '</div>';
+  }
 
-    <hr>
-    <div class="modal-card">
-      <div class="modal-card-title">Histórico de Atividades</div>
-      <button type="button" class="secondary" onclick='abrirHistoricoAtual("Histórico da Representada ${escapeHtml(rep.nome || "")}")'>
-        Visualizar histórico
-      </button>
-    </div>
-  `;
-
+  const html = section("Cadastro",
+    field("Nome da Representada", esc(rep.nome) || "-") +
+    field("Ofertas Vinculadas", String(qtdOfertas)) +
+    field("Responsável", esc(usuario)) +
+    field("Criado em", formatDateTimeBR(rep.criadoEm)) +
+    field("Atualizado em", formatDateTimeBR(rep.atualizadoEm))
+  ) +
+  '<div class="md-history-section"><button type="button" class="secondary" onclick="abrirHistoricoAtual(\'' + 'Histórico da Representada ' + escapeHtml(rep.nome || '') + '\')">' +
+  'Visualizar histórico de atividades</button></div>';
   abrirModal(`Representada - ${rep.nome || ""}`, html);
 }
 
@@ -4823,7 +5174,7 @@ function initAutoCompleteCnpjSimples() {
         const cnpjDigits = (cli.cnpj || "").replace(/\D/g, "");
         return `
           <div class="autocomplete-item" data-id="${cli.id}">
-            <div class="razao">${(cli.razao || "").trim() || "-"}</div>
+            <div class="razao">${esc((cli.razao || "").trim()) || "-"}</div>
             <div class="cnpj">${formatCnpjMask(cnpjDigits)}</div>
           </div>
         `;
@@ -4877,6 +5228,7 @@ function initBuSegmento() {
     OEM: [
       "Cranes",
       "infra",
+      "Industrial",
       "Marine",
       "Mining",
       "Nuclear",
@@ -4964,27 +5316,42 @@ function salvarRepresentadas() {
 }
 
 function irPara(tela) {
+  if (window.innerWidth <= 780) fecharSidebarMobile();
+  const _restaurar = window._restaurarFiltrosPorSecao;
+
   if (tela === "cadastro") {
     document.getElementById("secCadastro")?.scrollIntoView({ behavior: "smooth" });
     return;
   }
 
   if (tela === "registros") {
+    _restaurar?.registros?.();
+    currentPage = 1;
+    renderTabela();
     document.getElementById("secRegistros")?.scrollIntoView({ behavior: "smooth" });
     return;
   }
 
   if (tela === "clientes") {
+    _restaurar?.clientes?.();
+    clientesCurrentPage = 1;
+    renderTabelaClientes();
     document.getElementById("secClientes")?.scrollIntoView({ behavior: "smooth" });
     return;
   }
 
   if (tela === "projetos") {
+    _restaurar?.projetos?.();
+    projetosCurrentPage = 1;
+    renderTabelaProjetos();
     document.getElementById("secProjetos")?.scrollIntoView({ behavior: "smooth" });
     return;
   }
 
   if (tela === "representadas") {
+    _restaurar?.representadas?.();
+    representadasCurrentPage = 1;
+    renderTabelaRepresentadas();
     document.getElementById("secRepresentadas")?.scrollIntoView({ behavior: "smooth" });
     return;
   }
@@ -5050,7 +5417,7 @@ function atualizarSugestoesCnpj() {
 
   const unicos = Array.from(new Set(lista));
   dl.innerHTML = unicos
-    .map((cnpj) => `<option value="${cnpj}"></option>`)
+    .map((cnpj) => `<option value="${esc(cnpj)}"></option>`)
     .join("");
 }
 
@@ -5104,13 +5471,13 @@ function initForgotPassword() {
       setLoginMsg(
         "✅ Enviamos um e-mail para você trocar a senha (verifique spam/promoções).",
       );
-      alert("E-mail de redefinição enviado!");
+      showToast("E-mail de redefinição enviado!", "success");
     } catch (e) {
       console.error(e);
       setLoginMsg(
         "❌ Não consegui enviar. Verifique se o e-mail está correto.",
       );
-      alert("Erro ao enviar e-mail: " + (e?.message || e));
+      showToast("Erro ao enviar e-mail: " + (e?.message || e), "error");
     } finally {
       btn.disabled = false;
     }
@@ -5127,7 +5494,7 @@ function initResendEmailVerification() {
       .toLowerCase();
 
     if (!email) {
-      alert("Digite seu e-mail no campo de login primeiro.");
+      showToast("Digite seu e-mail no campo de login primeiro.", "info");
       return;
     }
 
@@ -5140,7 +5507,7 @@ function initResendEmailVerification() {
       ).trim();
       if (!pass) {
         setLoginMsg("Digite sua senha também (para reenviar a verificação).");
-        alert("Digite sua senha para reenviar a verificação.");
+        showToast("Digite sua senha para reenviar a verificação.", "info");
         return;
       }
 
@@ -5149,7 +5516,7 @@ function initResendEmailVerification() {
 
       if (cred.user.emailVerified) {
         setLoginMsg("✅ Seu e-mail já está verificado. Você já pode entrar.");
-        alert("Seu e-mail já está verificado.");
+        showToast("Seu e-mail já está verificado.", "info");
         return;
       }
 
@@ -5163,8 +5530,9 @@ function initResendEmailVerification() {
       setLoginMsg(
         "✅ E-mail de verificação reenviado! Verifique Caixa de entrada/Spam.",
       );
-      alert(
+      showToast(
         "E-mail de verificação reenviado! Verifique Caixa de entrada/Spam.",
+        "success",
       );
 
       await auth.signOut();
@@ -5182,7 +5550,7 @@ function initResendEmailVerification() {
               : "Não consegui reenviar. Erro: " + (e?.message || e);
 
       setLoginMsg("❌ " + msg);
-      alert(msg);
+      showToast(msg, "error");
     } finally {
       btn.disabled = false;
       setLoginMsg("");
@@ -5216,7 +5584,7 @@ function initSignup() {
     }
 
     if (!senhaForteLogin(pass)) {
-      alert(msgSenhaForteLogin());
+      showToast(msgSenhaForteLogin(), "error");
       setSignupMsg("❌ " + msgSenhaForteLogin());
       return;
     }
@@ -5254,16 +5622,18 @@ function initSignup() {
         setSignupMsg(
           "✅ Conta criada! Enviamos um e-mail para verificação. Depois, aguarde aprovação.",
         );
-        alert(
+        showToast(
           "Conta criada! Enviamos um e-mail para verificação. Verifique a caixa de entrada e SPAM.",
+          "success",
         );
       } catch (errMail) {
         console.error("Falha ao enviar email de verificação:", errMail);
         setSignupMsg(
           "✅ Conta criada! (Não consegui enviar o e-mail agora). Use 'Reenviar verificação' no login.",
         );
-        alert(
+        showToast(
           "Conta criada, mas não consegui enviar o e-mail agora. Tente reenviar no login.",
+          "warning",
         );
       }
 
@@ -5271,7 +5641,7 @@ function initSignup() {
       mostrarLogin();
     } catch (e) {
       console.error("ERRO SIGNUP:", e?.code, e?.message, e);
-      alert("ERRO SIGNUP: " + (e?.code || "") + " - " + (e?.message || e));
+      showToast("ERRO SIGNUP: " + (e?.code || "") + " - " + (e?.message || e), "error");
 
       const msg =
         e?.code === "auth/email-already-in-use"
@@ -5283,7 +5653,7 @@ function initSignup() {
               : "Erro ao cadastrar: " + (e?.message || e);
 
       setSignupMsg("❌ " + msg);
-      alert(msg);
+      showToast(msg, "error");
     } finally {
       btn.disabled = false;
       btn.textContent = "Criar conta";
@@ -5295,6 +5665,8 @@ function initAprovacaoUsuariosUI() {
   const btnReload = document.getElementById("btnReloadUsuariosPendentes");
   if (btnReload) btnReload.addEventListener("click", carregarUsuariosPendentes);
 
+  initGestaoEquipesUI();
+
   auth.onAuthStateChanged((user) => {
     const menu = document.getElementById("menuAprovacao");
     const sec = document.getElementById("secAprovacaoUsuarios");
@@ -5304,8 +5676,508 @@ function initAprovacaoUsuariosUI() {
     if (menu) menu.classList.toggle("hidden", !isAdmin);
     if (sec) sec.classList.toggle("hidden", !isAdmin);
 
-    if (isAdmin) carregarUsuariosPendentes();
+    if (isAdmin) {
+      carregarUsuariosPendentes();
+      carregarGestaoEquipes();
+    }
   });
+}
+
+function initGestaoEquipesUI() {
+  const btn = document.getElementById("btnReloadGestaoEquipes");
+  if (btn) btn.addEventListener("click", carregarGestaoEquipes);
+}
+
+const ROLE_LABELS = {
+  admin:      { label: "Admin",      cls: "badge-role-admin" },
+  supervisor: { label: "Supervisor", cls: "badge-role-supervisor" },
+  user:       { label: "User",       cls: "badge-role-user" },
+};
+
+async function carregarGestaoEquipes() {
+  const container = document.getElementById("gestaoEquipesContainer");
+  if (!container) return;
+  container.innerHTML = '<p style="color:var(--text-muted);font-size:13px;padding:8px 0;">Carregando...</p>';
+
+  try {
+    const [snapUsuarios, snapEquipes] = await Promise.all([
+      db.collection("usuarios").get(),
+      db.collection("equipes").get(),
+    ]);
+
+    const todos = snapUsuarios.docs
+      .map(d => ({ id: d.id, ...d.data() }))
+      .filter(u => u.aprovado === true && u.uid)
+      .map(u => ({
+        ...u,
+        email: (u.email || "").toLowerCase().trim(),
+        nome: u.nome || u.email || "-",
+        role: u.role || null,
+        podeVerDe: Array.isArray(u.podeVerDe) ? u.podeVerDe.map(e => e.toLowerCase()) : [],
+      }));
+
+    const todasEquipes = snapEquipes.docs.map(d => ({ id: d.id, ...d.data() }));
+
+    const admins      = todos.filter(u => u.role === "admin");
+    const supervisores = todos.filter(u => u.role === "supervisor");
+    const users       = todos.filter(u => u.role === "user");
+    const semCargo    = todos.filter(u => !u.role || !["admin","supervisor","user"].includes(u.role));
+
+    renderGestaoEquipes({ admins, supervisores, users, semCargo }, todos, todasEquipes);
+  } catch (e) {
+    console.error("ERRO carregarGestaoEquipes:", e);
+    container.innerHTML = '<p style="color:var(--text-muted);font-size:13px;">Erro ao carregar equipes.</p>';
+  }
+}
+
+function renderGestaoEquipes(grupos, todosUsuarios, todasEquipes) {
+  const container = document.getElementById("gestaoEquipesContainer");
+  if (!container) return;
+  container.innerHTML = "";
+
+  function criarSecao(titulo, lista) {
+    if (!lista.length) return null;
+    const wrap = document.createElement("div");
+    wrap.className = "equipe-grupo";
+
+    const header = document.createElement("div");
+    header.className = "equipe-grupo-header";
+    header.innerHTML =
+      `<span>${escapeHtml(titulo)}</span>` +
+      `<span class="equipe-grupo-count">${lista.length}</span>`;
+    wrap.appendChild(header);
+
+    const body = document.createElement("div");
+    body.className = "equipe-grupo-body";
+
+    lista.sort((a, b) => (a.nome || "").localeCompare(b.nome || "", "pt-BR")).forEach(u => {
+      const roleMeta = ROLE_LABELS[u.role] || { label: "Sem cargo", cls: "badge-role-none" };
+      const row = document.createElement("div");
+      row.className = "equipe-membro-row";
+      row.innerHTML =
+        `<div class="equipe-membro-info">` +
+          `<span class="equipe-membro-nome">${escapeHtml(u.nome)}</span>` +
+          `<span class="equipe-membro-email">${escapeHtml(u.email)}</span>` +
+        `</div>` +
+        `<div class="equipe-membro-acoes">` +
+          `<span class="badge-role ${roleMeta.cls}">${roleMeta.label}</span>` +
+          `<button class="btn-editar-cargo" type="button">Editar</button>` +
+        `</div>`;
+      row.querySelector(".btn-editar-cargo").addEventListener("click", () => {
+        abrirModalEditarCargo(u.id, u, todosUsuarios);
+      });
+      body.appendChild(row);
+    });
+
+    wrap.appendChild(body);
+    return wrap;
+  }
+
+  [
+    ["Admins", grupos.admins],
+    ["Supervisores", grupos.supervisores],
+    ["Users", grupos.users],
+    ["Sem cargo", grupos.semCargo],
+  ].forEach(([titulo, lista]) => {
+    const sec = criarSecao(titulo, lista);
+    if (sec) container.appendChild(sec);
+  });
+
+  // --- Equipes ---
+  const hr = document.createElement("hr");
+  hr.style.cssText = "margin:20px 0 16px;opacity:.2;";
+  container.appendChild(hr);
+
+  const equipesBar = document.createElement("div");
+  equipesBar.style.cssText = "display:flex;align-items:center;justify-content:space-between;margin-bottom:12px;";
+
+  const equipesTitle = document.createElement("span");
+  equipesTitle.textContent = "Equipes";
+  equipesTitle.style.cssText = "font-size:15px;font-weight:600;color:var(--text-strong);";
+
+  const btnCriar = document.createElement("button");
+  btnCriar.textContent = "+ Criar Equipe";
+  btnCriar.className = "secondary";
+  btnCriar.style.fontSize = "13px";
+  btnCriar.addEventListener("click", () => abrirModalCriarEquipe(null, todosUsuarios, todasEquipes));
+
+  equipesBar.appendChild(equipesTitle);
+  equipesBar.appendChild(btnCriar);
+  container.appendChild(equipesBar);
+
+  if (!todasEquipes.length) {
+    const vazio = document.createElement("p");
+    vazio.style.cssText = "color:var(--text-muted);font-size:13px;margin:0;";
+    vazio.textContent = "Nenhuma equipe criada ainda.";
+    container.appendChild(vazio);
+    return;
+  }
+
+  todasEquipes.forEach(eq => {
+    const card = document.createElement("div");
+    card.className = "equipe-grupo";
+
+    const h = document.createElement("div");
+    h.className = "equipe-grupo-header";
+
+    const nTotal = (eq.supervisoresEmails || []).length + (eq.membrosEmails || []).length;
+    h.innerHTML =
+      `<span>${escapeHtml(eq.nome || "Equipe")}</span>` +
+      `<span class="equipe-grupo-count">${nTotal} ${nTotal === 1 ? "membro" : "membros"}</span>`;
+
+    const acoes = document.createElement("div");
+    acoes.style.cssText = "display:flex;gap:6px;align-items:center;margin-left:auto;";
+
+    const btnEdit = document.createElement("button");
+    btnEdit.textContent = "Editar";
+    btnEdit.className = "secondary";
+    btnEdit.style.cssText = "font-size:12px;padding:3px 10px;";
+    btnEdit.addEventListener("click", () => abrirModalCriarEquipe(eq, todosUsuarios, todasEquipes));
+
+    const btnDel = document.createElement("button");
+    btnDel.textContent = "Deletar";
+    btnDel.style.cssText = "font-size:12px;padding:3px 10px;background:transparent;border:1px solid var(--danger,#ef4444);color:var(--danger,#ef4444);border-radius:6px;cursor:pointer;";
+    btnDel.addEventListener("click", () => confirmarDeletarEquipe(eq, todasEquipes, todosUsuarios));
+
+    acoes.appendChild(btnEdit);
+    acoes.appendChild(btnDel);
+    h.appendChild(acoes);
+    card.appendChild(h);
+
+    const body = document.createElement("div");
+    body.className = "equipe-grupo-body";
+
+    (eq.supervisoresEmails || []).forEach(email => {
+      const u = todosUsuarios.find(u => u.email === email);
+      const row = document.createElement("div");
+      row.className = "equipe-membro-row";
+      row.innerHTML =
+        `<div class="equipe-membro-info">` +
+          `<span class="equipe-membro-nome">${escapeHtml(u?.nome || email)}</span>` +
+          `<span class="equipe-membro-email">${escapeHtml(email)}</span>` +
+        `</div>` +
+        `<div class="equipe-membro-acoes"><span class="badge-role badge-role-supervisor">Supervisor</span></div>`;
+      body.appendChild(row);
+    });
+
+    (eq.membrosEmails || []).forEach(email => {
+      const u = todosUsuarios.find(u => u.email === email);
+      const row = document.createElement("div");
+      row.className = "equipe-membro-row";
+      row.innerHTML =
+        `<div class="equipe-membro-info">` +
+          `<span class="equipe-membro-nome">${escapeHtml(u?.nome || email)}</span>` +
+          `<span class="equipe-membro-email">${escapeHtml(email)}</span>` +
+        `</div>` +
+        `<div class="equipe-membro-acoes"><span class="badge-role badge-role-user">User</span></div>`;
+      body.appendChild(row);
+    });
+
+    card.appendChild(body);
+    container.appendChild(card);
+  });
+
+  if (!container.children.length) {
+    container.innerHTML = '<p style="color:var(--text-muted);font-size:13px;padding:8px 0;">Nenhum usuário aprovado encontrado.</p>';
+  }
+}
+
+function abrirModalEditarCargo(uid, userData, todosUsuarios) {
+  document.getElementById("modalEditarCargo")?.remove();
+
+  const overlay = document.createElement("div");
+  overlay.id = "modalEditarCargo";
+  overlay.className = "crm-formato-overlay";
+  overlay.style.zIndex = "2147483641";
+
+  const card = document.createElement("div");
+  card.className = "crm-formato-card cargo-modal-card";
+
+  const headerEl = document.createElement("div");
+  headerEl.className = "crm-formato-title";
+  headerEl.textContent = userData.nome || userData.email;
+
+  const emailEl = document.createElement("div");
+  emailEl.style.cssText = "font-size:13px;color:var(--text-muted);margin-bottom:20px;";
+  emailEl.textContent = userData.email;
+
+  const roleLabel = document.createElement("div");
+  roleLabel.className = "cargo-modal-label";
+  roleLabel.textContent = "Cargo:";
+
+  const roleSelect = document.createElement("div");
+  roleSelect.className = "cargo-modal-roles";
+
+  [
+    { value: "admin",      label: "Admin" },
+    { value: "supervisor", label: "Supervisor" },
+    { value: "user",       label: "User" },
+    { value: "",           label: "Sem cargo" },
+  ].forEach(r => {
+    const lbl = document.createElement("label");
+    lbl.className = "cargo-role-option";
+    const inp = document.createElement("input");
+    inp.type = "radio";
+    inp.name = "cargo_role_" + uid;
+    inp.value = r.value;
+    inp.checked = (userData.role || "") === r.value;
+    lbl.appendChild(inp);
+    lbl.append(" " + r.label);
+    roleSelect.appendChild(lbl);
+  });
+
+
+  const row = document.createElement("div");
+  row.className = "crm-formato-row";
+  row.style.marginTop = "20px";
+
+  const btnCancel = document.createElement("button");
+  btnCancel.textContent = "Cancelar";
+  btnCancel.className = "secondary";
+
+  const btnSave = document.createElement("button");
+  btnSave.textContent = "Salvar";
+
+  const close = () => overlay.remove();
+
+  btnCancel.addEventListener("click", close);
+  overlay.addEventListener("click", e => { if (e.target === overlay) close(); });
+  document.addEventListener("keydown", function handler(e) {
+    if (e.key === "Escape") { document.removeEventListener("keydown", handler); close(); }
+  });
+
+  btnSave.addEventListener("click", async () => {
+    const novoRole = roleSelect.querySelector(`input[name="cargo_role_${uid}"]:checked`)?.value || "";
+
+    btnSave.disabled = true;
+    btnSave.textContent = "Salvando...";
+    try {
+      await salvarEdicaoCargo(uid, userData.email, novoRole);
+      close();
+    } catch (err) {
+      showToast({ title: "Erro ao salvar", description: err.message }, "error");
+      btnSave.disabled = false;
+      btnSave.textContent = "Salvar";
+    }
+  });
+
+  row.appendChild(btnCancel);
+  row.appendChild(btnSave);
+  card.appendChild(headerEl);
+  card.appendChild(emailEl);
+  card.appendChild(roleLabel);
+  card.appendChild(roleSelect);
+  card.appendChild(row);
+  overlay.appendChild(card);
+  document.body.appendChild(overlay);
+}
+
+async function salvarEdicaoCargo(uid, email, novoRole) {
+  await db.collection("usuarios").doc(uid).set({
+    role: novoRole || null,
+    atualizadoEm: new Date().toISOString(),
+    atualizadoPorAdmin: auth.currentUser?.email || "",
+  }, { merge: true });
+
+  showToast({ title: "Cargo atualizado", description: `${email} atualizado com sucesso.` }, "success");
+  await carregarGestaoEquipes();
+  await carregarUsuariosExistentes(document.getElementById("searchUsuariosExistentes")?.value || "");
+}
+
+function abrirModalCriarEquipe(equipe, todosUsuarios, todasEquipes) {
+  document.getElementById("modalCriarEquipe")?.remove();
+
+  const overlay = document.createElement("div");
+  overlay.id = "modalCriarEquipe";
+  overlay.className = "crm-formato-overlay";
+  overlay.style.zIndex = "2147483641";
+
+  const card = document.createElement("div");
+  card.className = "crm-formato-card cargo-modal-card";
+
+  const title = document.createElement("div");
+  title.className = "crm-formato-title";
+  title.textContent = equipe ? "Editar Equipe" : "Nova Equipe";
+
+  const nomeLabel = document.createElement("div");
+  nomeLabel.className = "cargo-modal-label";
+  nomeLabel.style.marginTop = "16px";
+  nomeLabel.textContent = "Nome da equipe:";
+
+  const nomeInput = document.createElement("input");
+  nomeInput.type = "text";
+  nomeInput.value = equipe?.nome || "";
+  nomeInput.placeholder = "Ex: Equipe - Prysmian";
+  nomeInput.style.cssText = "width:100%;box-sizing:border-box;padding:8px 10px;border:1px solid var(--border-soft);border-radius:8px;background:var(--bg-input,var(--bg-container));color:var(--text-strong);font-size:14px;margin-bottom:14px;";
+
+  const supLabel = document.createElement("div");
+  supLabel.className = "cargo-modal-label";
+  supLabel.textContent = "Supervisores:";
+
+  const supLista = document.createElement("div");
+  supLista.className = "cargo-modal-checks";
+  const currentSups = new Set(equipe?.supervisoresEmails || []);
+  todosUsuarios
+    .filter(u => u.role === "supervisor")
+    .sort((a, b) => (a.nome || "").localeCompare(b.nome || "", "pt-BR"))
+    .forEach(sup => {
+      const item = document.createElement("label");
+      item.className = "cargo-check-item";
+      const chk = document.createElement("input");
+      chk.type = "checkbox";
+      chk.value = sup.email;
+      chk.checked = currentSups.has(sup.email);
+      item.appendChild(chk);
+      item.append(" " + (sup.nome || sup.email));
+      supLista.appendChild(item);
+    });
+
+  const memLabel = document.createElement("div");
+  memLabel.className = "cargo-modal-label";
+  memLabel.style.marginTop = "14px";
+  memLabel.textContent = "Membros (users):";
+
+  const memLista = document.createElement("div");
+  memLista.className = "cargo-modal-checks";
+  const currentMems = new Set(equipe?.membrosEmails || []);
+  todosUsuarios
+    .filter(u => u.role === "user")
+    .sort((a, b) => (a.nome || "").localeCompare(b.nome || "", "pt-BR"))
+    .forEach(u => {
+      const item = document.createElement("label");
+      item.className = "cargo-check-item";
+      const chk = document.createElement("input");
+      chk.type = "checkbox";
+      chk.value = u.email;
+      chk.checked = currentMems.has(u.email);
+      item.appendChild(chk);
+      item.append(" " + (u.nome || u.email));
+      memLista.appendChild(item);
+    });
+
+  const row = document.createElement("div");
+  row.className = "crm-formato-row";
+  row.style.marginTop = "20px";
+
+  const btnCancel = document.createElement("button");
+  btnCancel.textContent = "Cancelar";
+  btnCancel.className = "secondary";
+
+  const btnSave = document.createElement("button");
+  btnSave.textContent = "Salvar";
+
+  const close = () => overlay.remove();
+  btnCancel.addEventListener("click", close);
+  overlay.addEventListener("click", e => { if (e.target === overlay) close(); });
+  document.addEventListener("keydown", function handler(e) {
+    if (e.key === "Escape") { document.removeEventListener("keydown", handler); close(); }
+  });
+
+  btnSave.addEventListener("click", async () => {
+    const nome = nomeInput.value.trim();
+    if (!nome) { showToast({ title: "Informe o nome da equipe" }, "error"); return; }
+
+    const supEmails  = Array.from(supLista.querySelectorAll("input:checked")).map(c => c.value);
+    const memEmails  = Array.from(memLista.querySelectorAll("input:checked")).map(c => c.value);
+
+    btnSave.disabled = true;
+    btnSave.textContent = "Salvando...";
+    try {
+      await salvarEquipe(equipe?.id || null, nome, supEmails, memEmails, todosUsuarios, todasEquipes);
+      close();
+    } catch (err) {
+      showToast({ title: "Erro ao salvar", description: err.message }, "error");
+      btnSave.disabled = false;
+      btnSave.textContent = "Salvar";
+    }
+  });
+
+  row.appendChild(btnCancel);
+  row.appendChild(btnSave);
+  card.appendChild(title);
+  card.appendChild(nomeLabel);
+  card.appendChild(nomeInput);
+  card.appendChild(supLabel);
+  card.appendChild(supLista);
+  card.appendChild(memLabel);
+  card.appendChild(memLista);
+  card.appendChild(row);
+  overlay.appendChild(card);
+  document.body.appendChild(overlay);
+}
+
+async function salvarEquipe(id, nome, supervisoresEmails, membrosEmails, todosUsuarios, todasEquipes) {
+  const batch = db.batch();
+
+  const equipeRef = id
+    ? db.collection("equipes").doc(id)
+    : db.collection("equipes").doc();
+
+  batch.set(equipeRef, {
+    nome,
+    supervisoresEmails,
+    membrosEmails,
+    atualizadoEm: new Date().toISOString(),
+  });
+
+  // Recalcula podeVerDe para todos os supervisores afetados
+  const equipeAtualizada = { id: equipeRef.id, nome, supervisoresEmails, membrosEmails };
+  const equipesAtual = [...todasEquipes.filter(e => e.id !== id), equipeAtualizada];
+  const oldEquipe = todasEquipes.find(e => e.id === id);
+  const supAfetados = new Set([...supervisoresEmails, ...(oldEquipe?.supervisoresEmails || [])]);
+
+  supAfetados.forEach(supEmail => {
+    const sup = todosUsuarios.find(u => u.email === supEmail && u.role === "supervisor");
+    if (!sup) return;
+    const pvd = new Set([supEmail]);
+    equipesAtual
+      .filter(e => (e.supervisoresEmails || []).includes(supEmail))
+      .forEach(e => {
+        (e.supervisoresEmails || []).forEach(s => pvd.add(s));
+        (e.membrosEmails || []).forEach(m => pvd.add(m));
+      });
+    batch.set(db.collection("usuarios").doc(sup.id), {
+      podeVerDe: Array.from(pvd),
+      atualizadoEm: new Date().toISOString(),
+    }, { merge: true });
+  });
+
+  await batch.commit();
+  showToast({ title: nome, description: "Equipe salva com sucesso." }, "success");
+  await carregarGestaoEquipes();
+}
+
+async function confirmarDeletarEquipe(eq, todasEquipes, todosUsuarios) {
+  const ok = await showConfirm(`Deletar a equipe "${eq.nome}"?`, "Esta ação não pode ser desfeita.");
+  if (!ok) return;
+
+  try {
+    const batch = db.batch();
+    batch.delete(db.collection("equipes").doc(eq.id));
+
+    const equipesRestantes = todasEquipes.filter(e => e.id !== eq.id);
+    (eq.supervisoresEmails || []).forEach(supEmail => {
+      const sup = todosUsuarios.find(u => u.email === supEmail && u.role === "supervisor");
+      if (!sup) return;
+      const pvd = new Set([supEmail]);
+      equipesRestantes
+        .filter(e => (e.supervisoresEmails || []).includes(supEmail))
+        .forEach(e => {
+          (e.supervisoresEmails || []).forEach(s => pvd.add(s));
+          (e.membrosEmails || []).forEach(m => pvd.add(m));
+        });
+      batch.set(db.collection("usuarios").doc(sup.id), {
+        podeVerDe: Array.from(pvd),
+        atualizadoEm: new Date().toISOString(),
+      }, { merge: true });
+    });
+
+    await batch.commit();
+    showToast({ title: "Equipe deletada" }, "success");
+    await carregarGestaoEquipes();
+  } catch (e) {
+    showToast({ title: "Erro ao deletar", description: e.message }, "error");
+  }
 }
 
 async function carregarUsuariosPendentes() {
@@ -5348,22 +6220,23 @@ async function carregarUsuariosPendentes() {
     pendentes.forEach((u) => {
       const tr = document.createElement("tr");
       tr.innerHTML = `
-        <td>${u.nome || "-"}</td>
-        <td>${u.email || "-"}</td>
+        <td>${escapeHtml(u.nome || "-")}</td>
+        <td>${escapeHtml(u.email || "-")}</td>
         <td>${u.ativo === false ? "Inativo" : "Pendente"}</td>
-        <td>${u.criadoEm || u.atualizadoEm || "-"}</td>
-        <td>
-          <button class="btn-sm" type="button" onclick="aprovarUsuario('${u.id
-        }')">Aprovar</button>
-          <button class="btn-sm btn-danger" type="button" onclick="bloquearUsuario('${u.id
-        }')">Bloquear</button>
+        <td>${escapeHtml(u.criadoEm || u.atualizadoEm || "-")}</td>
+        <td style="text-align:center;">
+          <button class="btn-kebab" type="button" data-uid="${u.id}" data-type="usuario_pendente">...</button>
         </td>
       `;
+      tr.querySelector(".btn-kebab").addEventListener("click", (ev) => {
+        const btn = ev.currentTarget;
+        openActionsMenu(ev, btn.dataset.type, btn.dataset.uid);
+      });
       tbody.appendChild(tr);
     });
   } catch (e) {
     console.error("ERRO carregarUsuariosPendentes:", e);
-    alert("ERRO ao carregar usuários: " + (e?.message || e));
+    showToast("ERRO ao carregar usuários: " + (e?.message || e), "error");
     tbody.innerHTML = `<tr><td colspan="5">Erro ao carregar usuários.</td></tr>`;
   }
 }
@@ -5440,18 +6313,14 @@ async function carregarUsuariosExistentes(filtroTexto = "") {
         <td>${escapeHtml(u.email || "-")}</td>
         <td>${statusTxt}</td>
         <td>${escapeHtml(criado)}</td>
-        <td style="display:flex; gap:8px; flex-wrap:wrap;">
-          <button class="btn-sm" type="button" onclick="toggleAtivoUsuario('${u.id
-        }', ${u.ativo ? "false" : "true"})">
-            ${u.ativo ? "Desativar" : "Ativar"}
-          </button>
-
-          <button class="btn-sm btn-danger" type="button" onclick="excluirUsuarioFirestore('${u.id
-        }')">
-            Excluir (Firestore)
-          </button>
+        <td style="text-align:center;">
+          <button class="btn-kebab" type="button" data-uid="${u.id}" data-type="usuario_existente" data-ativo="${u.ativo}" data-email="${escapeHtml(u.email)}">...</button>
         </td>
       `;
+      tr.querySelector(".btn-kebab").addEventListener("click", (ev) => {
+        const btn = ev.currentTarget;
+        openActionsMenu(ev, btn.dataset.type, btn.dataset.uid, { ativo: btn.dataset.ativo === "true", email: btn.dataset.email });
+      });
       tbody.appendChild(tr);
     });
   } catch (e) {
@@ -5463,7 +6332,7 @@ async function carregarUsuariosExistentes(filtroTexto = "") {
 async function toggleAtivoUsuario(docId, novoAtivo) {
   const user = auth.currentUser;
   if (!user || !isAdminEmail(user.email)) {
-    alert("Apenas o administrador pode alterar usuários.");
+    showToast("Apenas o administrador pode alterar usuários.", "error");
     return;
   }
 
@@ -5484,14 +6353,11 @@ async function toggleAtivoUsuario(docId, novoAtivo) {
 async function excluirUsuarioFirestore(docId) {
   const user = auth.currentUser;
   if (!user || !isAdminEmail(user.email)) {
-    alert("Apenas o administrador pode excluir usuários.");
+    showToast("Apenas o administrador pode excluir usuários.", "error");
     return;
   }
 
-  const ok = confirm(
-    "Tem certeza?\n\nIsso vai apagar o usuário do Firestore.\n⚠️ Ele pode continuar existindo no Firebase Authentication.",
-  );
-  if (!ok) return;
+  if (!await showConfirm("Isso vai apagar o usuário do Firestore.\n⚠️ Ele pode continuar existindo no Firebase Authentication.", { title: "Excluir Usuário", confirmText: "Excluir" })) return;
 
   await db.collection("usuarios").doc(docId).delete();
 
@@ -5504,11 +6370,17 @@ async function excluirUsuarioFirestore(docId) {
 async function aprovarUsuario(uid) {
   const user = auth.currentUser;
   if (!user || !isAdminEmail(user.email)) {
-    alert("Apenas o administrador pode aprovar.");
+    showToast("Apenas o administrador pode aprovar.", "error");
     return;
   }
 
-  if (!confirm("Aprovar este usuário?")) return;
+  if (!await showConfirm("Tem certeza que deseja aprovar este usuário?", { title: "Aprovar Usuário", confirmText: "Aprovar", danger: false })) return;
+
+  const snapVerif = await db.collection("usuarios").doc(uid).get();
+  if (!snapVerif.exists || snapVerif.data()?.aprovado === true) {
+    showToast("Usuário já foi aprovado ou não existe.", "warning");
+    return;
+  }
 
   await db.collection("usuarios").doc(uid).set(
     {
@@ -5529,11 +6401,11 @@ async function aprovarUsuario(uid) {
 async function bloquearUsuario(uid) {
   const user = auth.currentUser;
   if (!user || !isAdminEmail(user.email)) {
-    alert("Apenas o administrador pode bloquear.");
+    showToast("Apenas o administrador pode bloquear.", "error");
     return;
   }
 
-  if (!confirm("Bloquear este usuário?")) return;
+  if (!await showConfirm("Tem certeza que deseja bloquear este usuário?", { title: "Bloquear Usuário", confirmText: "Bloquear" })) return;
 
   await db.collection("usuarios").doc(uid).set(
     {
@@ -5600,24 +6472,44 @@ function cancelarEdicao() {
   const form = document.getElementById("formOferta");
   if (form) form.reset();
 
+  // Limpa datasets que form.reset() não toca
+  const cnpjInput = document.getElementById("cnpj_cliente");
+  if (cnpjInput) cnpjInput.dataset.clienteId = "";
   document.getElementById("nome_projeto").dataset.projetoId = "";
 
+  // Esconde seções condicionais
   document.getElementById("secaoPedido")?.classList.add("hidden");
   document.getElementById("secaoRevisao")?.classList.add("hidden");
-
-  document.querySelector("input[name='pedido'][value='nao']")?.click();
-  document.querySelector("input[name='revisao'][value='nao']")?.click();
-  document.querySelector("input[name='sol_oc'][value='nao']")?.click();
-  document.querySelector("input[name='spot'][value='nao']")?.click();
-
+  document.getElementById("blocoMotivoPerda")?.classList.add("hidden");
   document.getElementById("wrapUnidade")?.classList.add("hidden");
+
+  // Reseta todos os radio buttons para "nao" disparando change
+  // (garante que os change listeners escondam as seções corretamente)
+  ["pedido", "revisao", "sol_oc", "spot", "entregue"].forEach((name) => {
+    const radio = document.querySelector(`input[name='${name}'][value='nao']`);
+    if (!radio) return;
+    if (!radio.checked) {
+      radio.checked = true;
+      radio.dispatchEvent(new Event("change", { bubbles: true }));
+    }
+  });
+
+  // Limpa campos não cobertos pelo form.reset()
   const unidadeEl = document.getElementById("unidade");
   if (unidadeEl) unidadeEl.value = "";
+  const motivoEl = document.getElementById("motivo_perda");
+  if (motivoEl) motivoEl.value = "";
+
+  // Reseta NFs para estado inicial (form.reset não restaura campos dinâmicos)
+  if (typeof resetNotasFiscaisUI === "function") resetNotasFiscaisUI();
 
   const btnAdicionar = document.getElementById("btnAdicionar");
   if (btnAdicionar) btnAdicionar.textContent = "Adicionar";
 
   document.getElementById("btnCancelarEdicao")?.classList.add("hidden");
+
+  // Restaura datalists com sugestões de todas as ofertas
+  popularDatalistsCamposContato("");
 }
 
 function cancelarEdicaoCliente() {
@@ -5907,7 +6799,7 @@ function renderFiltroRegistroValor(row, field = "todos", term = "") {
     ${options
         .map(
           (opt) =>
-            `<option value="${opt}" ${String(opt).toLowerCase() === String(term).toLowerCase() ? "selected" : ""}>${opt}</option>`,
+            `<option value="${esc(opt)}" ${String(opt).toLowerCase() === String(term).toLowerCase() ? "selected" : ""}>${esc(opt)}</option>`,
         )
         .join("")}
     <option value="vazio" ${String(term).toLowerCase() === "vazio" ? "selected" : ""}>Vazio</option>
@@ -6005,7 +6897,7 @@ function renderActiveFilterTags() {
   filtros.forEach((f, index) => {
     const tag = document.createElement("span");
     tag.className = "filter-tag";
-    tag.innerHTML = `${f.term} ✕`;
+    tag.innerHTML = `${esc(f.term)} ✕`;
     tag.onclick = () => {
       document
         .querySelectorAll("#filtersRegistros .filter-item")
@@ -6169,7 +7061,7 @@ function renderClienteTermInput(
         ${options
         .map(
           (opt) =>
-            `<option value="${opt}" ${opt === selectedValue ? "selected" : ""}>${opt}</option>`,
+            `<option value="${esc(opt)}" ${opt === selectedValue ? "selected" : ""}>${esc(opt)}</option>`,
         )
         .join("")}
 
@@ -6464,6 +7356,8 @@ function toggleOrdemRepresentadas() {
 }
 
 function getRegistrosFiltrados() {
+  const base = filtrarPorPermissao(registros);
+
   const statusFilter = (document.getElementById("statusFilter")?.value || "")
     .trim()
     .toLowerCase();
@@ -6491,7 +7385,7 @@ function getRegistrosFiltrados() {
     return acc;
   }, {});
 
-  return registros.filter((reg) => {
+  return base.filter((reg) => {
     const textoTodos = getTextoRegistroTodosCampos(reg);
 
     for (const field in filtrosPorCampo) {
@@ -6642,7 +7536,7 @@ function validarCamposObrigatorios(campos) {
 
   if (invalidos.length) {
     invalidos[0].el.focus();
-    alert("Preencha todos os campos obrigatórios destacados em vermelho.");
+    showToast("Preencha todos os campos obrigatórios destacados em vermelho.", "error");
     return false;
   }
 
@@ -7171,7 +8065,7 @@ function initContatosProjetoUI() {
     const telDigits = (telEl.value || "").replace(/\D/g, "");
     if (telDigits.length < 10 || telDigits.length > 11) {
       marcarErroCampo(telEl);
-      alert("Telefone inválido. Informe DDD + 8 ou 9 dígitos.");
+      showToast("Telefone inválido. Informe DDD + 8 ou 9 dígitos.", "error");
       telEl.focus();
       return;
     }
@@ -7326,7 +8220,7 @@ function initAtualizacoesProjetoUI() {
 
     if (!texto) {
       marcarErroCampo(textoEl);
-      alert("Digite o texto da atualização.");
+      showToast("Digite o texto da atualização.", "error");
       textoEl?.focus();
       return;
     }
@@ -7375,7 +8269,7 @@ function renderListaAtualizacoesProjeto() {
 
     const div = document.createElement("div");
     div.innerHTML = `
-      <span>${texto}</span>
+      <span>${esc(texto)}</span>
       <button type="button" onclick="editarAtualizacaoProjeto(${index})">Editar</button>
       <button type="button" onclick="excluirAtualizacaoProjeto(${index})">Excluir</button>
     `;
@@ -7402,7 +8296,7 @@ function editarAtualizacaoProjeto(index) {
   document.getElementById("btnCancelarEdicaoAtualizacaoProjeto")?.classList.remove("hidden");
 }
 
-function excluirAtualizacaoProjeto(index) {
+async function excluirAtualizacaoProjeto(index) {
   const ativas = obterItensTemporariosAtivos(projetoAtualizacoesTemp);
   const item = ativas[index];
   if (!item) return;
@@ -7410,7 +8304,7 @@ function excluirAtualizacaoProjeto(index) {
   const indiceReal = projetoAtualizacoesTemp.indexOf(item);
   if (indiceReal < 0) return;
 
-  if (!confirm("Tem certeza que deseja mover esta atualização para a mini lixeira?")) return;
+  if (!await showConfirm("Tem certeza que deseja mover esta atualização para a mini lixeira?", { title: "Mover para Lixeira", confirmText: "Mover" })) return;
 
   marcarItemTemporarioComoRemovido(projetoAtualizacoesTemp, indiceReal, "atualização");
 
@@ -7513,7 +8407,7 @@ function initSalvarProjetoUI() {
 
         await db.collection("projetos").doc(id).set(projeto);
         projetos.push(projeto);
-        alert("Projeto salvo!");
+        showToast("Projeto salvo!", "success");
       } else {
         const idx = projetos.findIndex((p) => p.id === editProjetoId);
         const antigo = projetos[idx] || {};
@@ -7550,7 +8444,7 @@ function initSalvarProjetoUI() {
         await db.collection("projetos").doc(editProjetoId).set(projeto);
         projetos[idx] = projeto;
 
-        alert("Projeto atualizado!");
+        showToast("Projeto atualizado!", "success");
       }
 
       cancelarEdicaoProjeto();
@@ -7558,7 +8452,7 @@ function initSalvarProjetoUI() {
       atualizarSugestoesProjetosOferta();
     } catch (e) {
       console.error(e);
-      alert("Erro ao salvar projeto: " + (e?.message || e));
+      showToast("Erro ao salvar projeto: " + (e?.message || e), "error");
     }
   });
 }
@@ -7650,7 +8544,7 @@ function renderTabelaProjetos() {
       const usuario = formatarNomeUsuario(
         proj.atualizadoPor || proj.criadoPor || "-",
       );
-      const qtdOfertas = registros.filter(
+      const qtdOfertas = filtrarPorPermissao(registros).filter(
         (r) => r.projetoId === proj.id,
       ).length;
       const atrasado =
@@ -7759,7 +8653,7 @@ function renderProjetoTermInput(
         ${options
         .map(
           (opt) =>
-            `<option value="${opt}" ${opt === selectedValue ? "selected" : ""}>${opt}</option>`,
+            `<option value="${esc(opt)}" ${opt === selectedValue ? "selected" : ""}>${esc(opt)}</option>`,
         )
         .join("")}
       </select>
@@ -7830,9 +8724,6 @@ function editarProjeto(id) {
   renderListaAtualizacoesProjeto();
   renderMiniLixeiraAtualizacoesProjeto();
 
-  document
-    .getElementById("blocoAtualizacoesProjetoWrap")
-    ?.classList.remove("hidden");
   document.getElementById("btnSalvarProjeto").textContent = "Salvar Edição";
   document
     .getElementById("btnCancelarEdicaoProjeto")
@@ -7867,9 +8758,6 @@ function cancelarEdicaoProjeto() {
   renderListaContatosProjeto();
   renderListaAtualizacoesProjeto();
 
-  document
-    .getElementById("blocoAtualizacoesProjetoWrap")
-    ?.classList.add("hidden");
   document.getElementById("btnSalvarProjeto").textContent = "Salvar Projeto";
   document.getElementById("btnCancelarEdicaoProjeto")?.classList.add("hidden");
 }
@@ -7889,85 +8777,74 @@ function verProjeto(id) {
     new Date(proj.prazo_final) <
     new Date(new Date().toISOString().slice(0, 10));
 
-  let html = `
-    <div class="modal-card">
-      <div class="modal-card-title">Dados principais</div>
-      <div class="modal-section"><strong>Nome do Projeto:</strong> ${esc(proj.nome) || "-"}</div>
-      <div class="modal-section"><strong>Tipo:</strong> ${esc(proj.tipo) || "-"}</div>
-      <div class="modal-section"><strong>Status:</strong> ${esc(proj.status) || "-"} ${atrasado ? '<span class="badge-atrasado">Atrasado</span>' : ""}</div>
-      <div class="modal-section"><strong>Número de Referência:</strong> ${esc(proj.numero_referencia) || "-"}</div>
-      <div class="modal-section"><strong>Prazo Final:</strong> ${formatDateBR(proj.prazo_final)}</div>
-      <div class="modal-section"><strong>Valor do investimento:</strong> ${esc(proj.valor_investimento) || "-"}</div>
-      <div class="modal-section"><strong>Prev. Fechamento:</strong> ${formatDateBR(proj.prev_fechamento)}</div>
-      <div class="modal-section"><strong>Início das entregas:</strong> ${formatDateBR(proj.inicio_entregas)}</div>
-      <div class="modal-section"><strong>Fim das entregas:</strong> ${formatDateBR(proj.fim_entregas)}</div>
-      <div class="modal-section"><strong>Obs:</strong> ${esc(proj.obs) || "-"}</div>
-      <div class="modal-section"><strong>Qtd. Ofertas:</strong> ${qtdOfertas}</div>
-      <div class="modal-section"><strong>Usuário:</strong> ${esc(usuario)}</div>
-      <div class="modal-section"><strong>Criado em:</strong> ${formatDateTimeBR(proj.criadoEm)}</div>
-      <div class="modal-section"><strong>Atualizado em:</strong> ${formatDateTimeBR(proj.atualizadoEm)}</div>
-    </div>
-  `;
+  function field(label, value, full) {
+    if (!value && value !== 0) return "";
+    return '<div class="md-detail-field' + (full ? ' md-detail-field--full' : '') + '">' +
+      '<div class="md-detail-field-label">' + label + '</div>' +
+      '<div class="md-detail-field-value">' + value + '</div>' +
+      '</div>';
+  }
+  function section(title, fieldsHtml) {
+    if (!fieldsHtml.trim()) return "";
+    return '<div class="md-detail-section">' +
+      '<div class="md-detail-section-title">' + title + '</div>' +
+      '<div class="md-detail-grid">' + fieldsHtml + '</div>' +
+      '</div>';
+  }
 
-  html += `
-    <div class="modal-card">
-      <div class="modal-card-title">Contatos</div>
-      ${(proj.contatos || []).length
-      ? proj.contatos
-        .map(
-          (ct) => `
-          <div class="modal-section">
-            <strong>${esc(ct.nome) || "-"}</strong>
-            ${ct.principal ? '<span class="modal-badge">Principal</span>' : ""}
-            <br>
-            Função: ${esc(ct.funcao) || "-"}<br>
-            Tel: ${esc(ct.telefone) || "-"}<br>
-            E-mail: ${esc(ct.email) || "-"}
-            ${ct.responsavelNome
-              ? `<br>Responsável: ${esc(primeiroNome(ct.responsavelNome))}`
-              : ""
-            }
-          </div>
-          <hr>
-        `,
-        )
-        .join("")
-      : '<div class="modal-section">Nenhum contato cadastrado.</div>'
-    }
-    </div>
-  `;
+  let html = section("Dados do Projeto",
+    field("Nome do Projeto", esc(proj.nome) || "-") +
+    field("Tipo", esc(proj.tipo) || "") +
+    field("Status", esc(proj.status) || "-") +
+    field("N° Referência", esc(proj.numero_referencia) || "") +
+    field("Prazo Final", formatDateBR(proj.prazo_final) || "") +
+    field("Valor do Investimento", esc(proj.valor_investimento) || "") +
+    field("Prev. Fechamento", formatDateBR(proj.prev_fechamento) || "") +
+    field("Início das Entregas", formatDateBR(proj.inicio_entregas) || "") +
+    field("Fim das Entregas", formatDateBR(proj.fim_entregas) || "") +
+    field("Qtd. Ofertas", String(qtdOfertas)) +
+    (proj.obs ? field("Observações", esc(proj.obs), true) : "")
+  );
 
-  html += `
-    <div class="modal-card">
-      <div class="modal-card-title">Atualizações do Projeto</div>
-      ${(proj.atualizacoes || []).length
-      ? proj.atualizacoes
-        .map(
-          (up) => `
-          <div class="modal-section">
-            <strong>${esc(primeiroNome(up.atualizadoPor || up.criadoPor || "-"))}</strong>
-            — ${formatDateTimeBR(up.atualizadoEm || up.criadoEm)}
-            <br>
-            ${esc(up.texto || "-").replace(/\n/g, "<br>")}
-          </div>
-          <hr>
-        `,
-        )
-        .join("")
-      : '<div class="modal-section">Nenhuma atualização cadastrada.</div>'
-    }
-    </div>
-  `;
+  if ((proj.contatos || []).length) {
+    html += '<div class="md-detail-section"><div class="md-detail-section-title">Contatos</div>';
+    proj.contatos.forEach((ct) => {
+      html += '<div class="md-contact-card">' +
+        '<div class="md-contact-name">' + (esc(ct.nome) || "-") +
+          (ct.principal ? '<span class="modal-badge">Principal</span>' : "") +
+        '</div>' +
+        '<div class="md-contact-detail">' +
+          (ct.funcao ? 'Função: ' + esc(ct.funcao) + '<br>' : "") +
+          (ct.telefone ? 'Tel: ' + esc(ct.telefone) + '<br>' : "") +
+          (ct.email ? 'E-mail: ' + esc(ct.email) + '<br>' : "") +
+          (ct.responsavelNome ? 'Responsável: ' + esc(primeiroNome(ct.responsavelNome)) : "") +
+        '</div></div>';
+    });
+    html += '</div>';
+  }
 
-  html += `
-    <div class="modal-card">
-      <div class="modal-card-title">Histórico de Atividades</div>
-      <button type="button" class="secondary" onclick='abrirHistoricoAtual("Histórico do Projeto ${escapeHtml(proj.nome || "")}")'>
-        Visualizar histórico
-      </button>
-    </div>
-  `;
+  if ((proj.atualizacoes || []).length) {
+    html += '<div class="md-detail-section"><div class="md-detail-section-title">Atualizações do Projeto</div>';
+    proj.atualizacoes.forEach((up) => {
+      html += '<div class="md-contact-card">' +
+        '<div class="md-contact-name">' + esc(primeiroNome(up.atualizadoPor || up.criadoPor || "-")) +
+          ' <span style="font-weight:400;font-size:11px;opacity:.5">— ' + formatDateTimeBR(up.atualizadoEm || up.criadoEm) + '</span>' +
+        '</div>' +
+        '<div class="md-contact-detail">' + esc(up.texto || "-").replace(/\n/g, "<br>") + '</div>' +
+        '</div>';
+    });
+    html += '</div>';
+  }
 
+  html += section("Histórico",
+    field("Responsável", esc(usuario)) +
+    field("Criado em", formatDateTimeBR(proj.criadoEm)) +
+    field("Atualizado em", formatDateTimeBR(proj.atualizadoEm))
+  );
+
+  const _projLabel = escapeHtml(proj.nome || "");
+  html += '<div class="md-history-section"><button type="button" class="secondary" onclick="abrirHistoricoAtual(\'' + 'Histórico do Projeto ' + _projLabel + '\')">' +
+    'Visualizar histórico de atividades</button></div>';
   abrirModal(`Projeto - ${proj.nome || ""}`, html);
 }
 
@@ -7977,11 +8854,7 @@ async function excluirProjeto(id) {
 
   const nomeExibicao = projeto.nome || projeto.titulo || "Projeto";
 
-  if (
-    !confirm(
-      "Tem certeza que deseja mover este projeto para a lixeira?\n\nVocê poderá restaurá-lo em até 7 dias."
-    )
-  ) return;
+  if (!await showConfirm("Tem certeza que deseja mover este projeto para a lixeira?\n\nVocê poderá restaurá-lo em até 7 dias.", { title: "Mover para Lixeira", confirmText: "Mover" })) return;
 
   try {
     await moverParaLixeira({
@@ -8004,7 +8877,7 @@ async function excluirProjeto(id) {
     });
   } catch (e) {
     console.error(e);
-    alert("Erro ao mover projeto para a lixeira.");
+    showToast("Erro ao mover projeto para a lixeira.", "error");
   }
 }
 
@@ -8076,7 +8949,7 @@ function initAutoCompleteProjetoOferta() {
     showMatches(input.value);
   });
 
-  box.addEventListener("mousedown", (e) => {
+  box.addEventListener("mousedown", async (e) => {
     const item = e.target.closest(".autocomplete-item");
     if (!item) return;
     e.preventDefault();
@@ -8086,10 +8959,8 @@ function initAutoCompleteProjetoOferta() {
       input.value = nome;
       input.dataset.projetoId = "";
 
-      const ir = confirm(
-        `Projeto "${nome}" não encontrado. Deseja cadastrar agora?`,
-      );
       hide();
+      const ir = await showConfirm(`Projeto "${nome}" não encontrado. Deseja cadastrá-lo agora?`, { title: "Projeto não encontrado", confirmText: "Cadastrar", danger: false });
 
       if (ir) {
         irPara("projetos");
@@ -8336,8 +9207,9 @@ function validarContatoProjeto() {
 
   if (!ok) {
     document.querySelector(".input-erro")?.focus();
-    alert(
+    showToast(
       "Preencha corretamente os campos obrigatórios destacados em vermelho.",
+      "error",
     );
   }
 
@@ -8411,7 +9283,7 @@ function initValidacaoContatoProjetoVisual() {
 function gerarPdfPorSchema(titulo, schema, usarNotasFiscais = false) {
   const filtrados = getRegistrosFiltrados();
   if (filtrados.length === 0) {
-    alert("Nenhum registro para exportar.");
+    showToast("Nenhum registro para exportar.", "info");
     return;
   }
 
@@ -8556,7 +9428,7 @@ function gerarPdfPorSchema(titulo, schema, usarNotasFiscais = false) {
 
   const win = window.open("", "_blank");
   if (!win) {
-    alert("Não foi possível abrir a janela. Desbloqueie popups no navegador e tente novamente.");
+    showToast("Não foi possível abrir a janela. Desbloqueie popups no navegador e tente novamente.", "error");
     return;
   }
   try {
@@ -8566,7 +9438,7 @@ function gerarPdfPorSchema(titulo, schema, usarNotasFiscais = false) {
     win.print();
   } catch (err) {
     console.error("Erro ao gerar PDF completo:", err);
-    alert("Erro ao gerar PDF.");
+    showToast("Erro ao gerar PDF.", "error");
   }
 }
 
@@ -8577,7 +9449,7 @@ function exportPdfResumo() {
 function exportPdfCompleto() {
   const filtrados = getRegistrosFiltrados();
   if (filtrados.length === 0) {
-    alert("Nenhum registro para exportar.");
+    showToast("Nenhum registro para exportar.", "info");
     return;
   }
 
@@ -8749,7 +9621,7 @@ function exportPdfCompleto() {
 
   const win = window.open("", "_blank");
   if (!win) {
-    alert("Não foi possível abrir a janela. Desbloqueie popups no navegador e tente novamente.");
+    showToast("Não foi possível abrir a janela. Desbloqueie popups no navegador e tente novamente.", "error");
     return;
   }
   try {
@@ -8759,7 +9631,7 @@ function exportPdfCompleto() {
     win.print();
   } catch (err) {
     console.error("Erro ao gerar PDF:", err);
-    alert("Erro ao gerar PDF.");
+    showToast("Erro ao gerar PDF.", "error");
   }
 }
 
@@ -9135,7 +10007,6 @@ function dividirEmLotes(array, tamanhoLote = 100) {
 
 async function apagarBackupCompletoFirebase(backupId) {
   const backupRef = db.collection("backups").doc(backupId);
-
   const colecoesSnap = await backupRef.collection("colecoes").get();
 
   for (const colecaoDoc of colecoesSnap.docs) {
@@ -9145,11 +10016,17 @@ async function apagarBackupCompletoFirebase(backupId) {
       .collection("lotes")
       .get();
 
-    for (const loteDoc of lotesSnap.docs) {
-      await loteDoc.ref.delete();
+    if (!lotesSnap.empty) {
+      const batchLotes = db.batch();
+      lotesSnap.docs.forEach((doc) => batchLotes.delete(doc.ref));
+      await batchLotes.commit();
     }
+  }
 
-    await colecaoDoc.ref.delete();
+  if (!colecoesSnap.empty) {
+    const batchColecoes = db.batch();
+    colecoesSnap.docs.forEach((doc) => batchColecoes.delete(doc.ref));
+    await batchColecoes.commit();
   }
 
   await backupRef.delete();
@@ -9202,7 +10079,7 @@ async function restaurarDaLixeira(colecao, id) {
 
 async function excluirDefinitivamente(colecao, id) {
   if (!isAdmin()) {
-    alert("Apenas administradores podem excluir definitivamente.");
+    showToast("Apenas administradores podem excluir definitivamente.", "error");
     return;
   }
 
@@ -9213,50 +10090,109 @@ function mostrarToastDesfazer({ mensagem, onUndo }) {
   const antigo = document.getElementById("toastLixeira");
   if (antigo) antigo.remove();
 
-  const toast = document.createElement("div");
-  toast.id = "toastLixeira";
-  toast.innerHTML = `
-    <span>${mensagem}</span>
-    <button id="btnUndoLixeira" type="button">DESFAZER</button>
-  `;
-
-  toast.style.cssText = `
-    position: fixed;
-    right: 20px;
-    bottom: 20px;
-    z-index: 99999;
-    background: #111827;
-    color: #fff;
-    padding: 14px 16px;
-    border-radius: 12px;
-    display: flex;
-    gap: 12px;
-    align-items: center;
-    box-shadow: 0 10px 30px rgba(0,0,0,.25);
-    font-size: 14px;
-  `;
-
-  document.body.appendChild(toast);
-
-  const btn = document.getElementById("btnUndoLixeira");
-  if (btn) {
-    btn.onclick = async () => {
-      try {
-        btn.disabled = true;
-        await onUndo();
-        toast.remove();
-      } catch (e) {
-        console.error("Erro no DESFAZER:", e);
-        alert("Erro ao desfazer exclusão.");
-      } finally {
-        btn.disabled = false;
-      }
-    };
+  // Usa o mesmo container dos toasts normais (topo direito)
+  let toastContainer = document.getElementById("crm-toast-container");
+  if (!toastContainer) {
+    toastContainer = document.createElement("div");
+    toastContainer.id = "crm-toast-container";
+    toastContainer.setAttribute("style",
+      "position:fixed;top:20px;right:20px;z-index:2147483647;" +
+      "width:380px;max-width:calc(100vw - 32px);" +
+      "pointer-events:none;display:block;margin:0;padding:0;border:none;background:none;"
+    );
+    document.body.appendChild(toastContainer);
   }
 
-  setTimeout(() => {
-    if (document.body.contains(toast)) toast.remove();
-  }, 8000);
+  const toast = document.createElement("div");
+  toast.id = "toastLixeira";
+  toast.style.cssText = "display:block;width:100%;box-sizing:border-box;";
+
+  // card
+  const card = document.createElement("div");
+  card.style.cssText =
+    "position:relative;box-sizing:border-box;width:100%;" +
+    "padding:14px 14px 14px 56px;" +
+    "background:#1a1f2e;border:1px solid #2d3650;border-radius:10px;" +
+    "box-shadow:0 8px 24px rgba(0,0,0,0.55),0 2px 8px rgba(0,0,0,0.3);" +
+    "pointer-events:all;" +
+    "opacity:0;transform:translateX(16px);" +
+    "transition:opacity 0.22s ease,transform 0.22s ease;";
+
+  // ícone lixeira
+  const iconWrap = document.createElement("div");
+  iconWrap.style.cssText =
+    "position:absolute;left:14px;top:50%;transform:translateY(-50%);" +
+    "width:28px;height:28px;border-radius:7px;" +
+    "background:#172554;display:flex;align-items:center;justify-content:center;color:#60a5fa;";
+  iconWrap.innerHTML =
+    '<svg width="16" height="16" viewBox="0 0 20 20" fill="currentColor">' +
+    '<path fill-rule="evenodd" d="M8.75 1A2.75 2.75 0 006 3.75v.443c-.795.077-1.584.176-2.365.298a.75.75 0 10.23 1.482l.149-.022.841 10.518A2.75 2.75 0 007.596 19h4.807a2.75 2.75 0 002.742-2.53l.841-10.52.149.023a.75.75 0 00.23-1.482A41.03 41.03 0 0014 4.193V3.75A2.75 2.75 0 0011.25 1h-2.5zM10 4c.84 0 1.673.025 2.5.075V3.75c0-.69-.56-1.25-1.25-1.25h-2.5c-.69 0-1.25.56-1.25 1.25v.325C8.327 4.025 9.16 4 10 4zM8.58 7.72a.75.75 0 00-1.5.06l.3 7.5a.75.75 0 101.5-.06l-.3-7.5zm4.34.06a.75.75 0 10-1.5-.06l-.3 7.5a.75.75 0 101.5.06l.3-7.5z" clip-rule="evenodd"/>' +
+    '</svg>';
+
+  // texto
+  const txt = document.createElement("div");
+  txt.style.cssText =
+    "font-size:13px;font-weight:500;color:#dbeafe;line-height:1.4;" +
+    "display:inline;margin-right:12px;";
+  txt.textContent = mensagem;
+
+  // botão desfazer
+  const btn = document.createElement("button");
+  btn.textContent = "Desfazer";
+  btn.style.cssText =
+    "display:inline-block;padding:5px 14px;border-radius:6px;border:none;" +
+    "background:#2563eb;color:#fff;font-size:12px;font-weight:700;" +
+    "cursor:pointer;vertical-align:middle;width:auto;box-shadow:none;" +
+    "transition:background 0.15s;letter-spacing:0.02em;";
+  btn.addEventListener("mouseenter", () => { btn.style.background = "#1d4ed8"; });
+  btn.addEventListener("mouseleave", () => { btn.style.background = "#2563eb"; });
+
+  // barra de progresso
+  const bar = document.createElement("div");
+  bar.style.cssText =
+    "position:absolute;bottom:0;left:0;height:3px;border-radius:0 0 10px 10px;" +
+    "background:#2563eb;width:100%;transform-origin:left;" +
+    "transition:width 8s linear;";
+
+  const row = document.createElement("div");
+  row.style.cssText = "display:flex;align-items:center;gap:0;flex-wrap:nowrap;";
+  row.appendChild(txt);
+  row.appendChild(btn);
+
+  card.appendChild(iconWrap);
+  card.appendChild(row);
+  card.appendChild(bar);
+  toast.appendChild(card);
+  toastContainer.appendChild(toast);
+
+  // entrada
+  requestAnimationFrame(() => requestAnimationFrame(() => {
+    card.style.opacity = "1";
+    card.style.transform = "translateX(0)";
+    bar.style.width = "0%";
+  }));
+
+  const fechar = () => {
+    card.style.opacity = "0";
+    card.style.transform = "translateX(16px)";
+    setTimeout(() => toast.remove(), 260);
+  };
+
+  btn.onclick = async () => {
+    try {
+      btn.disabled = true;
+      btn.textContent = "...";
+      await onUndo();
+      fechar();
+    } catch (e) {
+      console.error("Erro no DESFAZER:", e);
+      showToast("Erro ao desfazer exclusão.", "error");
+      btn.disabled = false;
+      btn.textContent = "Desfazer";
+    }
+  };
+
+  setTimeout(fechar, 8000);
 }
 
 const LIXEIRA_LIMIT_POR_COLECAO = 500;
@@ -9425,15 +10361,7 @@ function renderTabelaLixeira() {
         <td>${formatarDataHoraBR(dataExc)}</td>
         <td>${diasRestantes}</td>
         <td style="text-align:center;">
-          <button type="button" class="btn-sm" onclick="restaurarItemLixeira('${item.colecao}', '${item.id}')">
-            Restaurar
-          </button>
-          ${isAdmin()
-          ? `<button type="button" class="btn-sm btn-danger" onclick="excluirItemDefinitivo('${item.colecao}', '${item.id}')">
-                   Excluir definitivo
-                 </button>`
-          : ""
-        }
+          <button class="btn-kebab" type="button" onclick="openActionsMenu(event,'lixeira_item','${item.id}',{colecao:'${item.colecao}'})">...</button>
         </td>
       `;
       tbody.appendChild(tr);
@@ -9470,55 +10398,60 @@ async function restaurarItemLixeira(colecao, id) {
     preencherSelectRepresentadas?.();
   } catch (e) {
     console.error(e);
-    alert("Erro ao restaurar item.");
+    showToast("Erro ao restaurar item.", "error");
   }
 }
 
 async function excluirItemDefinitivo(colecao, id) {
   if (!isAdmin()) {
-    alert("Apenas administradores podem excluir definitivamente.");
+    showToast("Apenas administradores podem excluir definitivamente.", "error");
     return;
   }
 
-  if (!confirm("Tem certeza que deseja excluir definitivamente este item?")) return;
+  if (!await showConfirm("Esta ação não pode ser desfeita. O item será removido permanentemente.", { title: "Excluir Definitivamente", confirmText: "Excluir" })) return;
 
   try {
-    // Remove alertas do Firestore antes de excluir a entidade
-    if (typeof excluirAlertasDeEntidade === "function") {
-      await excluirAlertasDeEntidade(id);
-    }
-    await excluirDefinitivamente(colecao, id);
+    const alertasSnap = await db.collection("alertas")
+      .where("entidadeId", "==", id).get();
+
+    const batch = db.batch();
+    alertasSnap.docs.forEach((doc) => batch.delete(doc.ref));
+    batch.delete(db.collection(colecao).doc(id));
+    await batch.commit();
+
     await carregarLixeira();
   } catch (e) {
     console.error(e);
-    alert("Erro ao excluir definitivamente.");
+    showToast("Erro ao excluir definitivamente.", "error");
   }
 }
 
 async function limparLixeiraManual() {
   if (!isAdmin()) {
-    alert("Apenas administradores podem limpar a lixeira.");
+    showToast("Apenas administradores podem limpar a lixeira.", "error");
     return;
   }
 
-  if (!confirm("Tem certeza que deseja excluir definitivamente todos os itens da lixeira?")) return;
+  if (!await showConfirm("Todos os itens da lixeira serão removidos permanentemente. Esta ação não pode ser desfeita.", { title: "Limpar Lixeira", confirmText: "Excluir Tudo" })) return;
 
   try {
     const itens = await buscarItensLixeira();
 
     for (const item of itens) {
-      // Remove alertas antes de excluir a entidade
-      if (typeof excluirAlertasDeEntidade === "function") {
-        await excluirAlertasDeEntidade(item.id);
-      }
-      await db.collection(item.colecao).doc(item.id).delete();
+      const alertasSnap = await db.collection("alertas")
+        .where("entidadeId", "==", item.id).get();
+
+      const batch = db.batch();
+      alertasSnap.docs.forEach((doc) => batch.delete(doc.ref));
+      batch.delete(db.collection(item.colecao).doc(item.id));
+      await batch.commit();
     }
 
     await carregarLixeira();
-    alert("Lixeira limpa com sucesso.");
+    showToast("Lixeira limpa com sucesso.", "success");
   } catch (e) {
     console.error(e);
-    alert("Erro ao limpar lixeira.");
+    showToast("Erro ao limpar lixeira.", "error");
   }
 }
 
@@ -9536,7 +10469,13 @@ async function limparLixeiraExpirada() {
       if (!deletadoEm) continue;
 
       if (agora - deletadoEm.getTime() >= seteDiasMs) {
-        await db.collection(colecao).doc(docSnap.id).delete();
+        const alertasSnap = await db.collection("alertas")
+          .where("entidadeId", "==", docSnap.id).get();
+
+        const batch = db.batch();
+        alertasSnap.docs.forEach((doc) => batch.delete(doc.ref));
+        batch.delete(docSnap.ref);
+        await batch.commit();
       }
     }
   }
@@ -9588,7 +10527,7 @@ function renderMiniLixeiraContatos() {
     return `
         <div class="item-mini-lixeira">
           <span>${ct.nome || ""} - ${ct.email || ""}</span>
-          <button type="button" onclick="restaurarContatoMiniLixeira(${indiceReal})">Restaurar</button>
+          <button type="button" class="btn-sm" onclick="restaurarContatoMiniLixeira(${indiceReal})">Restaurar</button>
         </div>
       `;
   }).join("")}
@@ -9619,7 +10558,7 @@ function renderMiniLixeiraContatosProjeto() {
     return `
         <div class="item-mini-lixeira">
           <span>${ct.nome || ""} - ${ct.email || ""}</span>
-          <button type="button" onclick="restaurarContatoProjetoMiniLixeira(${indiceReal})">Restaurar</button>
+          <button type="button" class="btn-sm" onclick="restaurarContatoProjetoMiniLixeira(${indiceReal})">Restaurar</button>
         </div>
       `;
   }).join("")}
@@ -9650,7 +10589,7 @@ function renderMiniLixeiraAtualizacoesProjeto() {
     return `
         <div class="item-mini-lixeira">
           <span>${item.titulo || item.status || item.descricao || item.texto || "Atualização"}</span>
-          <button type="button" onclick="restaurarAtualizacaoProjetoMiniLixeira(${indiceReal})">Restaurar</button>
+          <button type="button" class="btn-sm" onclick="restaurarAtualizacaoProjetoMiniLixeira(${indiceReal})">Restaurar</button>
         </div>
       `;
   }).join("")}
@@ -9727,9 +10666,11 @@ function usuarioPodeVerResponsavel(emailResponsavel) {
   const email = String(emailResponsavel || "").toLowerCase().trim();
 
   if (permissoes.role === "admin") return true;
-  if (Array.isArray(permissoes.podeVerDe) && permissoes.podeVerDe.includes("*")) {
-    return true;
-  }
+  if (Array.isArray(permissoes.podeVerDe) && permissoes.podeVerDe.includes("*")) return true;
+
+  // Sempre vê o que ele mesmo criou
+  const meuEmail = String(window.auth?.currentUser?.email || "").toLowerCase().trim();
+  if (email && email === meuEmail) return true;
 
   return Array.isArray(permissoes.podeVerDe)
     ? permissoes.podeVerDe.includes(email)
@@ -9741,14 +10682,12 @@ function obterEmailResponsavelItem(item) {
     item?.responsavelEmail ||
     item?.emailResponsavel ||
     item?.criadoPorEmail ||
+    item?.criadoPor ||
     ""
   ).toLowerCase().trim();
 
   if (email) return email;
 
-  // fallback temporário:
-  // se o item antigo não tiver responsável salvo, deixa aparecer
-  // para o usuário logado enquanto você migra os dados
   return String(window.auth?.currentUser?.email || "").toLowerCase().trim();
 }
 
@@ -9762,5 +10701,161 @@ const filtrarRegistrosPorPermissao     = filtrarPorPermissao;
 const filtrarClientesPorPermissao      = filtrarPorPermissao;
 const filtrarProjetosPorPermissao      = filtrarPorPermissao;
 const filtrarRepresentadasPorPermissao = filtrarPorPermissao;
+
+// ================================================================
+// FILTROS PERSISTIDOS POR SESSÃO (sessionStorage)
+// ================================================================
+
+const FILTROS_KEYS = {
+  registros:     "crm_filtros_registros",
+  clientes:      "crm_filtros_clientes",
+  projetos:      "crm_filtros_projetos",
+  representadas: "crm_filtros_representadas",
+};
+
+function _lerLinhasFiltros(containerId) {
+  const wrap = document.getElementById(containerId);
+  if (!wrap) return [];
+  return Array.from(wrap.querySelectorAll(".filter-item")).map((row) => ({
+    field: row.querySelector(".multiField")?.value || "todos",
+    term:  row.querySelector(".multiTerm")?.value  || "",
+  }));
+}
+
+function _salvarFiltrosRegistros() {
+  try {
+    sessionStorage.setItem(FILTROS_KEYS.registros, JSON.stringify({
+      rows:    _lerLinhasFiltros("filtersRegistros"),
+      status:  document.getElementById("statusFilter")?.value  || "",
+      pedido:  document.getElementById("pedidoFilter")?.value  || "todos",
+      revisao: document.getElementById("revisaoFilter")?.value || "todos",
+    }));
+  } catch (_) {}
+}
+
+function _salvarFiltrosClientes() {
+  try {
+    sessionStorage.setItem(FILTROS_KEYS.clientes, JSON.stringify({
+      rows: _lerLinhasFiltros("filtersClientes"),
+    }));
+  } catch (_) {}
+}
+
+function _salvarFiltrosProjetos() {
+  try {
+    sessionStorage.setItem(FILTROS_KEYS.projetos, JSON.stringify({
+      rows: _lerLinhasFiltros("filtersProjetos"),
+    }));
+  } catch (_) {}
+}
+
+function _salvarFiltrosRepresentadas() {
+  try {
+    sessionStorage.setItem(FILTROS_KEYS.representadas, JSON.stringify({
+      search: document.getElementById("searchRepresentadas")?.value || "",
+    }));
+  } catch (_) {}
+}
+
+function _restaurarFiltrosRegistros() {
+  try {
+    const raw = sessionStorage.getItem(FILTROS_KEYS.registros);
+    if (!raw) return;
+    const state = JSON.parse(raw);
+
+    const wrap = document.getElementById("filtersRegistros");
+    if (wrap) {
+      wrap.innerHTML = "";
+      const rows = state.rows || [];
+      rows.forEach((r) => addFiltroRegistroRow({ field: r.field, term: r.term }));
+      if (!wrap.children.length) addFiltroRegistroRow();
+    }
+
+    const sf = document.getElementById("statusFilter");
+    if (sf) sf.value = state.status || "";
+    const pf = document.getElementById("pedidoFilter");
+    if (pf) pf.value = state.pedido || "todos";
+    const rf = document.getElementById("revisaoFilter");
+    if (rf) rf.value = state.revisao || "todos";
+  } catch (_) {}
+}
+
+function _restaurarFiltrosClientes() {
+  try {
+    const raw = sessionStorage.getItem(FILTROS_KEYS.clientes);
+    if (!raw) return;
+    const state = JSON.parse(raw);
+    const wrap = document.getElementById("filtersClientes");
+    if (!wrap) return;
+    wrap.innerHTML = "";
+    const rows = state.rows || [];
+    rows.forEach((r) => addFiltroClienteRow(r.field, r.term));
+    if (!wrap.children.length) addFiltroClienteRow();
+  } catch (_) {}
+}
+
+function _restaurarFiltrosProjetos() {
+  try {
+    const raw = sessionStorage.getItem(FILTROS_KEYS.projetos);
+    if (!raw) return;
+    const state = JSON.parse(raw);
+    const wrap = document.getElementById("filtersProjetos");
+    if (!wrap) return;
+    wrap.innerHTML = "";
+    const rows = state.rows || [];
+    rows.forEach((r) => addFiltroProjetoRow(r.field, r.term));
+    if (!wrap.children.length) addFiltroProjetoRow();
+  } catch (_) {}
+}
+
+function _restaurarFiltrosRepresentadas() {
+  try {
+    const raw = sessionStorage.getItem(FILTROS_KEYS.representadas);
+    if (!raw) return;
+    const state = JSON.parse(raw);
+    const el = document.getElementById("searchRepresentadas");
+    if (el && state.search) el.value = state.search;
+  } catch (_) {}
+}
+
+function initFiltrosPersistidos() {
+  // Auto-salva em qualquer mudança nos containers de filtro
+  document.addEventListener("change", (e) => {
+    const t = e.target;
+    if (t.closest("#filtersRegistros") ||
+        t.id === "statusFilter" || t.id === "pedidoFilter" || t.id === "revisaoFilter") {
+      _salvarFiltrosRegistros();
+    }
+    if (t.closest("#filtersClientes"))  _salvarFiltrosClientes();
+    if (t.closest("#filtersProjetos"))  _salvarFiltrosProjetos();
+    if (t.id === "searchRepresentadas") _salvarFiltrosRepresentadas();
+  });
+  document.addEventListener("input", (e) => {
+    const t = e.target;
+    if (t.closest("#filtersRegistros") || t.id === "statusFilter") _salvarFiltrosRegistros();
+    if (t.closest("#filtersClientes"))  _salvarFiltrosClientes();
+    if (t.closest("#filtersProjetos"))  _salvarFiltrosProjetos();
+    if (t.id === "searchRepresentadas") _salvarFiltrosRepresentadas();
+  });
+
+  // Limpar sessionStorage quando o usuário pressiona "Limpar filtros"
+  document.addEventListener("click", (e) => {
+    const id = e.target?.id;
+    if (id === "btnLimparFiltros" || id === "btnVerTudo")
+      sessionStorage.removeItem(FILTROS_KEYS.registros);
+    if (id === "btnLimparFiltrosClientes")
+      sessionStorage.removeItem(FILTROS_KEYS.clientes);
+    if (id === "btnLimparFiltrosProjetos")
+      sessionStorage.removeItem(FILTROS_KEYS.projetos);
+  });
+}
+
+// Expõe as funções de restauração para irPara()
+window._restaurarFiltrosPorSecao = {
+  registros:     _restaurarFiltrosRegistros,
+  clientes:      _restaurarFiltrosClientes,
+  projetos:      _restaurarFiltrosProjetos,
+  representadas: _restaurarFiltrosRepresentadas,
+};
 
 
