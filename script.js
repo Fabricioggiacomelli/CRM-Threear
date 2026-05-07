@@ -594,10 +594,16 @@ async function carregarRepresentadasFirebase() {
 }
 
 async function carregarRegistrosFirebase() {
-  const snap = await db.collection("ofertas").get();
-  registros = snap.docs
-    .map((doc) => ({ id: doc.id, ...doc.data() }))
-    .filter((r) => !r.deletado);
+  try {
+    const snap = await db.collection("ofertas").get();
+    registros = snap.docs
+      .map((doc) => ({ id: doc.id, ...doc.data() }))
+      .filter((r) => !r.deletado);
+    console.log(`[Ofertas] ${registros.length} ofertas carregadas.`);
+  } catch (e) {
+    console.error("[Ofertas] Falha ao carregar:", e.code, e.message);
+    registros = [];
+  }
 }
 
 async function carregarProjetosFirebase() {

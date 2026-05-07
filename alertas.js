@@ -755,6 +755,8 @@ function iniciarListenerAlertas() {
     const temSelecao = window.getSelection()?.toString().length > 0;
     if (modalAberto && !temSelecao) renderListaAlertas();
     else if (!modalAberto) window._alertasRenderPendente = true;
+  }, (err) => {
+    console.error("[Alertas] Listener falhou:", err.code, err.message);
   });
 }
 
