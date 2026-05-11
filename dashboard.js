@@ -70,9 +70,19 @@ function parseDateAny(v) {
   return isNaN(d.getTime()) ? null : d;
 }
 
+let kpisOcultos = localStorage.getItem("dashKpisOcultos") === "1";
+
+function kpiReal(id) {
+  const el = $(id);
+  if (!el) return "—";
+  return (el.dataset.real ?? el.textContent ?? "—").trim() || "—";
+}
+
 function setText(id, val) {
   const el = $(id);
-  if (el) el.textContent = val;
+  if (!el) return;
+  el.dataset.real = val;
+  el.textContent = kpisOcultos ? "******" : val;
 }
 
 function isDark() {
@@ -373,21 +383,59 @@ function setTrend(id, atual, anterior, isPercent = false) {
   if (anterior == null) { el.style.display = "none"; return; }
   el.style.display = "";
   if (anterior === 0) {
-    el.textContent = atual > 0 ? "↑ novo" : "—";
-    el.className = "kpi-trend " + (atual > 0 ? "kpi-trend-up" : "kpi-trend-neutral");
+    const txt = atual > 0 ? "↑ novo" : "—";
+    const cls = "kpi-trend " + (atual > 0 ? "kpi-trend-up" : "kpi-trend-neutral");
+    el.dataset.real = txt;
+    el.dataset.realClass = cls;
+    el.textContent = kpisOcultos ? "—" : txt;
+    el.className = kpisOcultos ? "kpi-trend kpi-trend-neutral" : cls;
     return;
   }
+  let txt, cls;
   if (isPercent) {
     const diff = atual - anterior;
     const sign = diff >= 0 ? "↑" : "↓";
-    el.textContent = `${sign} ${Math.abs(diff).toFixed(1)} pts`;
-    el.className = `kpi-trend ${diff >= 0 ? "kpi-trend-up" : "kpi-trend-down"}`;
+    txt = `${sign} ${Math.abs(diff).toFixed(1)} pts`;
+    cls = `kpi-trend ${diff >= 0 ? "kpi-trend-up" : "kpi-trend-down"}`;
   } else {
     const diff = ((atual - anterior) / Math.abs(anterior)) * 100;
     const sign = diff >= 0 ? "↑" : "↓";
-    el.textContent = `${sign} ${Math.abs(diff).toFixed(1)}%`;
-    el.className = `kpi-trend ${diff >= 0 ? "kpi-trend-up" : "kpi-trend-down"}`;
+    txt = `${sign} ${Math.abs(diff).toFixed(1)}%`;
+    cls = `kpi-trend ${diff >= 0 ? "kpi-trend-up" : "kpi-trend-down"}`;
   }
+  el.dataset.real = txt;
+  el.dataset.realClass = cls;
+  el.textContent = kpisOcultos ? "—" : txt;
+  el.className = kpisOcultos ? "kpi-trend kpi-trend-neutral" : cls;
+}
+
+function toggleKpiVisibility() {
+  kpisOcultos = !kpisOcultos;
+  localStorage.setItem("dashKpisOcultos", kpisOcultos ? "1" : "0");
+  aplicarVisibilidadeKpis();
+  atualizarIconeOlho();
+}
+
+function aplicarVisibilidadeKpis() {
+  document.querySelectorAll(".d-kpi-value").forEach(el => {
+    el.textContent = kpisOcultos ? "******" : (el.dataset.real ?? el.textContent);
+  });
+  document.querySelectorAll(".kpi-trend").forEach(el => {
+    if (el.style.display === "none") return;
+    if (kpisOcultos) {
+      el.textContent = "—";
+      el.className = "kpi-trend kpi-trend-neutral";
+    } else {
+      el.textContent = el.dataset.real ?? el.textContent;
+      el.className = el.dataset.realClass ?? el.className;
+    }
+  });
+}
+
+function atualizarIconeOlho() {
+  const btn = document.getElementById("btnToggleKpis");
+  if (!btn) return;
+  btn.classList.toggle("oculto", kpisOcultos);
 }
 
 function renderKPIs(ofertasFiltradas, ofertasAnteriores) {
@@ -584,18 +632,18 @@ function exportExcel() {
     [`Gerado em: ${geradoEm}`],
     [],
     ["KPI", "Valor"],
-    ["Propostas",            $("kpiPropostas")?.textContent?.trim()       || "—"],
-    ["Pedidos",              $("kpiPedidos")?.textContent?.trim()         || "—"],
-    ["R$ Propostas",         $("kpiValorPropostas")?.textContent?.trim()  || "—"],
-    ["R$ Pedidos",           $("kpiValorPedidos")?.textContent?.trim()    || "—"],
-    ["Conversão (qtd)",      $("kpiConvQtd")?.textContent?.trim()         || "—"],
-    ["Conversão (valor)",    $("kpiConvValor")?.textContent?.trim()       || "—"],
-    ["Ticket médio proposta",$("kpiTicketProp")?.textContent?.trim()      || "—"],
-    ["Ticket médio pedido",  $("kpiTicketPed")?.textContent?.trim()       || "—"],
-    ["Clientes ativos",      $("kpiClientesAtivos")?.textContent?.trim()  || "—"],
-    ["Representadas ativas", $("kpiRepsAtivas")?.textContent?.trim()      || "—"],
-    ["Projetos ativos",      $("kpiProjetosAtivos")?.textContent?.trim()  || "—"],
-    ["Aguardando pedido",    $("kpiAguardando")?.textContent?.trim()      || "—"],
+    ["Propostas",            kpiReal("kpiPropostas")],
+    ["Pedidos",              kpiReal("kpiPedidos")],
+    ["R$ Propostas",         kpiReal("kpiValorPropostas")],
+    ["R$ Pedidos",           kpiReal("kpiValorPedidos")],
+    ["Conversão (qtd)",      kpiReal("kpiConvQtd")],
+    ["Conversão (valor)",    kpiReal("kpiConvValor")],
+    ["Ticket médio proposta",kpiReal("kpiTicketProp")],
+    ["Ticket médio pedido",  kpiReal("kpiTicketPed")],
+    ["Clientes ativos",      kpiReal("kpiClientesAtivos")],
+    ["Representadas ativas", kpiReal("kpiRepsAtivas")],
+    ["Projetos ativos",      kpiReal("kpiProjetosAtivos")],
+    ["Aguardando pedido",    kpiReal("kpiAguardando")],
   ];
   const wsKpi = XLSX.utils.aoa_to_sheet(kpiRows);
   wsKpi["!cols"] = [{ wch: 28 }, { wch: 20 }];
@@ -1877,6 +1925,7 @@ async function initDashboard() {
 }
 
 window.addEventListener("DOMContentLoaded", () => {
+  atualizarIconeOlho();
   initDashboard().catch(err => { console.error(err); setStatus("Erro ao inicializar. Veja o console."); });
 });
 

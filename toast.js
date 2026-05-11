@@ -193,6 +193,22 @@
     setTimeout(close, dur);
   };
 
+  // Lê variáveis CSS do tema atual para os dialogs JS
+  function dialogTheme() {
+    const cs  = getComputedStyle(document.body);
+    const get = function (v) { return cs.getPropertyValue(v).trim(); };
+    const dark = document.body.classList.contains("dark");
+    return {
+      dark:        dark,
+      bgCard:      get("--bg-container"),
+      border:      get("--border-soft"),
+      textTitle:   get("--text-strong"),
+      textMsg:     get("--text-muted"),
+      bgSecondary: get("--bg-body"),
+      bgHover:     dark ? "#1e2435" : get("--bg-sidebar-item-hover"),
+    };
+  }
+
   // ── showConfirm(message, { title, confirmText, cancelText, danger }) ──
   // Retorna Promise<boolean>
   window.showConfirm = function (message, opts) {
@@ -201,47 +217,43 @@
     const confirmText = opts.confirmText || "Confirmar";
     const cancelText  = opts.cancelText  || "Cancelar";
     const danger      = opts.danger !== false; // default true
+    const t           = dialogTheme();
 
     return new Promise(function (resolve) {
-      // overlay
       const overlay = document.createElement("div");
       overlay.style.cssText =
         "position:fixed;inset:0;z-index:2147483640;" +
-        "background:rgba(0,0,0,0.6);backdrop-filter:blur(2px);" +
+        "background:rgba(0,0,0,0.55);backdrop-filter:blur(2px);" +
         "display:flex;align-items:center;justify-content:center;";
 
-      // card
       const card = document.createElement("div");
       card.style.cssText =
-        "background:#1a1f2e;border:1px solid #2d3650;border-radius:14px;" +
-        "box-shadow:0 24px 60px rgba(0,0,0,0.7);padding:28px 28px 24px;" +
+        "background:" + t.bgCard + ";border:1px solid " + t.border + ";border-radius:14px;" +
+        "box-shadow:0 24px 60px rgba(0,0,0,0.4);padding:28px 28px 24px;" +
         "width:380px;max-width:calc(100vw - 32px);box-sizing:border-box;" +
         "font-family:'Plus Jakarta Sans',sans-serif;";
 
-      // title
       const titleEl = document.createElement("div");
       titleEl.style.cssText =
-        "font-size:15px;font-weight:700;color:#f1f5f9;margin-bottom:10px;";
+        "font-size:15px;font-weight:700;color:" + t.textTitle + ";margin-bottom:10px;";
       titleEl.textContent = title;
 
-      // message
       const msgEl = document.createElement("div");
       msgEl.style.cssText =
-        "font-size:13.5px;color:#94a3b8;line-height:1.6;margin-bottom:24px;white-space:pre-line;";
+        "font-size:13.5px;color:" + t.textMsg + ";line-height:1.6;margin-bottom:24px;white-space:pre-line;";
       msgEl.textContent = message;
 
-      // buttons row
       const row = document.createElement("div");
       row.style.cssText = "display:flex;gap:10px;justify-content:flex-end;";
 
       const btnCancel = document.createElement("button");
       btnCancel.textContent = cancelText;
       btnCancel.style.cssText =
-        "padding:9px 20px;border-radius:8px;border:1px solid #2d3650;" +
-        "background:#0f1420;color:#94a3b8;font-size:13px;font-weight:600;" +
+        "padding:9px 20px;border-radius:8px;border:1px solid " + t.border + ";" +
+        "background:" + t.bgSecondary + ";color:" + t.textMsg + ";font-size:13px;font-weight:600;" +
         "cursor:pointer;transition:background 0.15s;width:auto;box-shadow:none;";
-      btnCancel.addEventListener("mouseenter", () => { btnCancel.style.background = "#1e2435"; });
-      btnCancel.addEventListener("mouseleave", () => { btnCancel.style.background = "#0f1420"; });
+      btnCancel.addEventListener("mouseenter", function () { btnCancel.style.background = t.bgHover; });
+      btnCancel.addEventListener("mouseleave", function () { btnCancel.style.background = t.bgSecondary; });
 
       const btnOk = document.createElement("button");
       btnOk.textContent = confirmText;
@@ -250,8 +262,8 @@
         "background:" + (danger ? "#dc2626" : "#2563eb") + ";" +
         "color:#fff;font-size:13px;font-weight:600;" +
         "cursor:pointer;transition:background 0.15s;width:auto;box-shadow:none;";
-      btnOk.addEventListener("mouseenter", () => { btnOk.style.background = danger ? "#b91c1c" : "#1d4ed8"; });
-      btnOk.addEventListener("mouseleave", () => { btnOk.style.background = danger ? "#dc2626" : "#2563eb"; });
+      btnOk.addEventListener("mouseenter", function () { btnOk.style.background = danger ? "#b91c1c" : "#1d4ed8"; });
+      btnOk.addEventListener("mouseleave", function () { btnOk.style.background = danger ? "#dc2626" : "#2563eb"; });
 
       const close = function (result) {
         window._confirmAtivo = false;
@@ -272,6 +284,103 @@
       row.appendChild(btnCancel);
       row.appendChild(btnOk);
       card.appendChild(titleEl);
+      card.appendChild(msgEl);
+      card.appendChild(row);
+      overlay.appendChild(card);
+      document.body.appendChild(overlay);
+
+      window._confirmAtivo = true;
+      requestAnimationFrame(function () { btnOk.focus(); });
+    });
+  };
+
+  // ── showDuplicataAviso(message, { title }) ────────────────────────────────
+  // Exibe aviso de possível duplicata com dois botões: "Visualizar outro registro" e "Ok".
+  // Retorna Promise<"ver" | "ok">
+  window.showDuplicataAviso = function (message, opts) {
+    opts = opts || {};
+    const title = opts.title || "Possível duplicata";
+    const t     = dialogTheme();
+
+    // Cores do ícone/título de aviso adaptadas ao tema
+    const warnBorder  = t.dark ? "#7a6000"  : "#ca8a04";
+    const warnIconBg  = t.dark ? "#2a2200"  : "#fef3c7";
+    const warnTitle   = t.dark ? "#fef9c3"  : "#78350f";
+
+    return new Promise(function (resolve) {
+      const overlay = document.createElement("div");
+      overlay.style.cssText =
+        "position:fixed;inset:0;z-index:2147483640;" +
+        "background:rgba(0,0,0,0.55);backdrop-filter:blur(2px);" +
+        "display:flex;align-items:center;justify-content:center;";
+
+      const card = document.createElement("div");
+      card.style.cssText =
+        "background:" + t.bgCard + ";border:1px solid " + warnBorder + ";border-radius:14px;" +
+        "box-shadow:0 24px 60px rgba(0,0,0,0.4);padding:28px 28px 24px;" +
+        "width:420px;max-width:calc(100vw - 32px);box-sizing:border-box;" +
+        "font-family:'Plus Jakarta Sans',sans-serif;";
+
+      const iconRow = document.createElement("div");
+      iconRow.style.cssText = "display:flex;align-items:center;gap:10px;margin-bottom:10px;";
+      iconRow.innerHTML =
+        '<div style="width:28px;height:28px;border-radius:7px;background:' + warnIconBg + ';' +
+        'display:flex;align-items:center;justify-content:center;flex-shrink:0;">' +
+        '<svg width="16" height="16" viewBox="0 0 20 20" fill="#f59e0b"><path fill-rule="evenodd" d="M8.485 2.495c.673-1.167 2.357-1.167 3.03 0l6.28 10.875c.673 1.167-.17 2.625-1.516 2.625H3.72c-1.347 0-2.189-1.458-1.515-2.625L8.485 2.495zM10 5a.75.75 0 01.75.75v3.5a.75.75 0 01-1.5 0v-3.5A.75.75 0 0110 5zm0 9a1 1 0 100-2 1 1 0 000 2z" clip-rule="evenodd"/></svg>' +
+        "</div>";
+
+      const titleEl = document.createElement("div");
+      titleEl.style.cssText = "font-size:15px;font-weight:700;color:" + warnTitle + ";";
+      titleEl.textContent = title;
+      iconRow.appendChild(titleEl);
+
+      const msgEl = document.createElement("div");
+      msgEl.style.cssText =
+        "font-size:13.5px;color:" + t.textMsg + ";line-height:1.6;margin-bottom:24px;white-space:pre-line;";
+      msgEl.textContent = message;
+
+      const row = document.createElement("div");
+      row.style.cssText = "display:flex;gap:10px;justify-content:flex-end;flex-wrap:wrap;";
+
+      const btnVer = document.createElement("button");
+      btnVer.textContent = "Visualizar outro registro";
+      btnVer.style.cssText =
+        "padding:9px 20px;border-radius:8px;border:1px solid " + t.border + ";" +
+        "background:" + t.bgSecondary + ";color:" + t.textMsg + ";font-size:13px;font-weight:600;" +
+        "cursor:pointer;transition:background 0.15s;width:auto;box-shadow:none;";
+      btnVer.addEventListener("mouseenter", function () { btnVer.style.background = t.bgHover; });
+      btnVer.addEventListener("mouseleave", function () { btnVer.style.background = t.bgSecondary; });
+
+      const btnOk = document.createElement("button");
+      btnOk.textContent = "Ok";
+      btnOk.style.cssText =
+        "padding:9px 20px;border-radius:8px;border:none;" +
+        "background:#2563eb;color:#fff;font-size:13px;font-weight:600;" +
+        "cursor:pointer;transition:background 0.15s;width:auto;box-shadow:none;";
+      btnOk.addEventListener("mouseenter", function () { btnOk.style.background = "#1d4ed8"; });
+      btnOk.addEventListener("mouseleave", function () { btnOk.style.background = "#2563eb"; });
+
+      const close = function (result) {
+        window._confirmAtivo = false;
+        overlay.style.opacity = "0";
+        overlay.style.transition = "opacity 0.18s";
+        setTimeout(function () { overlay.remove(); }, 200);
+        resolve(result);
+      };
+
+      function kbHandler(e) {
+        if (e.key === "Escape") { document.removeEventListener("keydown", kbHandler); close("ok"); }
+        if (e.key === "Enter")  { document.removeEventListener("keydown", kbHandler); close("ok"); }
+      }
+
+      btnVer.addEventListener("click", function () { document.removeEventListener("keydown", kbHandler); close("ver"); });
+      btnOk.addEventListener("click",  function () { document.removeEventListener("keydown", kbHandler); close("ok"); });
+      overlay.addEventListener("click", function (e) { if (e.target === overlay) { document.removeEventListener("keydown", kbHandler); close("ok"); } });
+      document.addEventListener("keydown", kbHandler);
+
+      row.appendChild(btnVer);
+      row.appendChild(btnOk);
+      card.appendChild(iconRow);
       card.appendChild(msgEl);
       card.appendChild(row);
       overlay.appendChild(card);

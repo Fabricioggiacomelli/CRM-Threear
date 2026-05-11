@@ -869,6 +869,62 @@ function trocarAbaAlertas(aba) {
   renderListaAlertas();
 }
 
+function renderBadgesAbas() {
+  const cache = window.alertasCache || [];
+  const defs = [
+    { id: "badge-todos", fn: a => a.status === "aberto" || a.status === "adiado" || a.status === "aguardando_aprovacao_resolucao" || a.status === "aguardando_aprovacao_ignorar" },
+    { id: "badge-nao_lidos", fn: a => !a.lido && a.status !== "resolvido" && a.status !== "ignorado" && a.status !== "arquivado" },
+    { id: "badge-pendentes_aprovacao", fn: a => a.status === "aguardando_aprovacao_resolucao" || a.status === "aguardando_aprovacao_ignorar" },
+    { id: "badge-atrasados", fn: a => !!a.atraso && a.status !== "resolvido" && a.status !== "ignorado" },
+    { id: "badge-ignorados", fn: a => a.status === "ignorado" },
+    { id: "badge-resolvidos", fn: a => a.status === "resolvido" },
+    { id: "badge-arquivados", fn: a => a.status === "arquivado" },
+  ];
+
+  defs.forEach(({ id, fn }) => {
+    const el = document.getElementById(id);
+    if (!el) return;
+    const count = cache.filter(fn).length;
+    if (count > 0) {
+      el.textContent = count > 99 ? "99+" : String(count);
+      el.classList.remove("hidden");
+    } else {
+      el.textContent = "";
+      el.classList.add("hidden");
+    }
+  });
+}
+
+function limparFiltrosAlertas() {
+  ["alertasBusca", "filtroTipoAlerta", "filtroPrioridadeAlerta", "filtroResponsavelAlerta", "filtroPeriodoAlerta", "filtroUrgenciaAlerta"].forEach(id => {
+    const el = document.getElementById(id);
+    if (el) el.value = "";
+  });
+  const ordem = document.getElementById("ordemAlertas");
+  if (ordem) ordem.value = "prioridade";
+  renderListaAlertas();
+}
+
+function nomeExibicaoResponsavel(email) {
+  const local = String(email || "").split("@")[0];
+  const n = local.split(/[._]/)[0];
+  return n.charAt(0).toUpperCase() + n.slice(1).toLowerCase();
+}
+
+function atualizarSelectResponsavel() {
+  const sel = document.getElementById("filtroResponsavelAlerta");
+  if (!sel) return;
+  const atual = sel.value;
+  const emails = [...new Set(
+    (window.alertasCache || [])
+      .map(a => a.responsavelEmail)
+      .filter(Boolean)
+  )].sort((a, b) => nomeExibicaoResponsavel(a).localeCompare(nomeExibicaoResponsavel(b)));
+
+  sel.innerHTML = '<option value="">Responsável: todos</option>' +
+    emails.map(e => `<option value="${escapeHtml(e)}"${e === atual ? " selected" : ""}>${escapeHtml(nomeExibicaoResponsavel(e))}</option>`).join("");
+}
+
 function getAlertasFiltradosUI() {
   let lista = [...(window.alertasCache || [])];
 
@@ -932,17 +988,55 @@ function getAlertasFiltradosUI() {
   if (prioridade) lista = lista.filter((a) => String(a.prioridade || "").toLowerCase() === prioridade);
   if (responsavel) {
     lista = lista.filter((a) =>
-      String(a.responsavelEmail || "").toLowerCase().includes(responsavel)
+      String(a.responsavelEmail || "").toLowerCase() === responsavel
     );
   }
 
+  const periodo = String(document.getElementById("filtroPeriodoAlerta")?.value || "");
+  if (periodo) {
+    const agora = Date.now();
+    const inicioDia = new Date(); inicioDia.setHours(0, 0, 0, 0);
+    lista = lista.filter((a) => {
+      const criado = new Date(a.dataCriacao || 0).getTime();
+      if (periodo === "hoje") return criado >= inicioDia.getTime();
+      const dias = parseInt(periodo, 10);
+      return criado >= agora - dias * 864e5;
+    });
+  }
+
+  const urgencia = String(document.getElementById("filtroUrgenciaAlerta")?.value || "");
+  if (urgencia) {
+    const diasMin = parseInt(urgencia, 10);
+    const agora = Date.now();
+    const statusAbertos = ["aberto", "adiado", "aguardando_aprovacao_resolucao", "aguardando_aprovacao_ignorar"];
+    lista = lista.filter((a) => {
+      if (!statusAbertos.includes(String(a.status || "").toLowerCase())) return false;
+      const criado = new Date(a.dataCriacao || 0).getTime();
+      const diasEmAberto = (agora - criado) / 864e5;
+      return diasEmAberto >= diasMin;
+    });
+  }
+
+  const ordem = String(document.getElementById("ordemAlertas")?.value || "prioridade");
+
   lista.sort((a, b) => {
+    if (ordem === "recente") {
+      return new Date(b.dataCriacao || 0) - new Date(a.dataCriacao || 0);
+    }
+    if (ordem === "antigo") {
+      return new Date(a.dataCriacao || 0) - new Date(b.dataCriacao || 0);
+    }
+    // padrão: prioridade desc, depois mais recente
     const pa = getOrdemPrioridade(a.prioridade);
     const pb = getOrdemPrioridade(b.prioridade);
-
     if (pb !== pa) return pb - pa;
     return new Date(b.dataCriacao || 0) - new Date(a.dataCriacao || 0);
   });
+
+  // show/hide Limpar button based on active filters
+  const temFiltroAtivo = busca || tipo || prioridade || responsavel || periodo || urgencia || (ordem && ordem !== "prioridade");
+  const btnLimpar = document.getElementById("btnLimparFiltrosAlertas");
+  if (btnLimpar) btnLimpar.classList.toggle("hidden", !temFiltroAtivo);
 
   return lista;
 }
@@ -956,6 +1050,8 @@ function renderListaAlertas() {
   const resumo = document.getElementById("resumoAlertas");
   if (!wrap) return;
 
+  renderBadgesAbas();
+  atualizarSelectResponsavel();
   const lista = getAlertasFiltradosUI();
 
   if (resumo) {

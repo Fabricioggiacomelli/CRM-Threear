@@ -1013,7 +1013,7 @@ async function confirmarTotpNoModal() {
   }
 }
 
-function abrirModal(titulo, html) {
+function abrirModal(titulo, html, editFn = null) {
   const modal = document.getElementById("modalDetalhes");
   const tituloEl = document.getElementById("modalTitulo");
   const corpoEl = document.getElementById("modalCorpo");
@@ -1021,6 +1021,17 @@ function abrirModal(titulo, html) {
   tituloEl.textContent = titulo;
   corpoEl.innerHTML = html;
   modal.classList.remove("hidden");
+
+  const btnEditar = document.getElementById("modalDetalhesEditar");
+  if (btnEditar) {
+    if (editFn) {
+      window.modalDetalhesEditarFn = editFn;
+      btnEditar.classList.remove("hidden");
+    } else {
+      window.modalDetalhesEditarFn = null;
+      btnEditar.classList.add("hidden");
+    }
+  }
 }
 
 function fecharModalDetalhes() {
@@ -1512,27 +1523,27 @@ function initForm() {
       registroBase.revisao = null;
     }
 
-    // Detecção de duplicata (CNPJ + Projeto + N° Oferta)
-    const _cnpj    = (registroBase.cnpj_cliente || "").replace(/\D/g, "");
-    const _projeto = (registroBase.nome_projeto || "").trim().toLowerCase();
-    const _oferta  = (registroBase.oferta || "").trim().toLowerCase();
+    // Detecção de duplicata (CNPJ + N° Oferta)
+    const _cnpj   = (registroBase.cnpj_cliente || "").replace(/\D/g, "");
+    const _oferta = (registroBase.oferta || "").trim().toLowerCase();
     const _duplicatas = registros.filter((r) => {
       if (r.id === editId || r.deletado) return false;
-      const mesmoCnpj    = _cnpj && (r.cnpj_cliente || "").replace(/\D/g, "") === _cnpj;
-      const mesmoProjeto = _projeto && (r.nome_projeto || "").trim().toLowerCase() === _projeto;
-      const mesmaOferta  = _oferta && (r.oferta || "").trim().toLowerCase() === _oferta;
-      return mesmoCnpj && mesmoProjeto;
+      const mesmoCnpj   = _cnpj   && (r.cnpj_cliente || "").replace(/\D/g, "") === _cnpj;
+      const mesmaOferta = _oferta && (r.oferta || "").trim().toLowerCase() === _oferta;
+      return mesmoCnpj && mesmaOferta;
     });
     if (_duplicatas.length) {
       const ref = _duplicatas[0];
-      const _mesmaCnpjProjetoOferta = _oferta && (ref.oferta || "").trim().toLowerCase() === _oferta;
-      const _campos = _mesmaCnpjProjetoOferta
-        ? "CNPJ, N° da Oferta e Projeto"
-        : "CNPJ e Projeto";
-      showToast(
-        `Duplicata: mesmos ${_campos} — Oferta <strong>${ref.oferta || "s/n"}</strong> (${ref.status || "?"})`,
-        "warning",
-      );
+      const msg =
+        `CNPJ e N° da oferta já existem em outro registro.\n\n` +
+        `Oferta: ${ref.oferta || "s/n"}\n` +
+        `Cliente: ${ref.razao || "-"}\n` +
+        `Status: ${ref.status || "-"}`;
+      const acao = await showDuplicataAviso(msg, { title: "Possível duplicata detectada" });
+      if (acao === "ver") {
+        verOferta(ref.id);
+        return;
+      }
     }
 
     if (!editId) {
@@ -1668,13 +1679,14 @@ function ensureActionsMenu() {
   <button id="actVer" type="button">Ver</button>
   <button id="actVerContatos" type="button">Ver contatos</button>
   <button id="actVerOfertas" type="button">Ver ofertas</button>
+  <button id="actExportar" type="button">Exportar</button>
   <button id="actEditar" type="button">Editar</button>
   <button id="actExcluir" type="button" class="danger">Excluir</button>
   <button id="actAprovar" type="button">Aprovar</button>
   <button id="actBloquear" type="button" class="danger">Bloquear</button>
   <button id="actToggleAtivo" type="button">Ativar</button>
-  <button id="actExcluirFirestore" type="button" class="danger">Excluir (Firestore)</button>
   <button id="actResetMfa" type="button">Resetar 2FA</button>
+  <button id="actExcluirFirestore" type="button" class="danger">Excluir (Firestore)</button>
   <button id="actRestaurar" type="button">Restaurar</button>
   <button id="actExcluirDefinitivo" type="button" class="danger">Excluir definitivo</button>
 `;
@@ -1698,6 +1710,7 @@ function openActionsMenu(ev, type, id, extra = null) {
   const btnVer = document.getElementById("actVer");
   const btnVerContatos = document.getElementById("actVerContatos");
   const btnVerOfertas = document.getElementById("actVerOfertas");
+  const btnExportar = document.getElementById("actExportar");
   const btnEditar = document.getElementById("actEditar");
   const btnExcluir = document.getElementById("actExcluir");
   const btnAprovar = document.getElementById("actAprovar");
@@ -1725,6 +1738,7 @@ function openActionsMenu(ev, type, id, extra = null) {
     if (btnVer) btnVer.style.display = "none";
     if (btnVerContatos) btnVerContatos.style.display = "none";
     if (btnVerOfertas) btnVerOfertas.style.display = "none";
+    if (btnExportar) btnExportar.style.display = "none";
     if (btnEditar) btnEditar.style.display = "none";
     if (btnExcluir) btnExcluir.style.display = "none";
     if (btnAprovar) btnAprovar.style.display = "none";
@@ -1817,6 +1831,11 @@ function openActionsMenu(ev, type, id, extra = null) {
       if (type === "projeto") verOfertasProjeto(id);
       if (type === "rep") verOfertasRepresentada(id);
     };
+  }
+
+  if (btnExportar) {
+    btnExportar.style.display = type === "projeto" ? "block" : "none";
+    btnExportar.onclick = () => { closeActionsMenu(); exportarProjeto(id); };
   }
 
   btnEditar.onclick = () => {
@@ -3100,7 +3119,7 @@ function atualizarStatusImportacao(percentual, texto = "Importando arquivo...") 
   if (statusTexto) statusTexto.textContent = texto;
 }
 
-function mostrarResultadoImportacao(titulo, mensagem, tipo = "sucesso", erros = []) {
+function mostrarResultadoImportacao(titulo, mensagem, tipo = "sucesso", erros = [], ignoradosDetalhes = []) {
   const modal = document.getElementById("modalImportacao");
   const tituloEl = document.getElementById("modalImportacaoTitulo");
   const loaderWrap = document.getElementById("importLoaderWrap");
@@ -3115,13 +3134,14 @@ function mostrarResultadoImportacao(titulo, mensagem, tipo = "sucesso", erros = 
 
   if (loaderWrap) loaderWrap.classList.add("hidden");
   if (resultadoWrap) resultadoWrap.classList.remove("hidden");
-  if (resumo) resumo.textContent = mensagem;
+  if (resumo) resumo.innerHTML = mensagem;
   if (modal) modal.classList.remove("hidden");
 
   if (btnRelatorio) {
-    if (Array.isArray(erros) && erros.length) {
+    const temConteudo = (Array.isArray(erros) && erros.length) || (Array.isArray(ignoradosDetalhes) && ignoradosDetalhes.length);
+    if (temConteudo) {
       btnRelatorio.classList.remove("hidden");
-      btnRelatorio.onclick = () => baixarRelatorioErrosImportacao(erros);
+      btnRelatorio.onclick = () => baixarRelatorioErrosImportacao(erros, ignoradosDetalhes);
     } else {
       btnRelatorio.classList.add("hidden");
       btnRelatorio.onclick = null;
@@ -3129,20 +3149,35 @@ function mostrarResultadoImportacao(titulo, mensagem, tipo = "sucesso", erros = 
   }
 }
 
-function baixarRelatorioErrosImportacao(erros) {
+function baixarRelatorioErrosImportacao(erros, ignoradosDetalhes = []) {
   const linhas = [
-    "Relatório de erros da importação",
+    "Relatório Completo de Importação",
     `Gerado em: ${new Date().toLocaleString("pt-BR")}`,
     "",
-    ...erros.map((erro, i) => `${i + 1}. ${erro}`)
   ];
+
+  if (ignoradosDetalhes.length) {
+    linhas.push(`=== REGISTROS IGNORADOS (${ignoradosDetalhes.length} — duplicatas já cadastradas) ===`);
+    ignoradosDetalhes.forEach((d, i) => linhas.push(`${i + 1}. ${d}`));
+    linhas.push("");
+  }
+
+  if (erros.length) {
+    linhas.push(`=== ERROS (${erros.length}) ===`);
+    erros.forEach((e, i) => linhas.push(`${i + 1}. ${e}`));
+    linhas.push("");
+  }
+
+  if (!ignoradosDetalhes.length && !erros.length) {
+    linhas.push("Nenhum erro ou registro ignorado.");
+  }
 
   const blob = new Blob([linhas.join("\n")], { type: "text/plain;charset=utf-8" });
   const url = URL.createObjectURL(blob);
 
   const a = document.createElement("a");
   a.href = url;
-  a.download = "relatorio_erros_importacao.txt";
+  a.download = "relatorio_importacao.txt";
   document.body.appendChild(a);
   a.click();
   document.body.removeChild(a);
@@ -3273,8 +3308,29 @@ function importBackupExcelFirebase(event) {
         contatosClientes: { importados: 0, ignorados: 0, falhas: 0 },
         contatosProjetos: { importados: 0, ignorados: 0, falhas: 0 },
         atualizacoesProjetos: { importados: 0, ignorados: 0, falhas: 0 },
-        erros: []
+        erros: [],
+        avisos: [],
+        ignoradosDetalhes: [],
       };
+
+      // Detectar colunas ausentes ou com nome errado em cada aba
+      const _abasEColunas = [
+        { aba: "Clientes",             rows: clientesPlan,             colunas: ["RazaoSocial", "CNPJ", "Segmento"] },
+        { aba: "ContatosClientes",     rows: contatosClientesPlan,     colunas: ["ClienteCNPJ", "Nome", "Telefone", "Email"] },
+        { aba: "Representadas",        rows: representadasPlan,        colunas: ["Nome"] },
+        { aba: "Projetos",             rows: projetosPlan,             colunas: ["NomeProjeto", "TipoProjeto", "Status"] },
+        { aba: "ContatosProjetos",     rows: contatosProjetosPlan,     colunas: ["ProjetoNome", "Nome", "Telefone", "Email"] },
+        { aba: "AtualizacoesProjetos", rows: atualizacoesProjetosPlan, colunas: ["ProjetoNome", "Texto"] },
+        { aba: "Ofertas",              rows: ofertasPlan,              colunas: ["BU", "RazaoSocial", "Solicitante", "Telefone", "Email", "RepresentadaNome", "ValorTotal", "Status", "TipoNegocio", "NumeroOferta"] },
+      ];
+      for (const { aba, rows, colunas } of _abasEColunas) {
+        if (!rows.length) continue;
+        for (const col of colunas) {
+          if (!(col in rows[0])) {
+            relatorio.avisos.push(`Aba "${aba}": coluna "${col}" não encontrada — verifique o nome exato no arquivo`);
+          }
+        }
+      }
 
       let linhasProcessadas = 0;
 
@@ -3321,6 +3377,7 @@ function importBackupExcelFirebase(event) {
 
         if (clientesPorCnpj.has(cnpjNormalizado) || clientesNovosMap.has(cnpjNormalizado)) {
           relatorio.clientes.ignorados++;
+          relatorio.ignoradosDetalhes.push(`Clientes linha ${linha}: CNPJ ${row.CNPJ} (${normalizarTexto(row.RazaoSocial)}) já cadastrado`);
           return;
         }
 
@@ -3400,6 +3457,7 @@ function importBackupExcelFirebase(event) {
 
           if (existeContato) {
             relatorio.contatosClientes.ignorados++;
+            relatorio.ignoradosDetalhes.push(`ContatosClientes linha ${linha}: ${contato.nome} (${contato.email}) já existe neste cliente`);
             return;
           }
 
@@ -3428,6 +3486,7 @@ function importBackupExcelFirebase(event) {
 
         if (existeContato) {
           relatorio.contatosClientes.ignorados++;
+          relatorio.ignoradosDetalhes.push(`ContatosClientes linha ${linha}: ${contato.nome} (${contato.email}) já existe neste cliente`);
           return;
         }
 
@@ -3487,7 +3546,8 @@ function importBackupExcelFirebase(event) {
 
         const nomeKey = normalizarTexto(row.Nome).toLowerCase();
         if (representadasPorNome.has(nomeKey)) {
-          relatorio.representadas.ignoradas++;
+          relatorio.representadas.ignorados++;
+          relatorio.ignoradosDetalhes.push(`Representadas linha ${linha}: "${normalizarTexto(row.Nome)}" já cadastrada`);
           return;
         }
 
@@ -3543,6 +3603,7 @@ function importBackupExcelFirebase(event) {
 
         if (projetosPorChave.has(chave) || projetosNovosMap.has(chave)) {
           relatorio.projetos.ignorados++;
+          relatorio.ignoradosDetalhes.push(`Projetos linha ${linha}: "${normalizarTexto(row.NomeProjeto)}"${row.NumeroReferencia ? ` (ref. ${row.NumeroReferencia})` : ""} já cadastrado`);
           return;
         }
 
@@ -3625,6 +3686,7 @@ function importBackupExcelFirebase(event) {
 
           if (existeContato) {
             relatorio.contatosProjetos.ignorados++;
+            relatorio.ignoradosDetalhes.push(`ContatosProjetos linha ${linha}: ${contato.nome} (${contato.email}) já existe neste projeto`);
             return;
           }
 
@@ -3653,6 +3715,7 @@ function importBackupExcelFirebase(event) {
 
         if (existeContato) {
           relatorio.contatosProjetos.ignorados++;
+          relatorio.ignoradosDetalhes.push(`ContatosProjetos linha ${linha}: ${contato.nome} (${contato.email}) já existe neste projeto`);
           return;
         }
 
@@ -3706,6 +3769,7 @@ function importBackupExcelFirebase(event) {
 
           if (existeAtualizacao) {
             relatorio.atualizacoesProjetos.ignorados++;
+            relatorio.ignoradosDetalhes.push(`AtualizacoesProjetos linha ${linha}: texto idêntico já existe neste projeto`);
             return;
           }
 
@@ -3731,6 +3795,7 @@ function importBackupExcelFirebase(event) {
 
         if (existeAtualizacao) {
           relatorio.atualizacoesProjetos.ignorados++;
+          relatorio.ignoradosDetalhes.push(`AtualizacoesProjetos linha ${linha}: texto idêntico já existe neste projeto`);
           return;
         }
 
@@ -3794,6 +3859,7 @@ function importBackupExcelFirebase(event) {
         const chave = chaveOfertaImport(row.NumeroOferta, row.ClienteCNPJ);
         if (ofertasPorChave.has(chave)) {
           relatorio.ofertas.ignorados++;
+          relatorio.ignoradosDetalhes.push(`Ofertas linha ${linha}: N° ${row.NumeroOferta} / CNPJ ${row.ClienteCNPJ} já cadastrada`);
           continue;
         }
 
@@ -3903,7 +3969,8 @@ function importBackupExcelFirebase(event) {
         "Importação concluída",
         mensagem,
         "sucesso",
-        relatorio.erros
+        [...(relatorio.avisos || []), ...relatorio.erros],
+        relatorio.ignoradosDetalhes || []
       );
     } catch (error) {
       console.error("Erro ao importar via Firebase:", error);
@@ -4152,6 +4219,23 @@ function initClientesUI() {
 
     try {
       if (!editClienteId) {
+        // Detecção de CNPJ duplicado em clientes
+        const _cnpjCliente = (cnpj || "").replace(/\D/g, "");
+        const _clienteDup = clientes.find(
+          (c) => !c.deletado && (c.cnpj || "").replace(/\D/g, "") === _cnpjCliente,
+        );
+        if (_clienteDup) {
+          const msg =
+            `Este CNPJ já está cadastrado em outro cliente.\n\n` +
+            `Razão Social: ${_clienteDup.razao || "-"}\n` +
+            `CNPJ: ${_clienteDup.cnpj || "-"}`;
+          const acao = await showDuplicataAviso(msg, { title: "CNPJ já cadastrado" });
+          if (acao === "ver") {
+            verCliente(_clienteDup.id);
+            return;
+          }
+        }
+
         const id = gerarId();
         const cliente = {
           id,
@@ -5029,7 +5113,7 @@ function verOferta(id) {
   const _ofertaLabel = escapeHtml(reg.oferta || "");
   html += '<div class="md-history-section"><button type="button" class="secondary" onclick="abrirHistoricoAtual(\'' + 'Histórico da Oferta ' + _ofertaLabel + '\')">' +
     'Visualizar histórico de atividades</button></div>';
-  abrirModal(`Oferta ${reg.oferta || ""}`, html);
+  abrirModal(`Oferta ${reg.oferta || ""}`, html, () => editarRegistro(id));
 }
 
 function verCliente(id) {
@@ -5101,7 +5185,7 @@ function verCliente(id) {
   const _cliLabel = escapeHtml(cli.razao || "");
   html += '<div class="md-history-section"><button type="button" class="secondary" onclick="abrirHistoricoAtual(\'' + 'Histórico do Cliente ' + _cliLabel + '\')">' +
     'Visualizar histórico de atividades</button></div>';
-  abrirModal(`Cliente - ${cli.razao || ""}`, html);
+  abrirModal(`Cliente - ${cli.razao || ""}`, html, () => editarCliente(id));
 }
 
 function verRepresentada(id) {
@@ -5139,7 +5223,7 @@ function verRepresentada(id) {
   ) +
   '<div class="md-history-section"><button type="button" class="secondary" onclick="abrirHistoricoAtual(\'' + 'Histórico da Representada ' + escapeHtml(rep.nome || '') + '\')">' +
   'Visualizar histórico de atividades</button></div>';
-  abrirModal(`Representada - ${rep.nome || ""}`, html);
+  abrirModal(`Representada - ${rep.nome || ""}`, html, () => editarRepresentada(id));
 }
 
 function formatCnpjMask(digits) {
@@ -5155,70 +5239,99 @@ function formatCnpjMask(digits) {
 }
 
 function initAutoCompleteCnpjSimples() {
-  const input = document.getElementById("cnpj_cliente");
-  const box = document.getElementById("cnpjAuto");
-  if (!input || !box) return;
+  const cnpjInput = document.getElementById("cnpj_cliente");
+  const cnpjBox   = document.getElementById("cnpjAuto");
+  const razaoInput = document.getElementById("razao");
+  const razaoBox   = document.getElementById("razaoAuto");
 
-  const razaoEl = document.getElementById("razao");
-
-  function hide() {
-    box.classList.add("hidden");
-    box.innerHTML = "";
-  }
-
-  function showMatches(prefix) {
-    const p = String(prefix || "").replace(/\D/g, "");
-    if (p.length < 4) return hide();
-
-    const matches = clientes
-      .filter((c) => (c.cnpj || "").replace(/\D/g, "").startsWith(p))
-      .slice(0, 10);
-
-    if (!matches.length) return hide();
-
-    box.innerHTML = matches
-      .map((cli) => {
-        const cnpjDigits = (cli.cnpj || "").replace(/\D/g, "");
-        return `
-          <div class="autocomplete-item" data-id="${cli.id}">
-            <div class="razao">${esc((cli.razao || "").trim()) || "-"}</div>
-            <div class="cnpj">${formatCnpjMask(cnpjDigits)}</div>
-          </div>
-        `;
-      })
-      .join("");
-
-    box.classList.remove("hidden");
-  }
-
-  input.addEventListener("input", () => showMatches(input.value));
-
-  box.addEventListener("mousedown", (e) => {
-    const item = e.target.closest(".autocomplete-item");
-    if (!item) return;
-
-    e.preventDefault();
-
-    const id = item.dataset.id;
-    const cli = clientes.find((c) => c.id === id);
-    if (!cli) return;
-
+  function preencherCliente(cli) {
     const cnpjDigits = (cli.cnpj || "").replace(/\D/g, "");
+    if (cnpjInput) {
+      cnpjInput.dataset.skipBlurValidation = "1";
+      cnpjInput.value = formatCnpjMask(cnpjDigits);
+      cnpjInput.dataset.clienteId = cli.id;
+    }
+    if (razaoInput) razaoInput.value = cli.razao || "";
+    popularDatalistsCamposContato(cnpjInput?.value || "");
+  }
 
-    input.dataset.skipBlurValidation = "1";
-    input.value = formatCnpjMask(cnpjDigits);
-    input.dataset.clienteId = cli.id;
+  // ── Autocomplete de CNPJ ────────────────────────────────────────
+  if (cnpjInput && cnpjBox) {
+    const hideCnpj = () => { cnpjBox.classList.add("hidden"); cnpjBox.innerHTML = ""; };
 
-    if (razaoEl) razaoEl.value = cli.razao || "";
-    hide();
-  });
+    cnpjInput.addEventListener("input", () => {
+      const p = String(cnpjInput.value || "").replace(/\D/g, "");
+      if (p.length < 4) return hideCnpj();
+
+      const matches = clientes
+        .filter((c) => (c.cnpj || "").replace(/\D/g, "").startsWith(p))
+        .slice(0, 10);
+
+      if (!matches.length) return hideCnpj();
+
+      cnpjBox.innerHTML = matches.map((cli) => {
+        const cnpjDigits = (cli.cnpj || "").replace(/\D/g, "");
+        return `<div class="autocomplete-item" data-id="${cli.id}">
+          <div class="razao">${esc((cli.razao || "").trim()) || "-"}</div>
+          <div class="cnpj">${formatCnpjMask(cnpjDigits)}</div>
+        </div>`;
+      }).join("");
+      cnpjBox.classList.remove("hidden");
+    });
+
+    cnpjBox.addEventListener("mousedown", (e) => {
+      const item = e.target.closest(".autocomplete-item");
+      if (!item) return;
+      e.preventDefault();
+      const cli = clientes.find((c) => c.id === item.dataset.id);
+      if (cli) preencherCliente(cli);
+      hideCnpj();
+    });
+
+    cnpjInput.addEventListener("keydown", (e) => { if (e.key === "Escape") hideCnpj(); });
+  }
+
+  // ── Autocomplete de Razão Social ────────────────────────────────
+  if (razaoInput && razaoBox) {
+    const hideRazao = () => { razaoBox.classList.add("hidden"); razaoBox.innerHTML = ""; };
+
+    razaoInput.addEventListener("input", () => {
+      const q = (razaoInput.value || "").trim().toLowerCase();
+      if (q.length < 2) return hideRazao();
+
+      const matches = clientes
+        .filter((c) => (c.razao || "").toLowerCase().includes(q))
+        .slice(0, 10);
+
+      if (!matches.length) return hideRazao();
+
+      razaoBox.innerHTML = matches.map((cli) => {
+        const cnpjDigits = (cli.cnpj || "").replace(/\D/g, "");
+        return `<div class="autocomplete-item" data-id="${cli.id}">
+          <div class="razao">${esc((cli.razao || "").trim()) || "-"}</div>
+          <div class="cnpj">${formatCnpjMask(cnpjDigits)}</div>
+        </div>`;
+      }).join("");
+      razaoBox.classList.remove("hidden");
+    });
+
+    razaoBox.addEventListener("mousedown", (e) => {
+      const item = e.target.closest(".autocomplete-item");
+      if (!item) return;
+      e.preventDefault();
+      const cli = clientes.find((c) => c.id === item.dataset.id);
+      if (cli) preencherCliente(cli);
+      hideRazao();
+    });
+
+    razaoInput.addEventListener("keydown", (e) => { if (e.key === "Escape") hideRazao(); });
+  }
 
   document.addEventListener("click", (e) => {
-    if (!e.target.closest(".autocomplete-wrap")) hide();
-  });
-
-  input.addEventListener("keydown", (e) => {
-    if (e.key === "Escape") hide();
+    if (!e.target.closest(".autocomplete-wrap")) {
+      cnpjBox?.classList.add("hidden");
+      razaoBox?.classList.add("hidden");
+    }
   });
 }
 
@@ -8775,14 +8888,11 @@ function verProjeto(id) {
 
   historicoAtualModal = proj.historico || [];
 
-  const usuario = formatarNomeUsuario(
-    proj.atualizadoPor || proj.criadoPor || "-",
-  );
-  const qtdOfertas = registros.filter((r) => r.projetoId === proj.id).length;
-  const atrasado =
-    proj.prazo_final &&
-    new Date(proj.prazo_final) <
-    new Date(new Date().toISOString().slice(0, 10));
+  const usuario = formatarNomeUsuario(proj.atualizadoPor || proj.criadoPor || "-");
+  const ofertasDoProjeto = registros.filter((r) => r.projetoId === proj.id);
+  const qtdOfertas = ofertasDoProjeto.length;
+  const contatos = proj.contatos || [];
+  const atualizacoes = proj.atualizacoes || [];
 
   function field(label, value, full) {
     if (!value && value !== 0) return "";
@@ -8799,7 +8909,8 @@ function verProjeto(id) {
       '</div>';
   }
 
-  let html = section("Dados do Projeto",
+  // --- Tab Ver (Projeto) ---
+  let tabVer = section("Dados do Projeto",
     field("Nome do Projeto", esc(proj.nome) || "-") +
     field("Tipo", esc(proj.tipo) || "") +
     field("Status", esc(proj.status) || "-") +
@@ -8813,10 +8924,36 @@ function verProjeto(id) {
     (proj.obs ? field("Observações", esc(proj.obs), true) : "")
   );
 
-  if ((proj.contatos || []).length) {
-    html += '<div class="md-detail-section"><div class="md-detail-section-title">Contatos</div>';
-    proj.contatos.forEach((ct) => {
-      html += '<div class="md-contact-card">' +
+  if (atualizacoes.length) {
+    tabVer += '<div class="md-detail-section"><div class="md-detail-section-title">Atualizações do Projeto</div>';
+    atualizacoes.forEach((up) => {
+      tabVer += '<div class="md-contact-card">' +
+        '<div class="md-contact-name">' + esc(primeiroNome(up.atualizadoPor || up.criadoPor || "-")) +
+          ' <span style="font-weight:400;font-size:11px;opacity:.5">— ' + formatDateTimeBR(up.atualizadoEm || up.criadoEm) + '</span>' +
+        '</div>' +
+        '<div class="md-contact-detail">' + esc(up.texto || "-").replace(/\n/g, "<br>") + '</div>' +
+        '</div>';
+    });
+    tabVer += '</div>';
+  }
+
+  tabVer += section("Histórico",
+    field("Responsável", esc(usuario)) +
+    field("Criado em", formatDateTimeBR(proj.criadoEm)) +
+    field("Atualizado em", formatDateTimeBR(proj.atualizadoEm))
+  );
+
+  const _projLabel = escapeHtml(proj.nome || "");
+  tabVer += '<div class="md-history-section"><button type="button" class="secondary" onclick="abrirHistoricoAtual(\'Histórico do Projeto ' + _projLabel + '\')">' +
+    'Visualizar histórico de atividades</button></div>';
+
+  // --- Tab Contatos ---
+  let tabContatos = "";
+  if (!contatos.length) {
+    tabContatos = '<div class="proj-tab-empty">Nenhum contato cadastrado.</div>';
+  } else {
+    contatos.forEach((ct) => {
+      tabContatos += '<div class="md-contact-card">' +
         '<div class="md-contact-name">' + (esc(ct.nome) || "-") +
           (ct.principal ? '<span class="modal-badge">Principal</span>' : "") +
         '</div>' +
@@ -8827,32 +8964,55 @@ function verProjeto(id) {
           (ct.responsavelNome ? 'Responsável: ' + esc(primeiroNome(ct.responsavelNome)) : "") +
         '</div></div>';
     });
-    html += '</div>';
   }
 
-  if ((proj.atualizacoes || []).length) {
-    html += '<div class="md-detail-section"><div class="md-detail-section-title">Atualizações do Projeto</div>';
-    proj.atualizacoes.forEach((up) => {
-      html += '<div class="md-contact-card">' +
-        '<div class="md-contact-name">' + esc(primeiroNome(up.atualizadoPor || up.criadoPor || "-")) +
-          ' <span style="font-weight:400;font-size:11px;opacity:.5">— ' + formatDateTimeBR(up.atualizadoEm || up.criadoEm) + '</span>' +
-        '</div>' +
-        '<div class="md-contact-detail">' + esc(up.texto || "-").replace(/\n/g, "<br>") + '</div>' +
-        '</div>';
+  // --- Tab Ofertas ---
+  let tabOfertas = "";
+  if (!ofertasDoProjeto.length) {
+    tabOfertas = '<div class="proj-tab-empty">Nenhuma oferta vinculada a este projeto.</div>';
+  } else {
+    ofertasDoProjeto.forEach((reg) => {
+      const usuarioOferta = formatarNomeUsuario(reg.atualizadoPor || reg.criadoPor || "-");
+      const temPedido = reg.possuiPedido === "sim" ? "Sim" : "Não";
+      const criadoEm = reg.criadoEm ? new Date(reg.criadoEm).toLocaleDateString("pt-BR") : "-";
+      tabOfertas += '<div class="md-contact-card">' +
+        '<div class="md-contact-name">' + escapeHtml(reg.oferta || "-") + '</div>' +
+        '<div class="md-contact-detail">' +
+          '<strong>Razão Social:</strong> ' + escapeHtml(reg.razao || "-") + '<br>' +
+          '<strong>Representada:</strong> ' + escapeHtml(reg.representadaNome || "-") + '<br>' +
+          '<strong>Status:</strong> ' + escapeHtml(reg.status || "-") + '<br>' +
+          '<strong>Tipo:</strong> ' + escapeHtml(reg.tipo_oferta || "-") + '<br>' +
+          '<strong>Tem pedido:</strong> ' + temPedido + '<br>' +
+          '<strong>Valor total:</strong> ' + escapeHtml(reg.valor_total || "-") + '<br>' +
+          '<strong>Criado em:</strong> ' + criadoEm + '<br>' +
+          '<strong>Usuário:</strong> ' + escapeHtml(usuarioOferta) +
+          '<div style="margin-top:10px"><button type="button" class="btn-ver-oferta" onclick="verOferta(\'' + escapeHtml(reg.id) + '\')">Ver oferta completa →</button></div>' +
+        '</div></div>';
     });
-    html += '</div>';
   }
 
-  html += section("Histórico",
-    field("Responsável", esc(usuario)) +
-    field("Criado em", formatDateTimeBR(proj.criadoEm)) +
-    field("Atualizado em", formatDateTimeBR(proj.atualizadoEm))
-  );
+  const html = `
+    <div class="proj-tabs-bar">
+      <button type="button" class="proj-tab active" data-tab="ver" onclick="trocarAbaProjeto('ver')">Projeto</button>
+      <button type="button" class="proj-tab" data-tab="contatos" onclick="trocarAbaProjeto('contatos')">Contatos${contatos.length ? ' (' + contatos.length + ')' : ''}</button>
+      <button type="button" class="proj-tab" data-tab="ofertas" onclick="trocarAbaProjeto('ofertas')">Ofertas${qtdOfertas ? ' (' + qtdOfertas + ')' : ''}</button>
+    </div>
+    <div id="projTabVer" class="proj-tab-content">${tabVer}</div>
+    <div id="projTabContatos" class="proj-tab-content hidden">${tabContatos}</div>
+    <div id="projTabOfertas" class="proj-tab-content hidden">${tabOfertas}</div>
+  `;
 
-  const _projLabel = escapeHtml(proj.nome || "");
-  html += '<div class="md-history-section"><button type="button" class="secondary" onclick="abrirHistoricoAtual(\'' + 'Histórico do Projeto ' + _projLabel + '\')">' +
-    'Visualizar histórico de atividades</button></div>';
-  abrirModal(`Projeto - ${proj.nome || ""}`, html);
+  abrirModal(`Projeto - ${proj.nome || ""}`, html, () => editarProjeto(id));
+}
+
+function trocarAbaProjeto(aba) {
+  document.querySelectorAll(".proj-tab").forEach((btn) => {
+    btn.classList.toggle("active", btn.dataset.tab === aba);
+  });
+  ["ver", "contatos", "ofertas"].forEach((a) => {
+    const el = document.getElementById("projTab" + a.charAt(0).toUpperCase() + a.slice(1));
+    if (el) el.classList.toggle("hidden", a !== aba);
+  });
 }
 
 async function excluirProjeto(id) {
@@ -9675,26 +9835,52 @@ function exportPdfCompleto() {
 function baixarModeloImportacaoExcel() {
   const wb = XLSX.utils.book_new();
 
-  const clientesModelo = [
-    {
-      ID: "",
-      RazaoSocial: "Empresa Exemplo Ltda",
-      CNPJ: "12.345.678/0001-99",
-      IE: "123456789",
-      Endereco: "Rua Exemplo, 123",
-      Segmento: "Industrial",
-      SAP: "SAP001",
-      CriadoPor: "",
-      AtualizadoPor: "",
-    }
+  // ── INSTRUCOES ────────────────────────────────────────────────────────────
+  const instrucoes = [
+    { "Regra": "NÃO renomeie as abas nem altere os nomes das colunas — eles são sensíveis a maiúsculas/minúsculas." },
+    { "Regra": "Colunas marcadas com (*) são obrigatórias. Linhas sem elas serão ignoradas com erro." },
+    { "Regra": "Clientes com mesmo CNPJ já existente no sistema são ignorados (sem erro)." },
+    { "Regra": "Representadas com mesmo Nome já existente no sistema são ignoradas." },
+    { "Regra": "Projetos com mesmo NomeProjeto + NumeroReferencia já existentes são ignorados." },
+    { "Regra": "Ofertas com mesmo NumeroOferta + ClienteCNPJ já existentes são ignoradas." },
+    { "Regra": "" },
+    { "Regra": "ABA: Clientes — Obrigatórios: RazaoSocial, CNPJ, Segmento" },
+    { "Regra": "ABA: ContatosClientes — Obrigatórios: ClienteCNPJ, Nome, Telefone, Email" },
+    { "Regra": "ABA: Representadas — Obrigatório: Nome" },
+    { "Regra": "ABA: Projetos — Obrigatórios: NomeProjeto, TipoProjeto, Status" },
+    { "Regra": "ABA: ContatosProjetos — Obrigatórios: ProjetoNome, Nome, Telefone, Email" },
+    { "Regra": "ABA: AtualizacoesProjetos — Obrigatórios: ProjetoNome, Texto" },
+    { "Regra": "ABA: Ofertas — Obrigatórios: BU, RazaoSocial, Solicitante, Telefone, Email, RepresentadaNome, ValorTotal, Status, TipoNegocio, NumeroOferta" },
+    { "Regra": "" },
+    { "Regra": "Valores aceitos para TipoNegocio: compra | orcamento" },
+    { "Regra": "Valores aceitos para PossuiPedido / PossuiRevisao / AtendimentoSpot: sim | nao" },
+    { "Regra": "Principal (contatos): Sim | Não  (apenas um contato por cliente/projeto deve ser Sim)" },
   ];
 
+  // ── CLIENTES ──────────────────────────────────────────────────────────────
+  const clientesModelo = [
+    {
+      RazaoSocial: "Empresa Exemplo Ltda",
+      CNPJ: "12.345.678/0001-99",
+      IE: "123.456.789.000",
+      Endereco: "Rua das Indústrias, 100 — São Paulo/SP",
+      Segmento: "Industrial",
+      SAP: "",
+    },
+    {
+      RazaoSocial: "Indústria Modelo S.A.",
+      CNPJ: "98.765.432/0001-11",
+      IE: "",
+      Endereco: "Av. Central, 456 — Rio de Janeiro/RJ",
+      Segmento: "OGP",
+      SAP: "SAP-9001",
+    },
+  ];
+
+  // ── CONTATOS DE CLIENTES ──────────────────────────────────────────────────
   const contatosClientesModelo = [
     {
-      ClienteID: "",
-      ClienteRazaoSocial: "Empresa Exemplo Ltda",
       ClienteCNPJ: "12.345.678/0001-99",
-      ContatoIndex: 1,
       Nome: "João da Silva",
       Telefone: "(11) 99999-9999",
       Email: "joao@empresa.com",
@@ -9702,47 +9888,130 @@ function baixarModeloImportacaoExcel() {
       Principal: "Sim",
       ResponsavelId: "",
       ResponsavelNome: "",
-      CriadoPor: "",
-      AtualizadoPor: "",
-    }
-  ];
-
-  const representadasModelo = [
+    },
     {
-      ID: "",
-      Nome: "Representada Exemplo",
-      CriadoPor: "",
-      AtualizadoPor: "",
-    }
+      ClienteCNPJ: "12.345.678/0001-99",
+      Nome: "Ana Costa",
+      Telefone: "(11) 98888-8888",
+      Email: "ana@empresa.com",
+      Funcao: "Engenheira",
+      Principal: "Não",
+      ResponsavelId: "",
+      ResponsavelNome: "",
+    },
+    {
+      ClienteCNPJ: "98.765.432/0001-11",
+      Nome: "Carlos Souza",
+      Telefone: "(21) 97777-7777",
+      Email: "carlos@industria.com",
+      Funcao: "Gerente de Compras",
+      Principal: "Sim",
+      ResponsavelId: "",
+      ResponsavelNome: "",
+    },
   ];
 
+  // ── REPRESENTADAS ─────────────────────────────────────────────────────────
+  const representadasModelo = [
+    { Nome: "Fabricante Exemplo" },
+    { Nome: "Distribuidora Modelo" },
+  ];
+
+  // ── PROJETOS ──────────────────────────────────────────────────────────────
+  const projetosModelo = [
+    {
+      NomeProjeto: "Projeto Expansão Planta",
+      TipoProjeto: "Expansão",
+      Status: "Em andamento",
+      NumeroReferencia: "REF-2026-001",
+      PrazoFinal: "2026-12-31",
+      ValorInvestimento: "R$ 2.500.000,00",
+      PrevFechamento: "2026-09-30",
+      InicioEntregas: "2026-06-01",
+      FimEntregas: "2026-11-30",
+      Observacoes: "Projeto prioritário.",
+    },
+    {
+      NomeProjeto: "Projeto Modernização Linha 3",
+      TipoProjeto: "Retrofit",
+      Status: "Em análise",
+      NumeroReferencia: "REF-2026-002",
+      PrazoFinal: "2027-03-31",
+      ValorInvestimento: "",
+      PrevFechamento: "",
+      InicioEntregas: "",
+      FimEntregas: "",
+      Observacoes: "",
+    },
+  ];
+
+  // ── CONTATOS DE PROJETOS ──────────────────────────────────────────────────
+  const contatosProjetosModelo = [
+    {
+      ProjetoNome: "Projeto Expansão Planta",
+      ProjetoReferencia: "REF-2026-001",
+      Nome: "Pedro Lima",
+      Telefone: "(11) 96666-6666",
+      Email: "pedro@empresa.com",
+      Funcao: "Responsável Técnico",
+      Principal: "Sim",
+      ResponsavelId: "",
+      ResponsavelNome: "",
+    },
+    {
+      ProjetoNome: "Projeto Modernização Linha 3",
+      ProjetoReferencia: "REF-2026-002",
+      Nome: "Fernanda Rocha",
+      Telefone: "(21) 95555-5555",
+      Email: "fernanda@industria.com",
+      Funcao: "Coordenadora",
+      Principal: "Sim",
+      ResponsavelId: "",
+      ResponsavelNome: "",
+    },
+  ];
+
+  // ── ATUALIZAÇÕES DE PROJETOS ──────────────────────────────────────────────
+  const atualizacoesProjetosModelo = [
+    {
+      ProjetoNome: "Projeto Expansão Planta",
+      ProjetoReferencia: "REF-2026-001",
+      Texto: "Reunião de kickoff realizada. Cronograma aprovado por todas as partes.",
+      Data: "2026-03-28",
+    },
+    {
+      ProjetoNome: "Projeto Expansão Planta",
+      ProjetoReferencia: "REF-2026-001",
+      Texto: "Revisão de escopo solicitada pelo cliente. Aguardando aprovação interna.",
+      Data: "2026-04-15",
+    },
+  ];
+
+  // ── OFERTAS ───────────────────────────────────────────────────────────────
   const ofertasModelo = [
     {
-      ID: "",
-      ClienteID: "",
-      ClienteCNPJ: "12.345.678/0001-99",
-      RazaoSocial: "Empresa Exemplo Ltda",
+      // Oferta simples sem pedido
       BU: "OEM",
-      Segmento: "Industrial",
-      Projeto: "Projeto Exemplo",
-      RepresentadaID: "",
-      RepresentadaNome: "Representada Exemplo",
-      Solicitante: "Maria",
-      Telefone: "(11) 98888-7777",
-      Email: "maria@empresa.com",
+      Segmento: "Cranes",
+      RazaoSocial: "Empresa Exemplo Ltda",
+      ClienteCNPJ: "12.345.678/0001-99",
+      RepresentadaNome: "Fabricante Exemplo",
+      Solicitante: "João da Silva",
+      Telefone: "(11) 99999-9999",
+      Email: "joao@empresa.com",
       NumeroOferta: "OF-2026-001",
       TipoNegocio: "orcamento",
-      ValorTotal: "150000",
+      ValorTotal: "R$ 150.000,00",
+      RefCliente: "",
       Oportunidade: "",
       DataEntrada: "2026-03-28",
       Status: "Em andamento",
       DataEnvio: "2026-03-29",
+      Unidade: "",
+      Projeto: "Projeto Expansão Planta",
       AtendimentoSpot: "nao",
-      PossuiPedido: "nao",
       ObservacoesGerais: "",
-      PossuiRevisao: "nao",
-      RevisaoOfertaAnterior: "",
-      RevisaoMudou: "",
+      PossuiPedido: "nao",
       NumeroPedido: "",
       ValorPedido: "",
       DataPO: "",
@@ -9750,72 +10019,80 @@ function baixarModeloImportacaoExcel() {
       RefProjetoPedido: "",
       TipoProduto: "",
       ObsPedido: "",
-      NotasFiscais: "",
       PrazoEntregaContratual: "",
       SolicitacaoOC: "",
       RefOC: "",
       DataImplantacao: "",
-      CriadoPor: "",
-      AtualizadoPor: "",
-    }
-  ];
-
-  const projetosModelo = [
+      PossuiRevisao: "nao",
+      RevisaoOfertaAnterior: "",
+      RevisaoMudou: "",
+    },
     {
-      ID: "",
-      NomeProjeto: "Projeto Exemplo",
-      TipoProjeto: "Expansão",
-      Status: "Em andamento",
-      NumeroReferencia: "REF-001",
-      PrazoFinal: "2026-12-31",
-      ValorInvestimento: "500000",
-      PrevFechamento: "2026-08-30",
-      InicioEntregas: "",
-      FimEntregas: "",
-      Observacoes: "",
-      CriadoPor: "",
-      AtualizadoPor: "",
-    }
+      // Oferta com pedido
+      BU: "OGP",
+      Segmento: "On Shore",
+      RazaoSocial: "Indústria Modelo S.A.",
+      ClienteCNPJ: "98.765.432/0001-11",
+      RepresentadaNome: "Distribuidora Modelo",
+      Solicitante: "Carlos Souza",
+      Telefone: "(21) 97777-7777",
+      Email: "carlos@industria.com",
+      NumeroOferta: "OF-2026-002",
+      TipoNegocio: "compra",
+      ValorTotal: "R$ 320.000,00",
+      RefCliente: "RC-4521",
+      Oportunidade: "OP-2026-012",
+      DataEntrada: "2026-02-10",
+      Status: "Pedido",
+      DataEnvio: "2026-02-12",
+      Unidade: "Mantex",
+      Projeto: "Projeto Modernização Linha 3",
+      AtendimentoSpot: "nao",
+      ObservacoesGerais: "Cliente solicitou entrega parcelada.",
+      PossuiPedido: "sim",
+      NumeroPedido: "PO-98765",
+      ValorPedido: "R$ 320.000,00",
+      DataPO: "2026-02-20",
+      CondicaoPagamento: "30/60/90",
+      RefProjetoPedido: "PROJ-MOD-001",
+      TipoProduto: "Equipamento",
+      ObsPedido: "Frete incluso.",
+      PrazoEntregaContratual: "2026-08-30",
+      SolicitacaoOC: "SOC-2026-045",
+      RefOC: "",
+      DataImplantacao: "",
+      PossuiRevisao: "nao",
+      RevisaoOfertaAnterior: "",
+      RevisaoMudou: "",
+    },
   ];
 
-  const contatosProjetosModelo = [
-    {
-      ProjetoID: "",
-      ProjetoNome: "Projeto Exemplo",
-      ProjetoReferencia: "REF-001",
-      ContatoIndex: 1,
-      Nome: "Carlos Souza",
-      Telefone: "(11) 97777-7777",
-      Email: "carlos@empresa.com",
-      Funcao: "Engenheiro",
-      Principal: "Sim",
-      ResponsavelId: "",
-      ResponsavelNome: "",
-      CriadoPor: "",
-      AtualizadoPor: "",
-    }
+  // ── MONTAR WORKBOOK ───────────────────────────────────────────────────────
+  const sheets = [
+    { data: instrucoes,                nome: "Instrucoes" },
+    { data: clientesModelo,            nome: "Clientes" },
+    { data: contatosClientesModelo,    nome: "ContatosClientes" },
+    { data: representadasModelo,       nome: "Representadas" },
+    { data: projetosModelo,            nome: "Projetos" },
+    { data: contatosProjetosModelo,    nome: "ContatosProjetos" },
+    { data: atualizacoesProjetosModelo,nome: "AtualizacoesProjetos" },
+    { data: ofertasModelo,             nome: "Ofertas" },
   ];
 
-  const atualizacoesProjetosModelo = [
-    {
-      ProjetoID: "",
-      ProjetoNome: "Projeto Exemplo",
-      ProjetoReferencia: "REF-001",
-      AtualizacaoIndex: 1,
-      Texto: "Projeto iniciado com alinhamento inicial.",
-      Data: "2026-03-28",
-      CriadoPor: "",
-      AtualizadoPor: "",
-    }
-  ];
+  for (const { data, nome } of sheets) {
+    const ws = XLSX.utils.json_to_sheet(data);
 
-  XLSX.utils.book_append_sheet(wb, XLSX.utils.json_to_sheet(clientesModelo), "Clientes");
-  XLSX.utils.book_append_sheet(wb, XLSX.utils.json_to_sheet(contatosClientesModelo), "ContatosClientes");
-  XLSX.utils.book_append_sheet(wb, XLSX.utils.json_to_sheet(representadasModelo), "Representadas");
-  XLSX.utils.book_append_sheet(wb, XLSX.utils.json_to_sheet(ofertasModelo), "Ofertas");
-  XLSX.utils.book_append_sheet(wb, XLSX.utils.json_to_sheet(projetosModelo), "Projetos");
-  XLSX.utils.book_append_sheet(wb, XLSX.utils.json_to_sheet(contatosProjetosModelo), "ContatosProjetos");
-  XLSX.utils.book_append_sheet(wb, XLSX.utils.json_to_sheet(atualizacoesProjetosModelo), "AtualizacoesProjetos");
+    // Auto-largura de colunas
+    if (data.length) {
+      const headers = Object.keys(data[0]);
+      ws["!cols"] = headers.map((h) => {
+        const maxLen = data.reduce((m, row) => Math.max(m, String(row[h] ?? "").length), h.length);
+        return { wch: Math.min(maxLen + 2, 50) };
+      });
+    }
+
+    XLSX.utils.book_append_sheet(wb, ws, nome);
+  }
 
   XLSX.writeFile(wb, "modelo_importacao_crm.xlsx");
 }
@@ -9869,19 +10146,72 @@ function deveExigirSegmentoImportacao(bu) {
 }
 
 function montarMensagemRelatorioImportacao(relatorio) {
+  const categorias = [
+    { label: "Clientes",               stats: relatorio.clientes },
+    { label: "Representadas",          stats: relatorio.representadas },
+    { label: "Projetos",               stats: relatorio.projetos },
+    { label: "Ofertas",                stats: relatorio.ofertas },
+    { label: "Contatos de Clientes",   stats: relatorio.contatosClientes },
+    { label: "Contatos de Projetos",   stats: relatorio.contatosProjetos },
+    { label: "Atualizações de Projetos", stats: relatorio.atualizacoesProjetos },
+  ];
+
+  const totalImportados = categorias.reduce((s, c) => s + c.stats.importados, 0);
+  const totalFalhas     = categorias.reduce((s, c) => s + c.stats.falhas, 0);
+  const totalAvisos     = (relatorio.avisos || []).length;
+  const totalErros      = relatorio.erros.length;
+
+  const catRows = categorias
+    .filter(({ stats }) => stats.importados + stats.ignorados + stats.falhas > 0)
+    .map(({ label, stats }) => {
+      const partes = [];
+      if (stats.importados) partes.push(`<span class="ir-ok">✓ ${stats.importados} importado${stats.importados !== 1 ? "s" : ""}</span>`);
+      if (stats.ignorados)  partes.push(`<span class="ir-skip">↷ ${stats.ignorados} ignorado${stats.ignorados !== 1 ? "s" : ""}</span>`);
+      if (stats.falhas)     partes.push(`<span class="ir-err">✕ ${stats.falhas} falha${stats.falhas !== 1 ? "s" : ""}</span>`);
+      return `<div class="ir-cat-row"><span class="ir-cat-label">${esc(label)}</span><span class="ir-cat-stats">${partes.join("")}</span></div>`;
+    })
+    .join("");
+
+  let avisosHtml = "";
+  if (totalAvisos) {
+    const items = (relatorio.avisos || []).map((a) => `<li>${esc(a)}</li>`).join("");
+    avisosHtml = `
+      <div class="ir-secao ir-avisos-wrap">
+        <div class="ir-secao-titulo">⚠ ${totalAvisos} aviso${totalAvisos !== 1 ? "s" : ""} de coluna</div>
+        <ul class="ir-lista">${items}</ul>
+      </div>`;
+  }
+
+  let errosHtml = "";
+  if (totalErros) {
+    const MAX_INLINE = 30;
+    const items = relatorio.erros.slice(0, MAX_INLINE).map((e) => `<li>${esc(e)}</li>`).join("");
+    const restante = totalErros > MAX_INLINE
+      ? `<li class="ir-mais">… e mais ${totalErros - MAX_INLINE} erro(s). Baixe o relatório completo.</li>`
+      : "";
+    errosHtml = `
+      <div class="ir-secao ir-erros-wrap">
+        <div class="ir-secao-titulo">✕ ${totalErros} erro${totalErros !== 1 ? "s" : ""} encontrado${totalErros !== 1 ? "s" : ""}</div>
+        <ul class="ir-lista">${items}${restante}</ul>
+      </div>`;
+  }
+
+  const semErros = !totalFalhas && !totalAvisos && !totalErros
+    ? `<div class="ir-sem-erros">Nenhum erro encontrado.</div>`
+    : "";
+
   return `
-Importação concluída.
-
-Clientes: ${relatorio.clientes.importados} importados, ${relatorio.clientes.ignorados} ignorados, ${relatorio.clientes.falhas} falhas
-Representadas: ${relatorio.representadas.importados} importadas, ${relatorio.representadas.ignorados} ignoradas, ${relatorio.representadas.falhas} falhas
-Projetos: ${relatorio.projetos.importados} importados, ${relatorio.projetos.ignorados} ignorados, ${relatorio.projetos.falhas} falhas
-Ofertas: ${relatorio.ofertas.importados} importadas, ${relatorio.ofertas.ignorados} ignoradas, ${relatorio.ofertas.falhas} falhas
-ContatosClientes: ${relatorio.contatosClientes.importados} importados, ${relatorio.contatosClientes.ignorados} ignorados, ${relatorio.contatosClientes.falhas} falhas
-ContatosProjetos: ${relatorio.contatosProjetos.importados} importados, ${relatorio.contatosProjetos.ignorados} ignorados, ${relatorio.contatosProjetos.falhas} falhas
-AtualizacoesProjetos: ${relatorio.atualizacoesProjetos.importados} importadas, ${relatorio.atualizacoesProjetos.ignorados} ignoradas, ${relatorio.atualizacoesProjetos.falhas} falhas
-
-${relatorio.erros.length ? "Erros:\n- " + relatorio.erros.join("\n- ") : "Nenhum erro encontrado."}
-  `.trim();
+    <div class="import-relatorio">
+      <div class="ir-resumo-geral">
+        <strong>${totalImportados}</strong> registro${totalImportados !== 1 ? "s" : ""} importado${totalImportados !== 1 ? "s" : ""}
+        ${totalFalhas ? ` · <span class="ir-err">${totalFalhas} falha${totalFalhas !== 1 ? "s" : ""}</span>` : ""}
+      </div>
+      <div class="ir-cats">${catRows || '<span style="opacity:.6">Nenhum dado processado.</span>'}</div>
+      ${avisosHtml}
+      ${errosHtml}
+      ${semErros}
+    </div>
+  `;
 }
 
 function obterTimestampBackupAutomatico() {
@@ -10886,6 +11216,216 @@ function initFiltrosPersistidos() {
       sessionStorage.removeItem(FILTROS_KEYS.projetos);
   });
 }
+
+// ─── Export de Projeto ───────────────────────────────────────────────────────
+
+function exportarProjeto(id) {
+  window._exportProjetoId = id;
+  const proj = projetos.find((p) => p.id === id);
+  const titulo = document.getElementById("modalExportarProjetoTitulo");
+  if (titulo) titulo.textContent = "Exportar — " + (proj?.nome || "Projeto");
+  const modal = document.getElementById("modalExportarProjeto");
+  if (modal) modal.classList.remove("hidden");
+}
+
+function fecharModalExportarProjeto() {
+  const modal = document.getElementById("modalExportarProjeto");
+  if (modal) modal.classList.add("hidden");
+}
+
+function exportarProjetoExcel(id) {
+  const proj = projetos.find((p) => p.id === id);
+  if (!proj) return;
+  const ofertasDoProjeto = registros.filter((r) => r.projetoId === id);
+  const wb = XLSX.utils.book_new();
+
+  // Aba Projeto
+  const dadosProjeto = [{
+    "Nome": proj.nome || "",
+    "Tipo": proj.tipo || "",
+    "Status": proj.status || "",
+    "N° Referência": proj.numero_referencia || "",
+    "Prazo Final": formatDateBR(proj.prazo_final) || "",
+    "Valor do Investimento": proj.valor_investimento || "",
+    "Prev. Fechamento": formatDateBR(proj.prev_fechamento) || "",
+    "Início das Entregas": formatDateBR(proj.inicio_entregas) || "",
+    "Fim das Entregas": formatDateBR(proj.fim_entregas) || "",
+    "Observações": proj.obs || "",
+    "Responsável": formatarNomeUsuario(proj.atualizadoPor || proj.criadoPor || ""),
+    "Criado em": formatDateTimeBR(proj.criadoEm) || "",
+    "Atualizado em": formatDateTimeBR(proj.atualizadoEm) || "",
+  }];
+  XLSX.utils.book_append_sheet(wb, XLSX.utils.json_to_sheet(dadosProjeto), "Projeto");
+
+  // Aba Contatos
+  const dadosContatos = (proj.contatos || []).map((ct) => ({
+    "Nome": ct.nome || "",
+    "Função": ct.funcao || "",
+    "Telefone": ct.telefone || "",
+    "E-mail": ct.email || "",
+    "Principal": ct.principal ? "Sim" : "Não",
+    "Responsável CRM": ct.responsavelNome || "",
+  }));
+  if (dadosContatos.length) XLSX.utils.book_append_sheet(wb, XLSX.utils.json_to_sheet(dadosContatos), "Contatos");
+
+  // Aba Atualizações
+  const dadosAtualizacoes = (proj.atualizacoes || []).map((up) => ({
+    "Responsável": primeiroNome(up.atualizadoPor || up.criadoPor || ""),
+    "Data": formatDateTimeBR(up.atualizadoEm || up.criadoEm) || "",
+    "Texto": up.texto || "",
+  }));
+  if (dadosAtualizacoes.length) XLSX.utils.book_append_sheet(wb, XLSX.utils.json_to_sheet(dadosAtualizacoes), "Atualizações");
+
+  // Aba Ofertas
+  const dadosOfertas = ofertasDoProjeto.map((reg) => ({
+    "Oferta": reg.oferta || "",
+    "Razão Social": reg.razao || "",
+    "Representada": reg.representadaNome || "",
+    "Status": reg.status || "",
+    "Tipo": reg.tipo_oferta || "",
+    "Tem Pedido": reg.possuiPedido === "sim" ? "Sim" : "Não",
+    "Valor Total": reg.valor_total || "",
+    "Usuário": formatarNomeUsuario(reg.atualizadoPor || reg.criadoPor || ""),
+    "Criado em": reg.criadoEm ? new Date(reg.criadoEm).toLocaleDateString("pt-BR") : "",
+  }));
+  if (dadosOfertas.length) XLSX.utils.book_append_sheet(wb, XLSX.utils.json_to_sheet(dadosOfertas), "Ofertas");
+
+  XLSX.writeFile(wb, "projeto_" + (proj.nome || id).replace(/[^a-z0-9]/gi, "_") + ".xlsx");
+  fecharModalExportarProjeto();
+}
+
+function exportarProjetoExcelResumo(id) {
+  const proj = projetos.find((p) => p.id === id);
+  if (!proj) return;
+  const wb = XLSX.utils.book_new();
+  const dados = [{
+    "Nome": proj.nome || "",
+    "Tipo": proj.tipo || "",
+    "Status": proj.status || "",
+    "N° Referência": proj.numero_referencia || "",
+    "Prazo Final": formatDateBR(proj.prazo_final) || "",
+    "Valor do Investimento": proj.valor_investimento || "",
+    "Qtd. Contatos": (proj.contatos || []).length,
+    "Qtd. Ofertas": registros.filter((r) => r.projetoId === id).length,
+    "Responsável": formatarNomeUsuario(proj.atualizadoPor || proj.criadoPor || ""),
+    "Atualizado em": formatDateTimeBR(proj.atualizadoEm) || "",
+  }];
+  XLSX.utils.book_append_sheet(wb, XLSX.utils.json_to_sheet(dados), "Resumo");
+  XLSX.writeFile(wb, "projeto_resumo_" + (proj.nome || id).replace(/[^a-z0-9]/gi, "_") + ".xlsx");
+  fecharModalExportarProjeto();
+}
+
+function _gerarHtmlPdfProjeto(proj, incluirDetalhes) {
+  const ofertasDoProjeto = registros.filter((r) => r.projetoId === proj.id);
+  const contatos = proj.contatos || [];
+  const atualizacoes = proj.atualizacoes || [];
+  const usuario = formatarNomeUsuario(proj.atualizadoPor || proj.criadoPor || "");
+
+  const row = (label, val) => val
+    ? `<tr><th>${escapeHtml(label)}</th><td>${escapeHtml(String(val))}</td></tr>`
+    : "";
+
+  let body = `
+    <h2>${escapeHtml(proj.nome || "Projeto")}</h2>
+    <p class="meta">Gerado em: ${new Date().toLocaleString("pt-BR")}</p>
+    <h3>Dados do Projeto</h3>
+    <table>
+      ${row("Tipo", proj.tipo)}
+      ${row("Status", proj.status)}
+      ${row("N° Referência", proj.numero_referencia)}
+      ${row("Prazo Final", formatDateBR(proj.prazo_final))}
+      ${row("Valor do Investimento", proj.valor_investimento)}
+      ${row("Prev. Fechamento", formatDateBR(proj.prev_fechamento))}
+      ${row("Início das Entregas", formatDateBR(proj.inicio_entregas))}
+      ${row("Fim das Entregas", formatDateBR(proj.fim_entregas))}
+      ${row("Qtd. Ofertas", String(ofertasDoProjeto.length))}
+      ${proj.obs ? row("Observações", proj.obs) : ""}
+      ${row("Responsável", usuario)}
+      ${row("Criado em", formatDateTimeBR(proj.criadoEm))}
+      ${row("Atualizado em", formatDateTimeBR(proj.atualizadoEm))}
+    </table>
+  `;
+
+  if (incluirDetalhes && contatos.length) {
+    body += `<h3>Contatos (${contatos.length})</h3><table><thead><tr><th>Nome</th><th>Função</th><th>Telefone</th><th>E-mail</th><th>Principal</th></tr></thead><tbody>`;
+    contatos.forEach((ct) => {
+      body += `<tr>
+        <td>${escapeHtml(ct.nome || "-")}</td>
+        <td>${escapeHtml(ct.funcao || "-")}</td>
+        <td>${escapeHtml(ct.telefone || "-")}</td>
+        <td>${escapeHtml(ct.email || "-")}</td>
+        <td>${ct.principal ? "Sim" : "Não"}</td>
+      </tr>`;
+    });
+    body += "</tbody></table>";
+  }
+
+  if (incluirDetalhes && atualizacoes.length) {
+    body += `<h3>Atualizações (${atualizacoes.length})</h3>`;
+    atualizacoes.forEach((up) => {
+      body += `<div class="update-card">
+        <div class="update-meta">${escapeHtml(primeiroNome(up.atualizadoPor || up.criadoPor || "-"))} — ${escapeHtml(formatDateTimeBR(up.atualizadoEm || up.criadoEm) || "")}</div>
+        <div class="update-texto">${escapeHtml(up.texto || "").replace(/\n/g, "<br>")}</div>
+      </div>`;
+    });
+  }
+
+  if (incluirDetalhes && ofertasDoProjeto.length) {
+    body += `<h3>Ofertas vinculadas (${ofertasDoProjeto.length})</h3><table><thead><tr><th>Oferta</th><th>Razão Social</th><th>Representada</th><th>Status</th><th>Tem Pedido</th><th>Valor Total</th></tr></thead><tbody>`;
+    ofertasDoProjeto.forEach((reg) => {
+      body += `<tr>
+        <td>${escapeHtml(reg.oferta || "-")}</td>
+        <td>${escapeHtml(reg.razao || "-")}</td>
+        <td>${escapeHtml(reg.representadaNome || "-")}</td>
+        <td>${escapeHtml(reg.status || "-")}</td>
+        <td>${reg.possuiPedido === "sim" ? "Sim" : "Não"}</td>
+        <td>${escapeHtml(reg.valor_total || "-")}</td>
+      </tr>`;
+    });
+    body += "</tbody></table>";
+  }
+
+  return `<html><head><title>${escapeHtml(proj.nome || "Projeto")}</title><style>
+    @page { size: A4 portrait; margin: 12mm; }
+    body { font-family: Arial, sans-serif; font-size: 9px; color: #000; margin: 0; }
+    h2 { font-size: 14px; margin: 0 0 4px; }
+    h3 { font-size: 11px; margin: 14px 0 4px; border-bottom: 1px solid #ccc; padding-bottom: 2px; }
+    .meta { font-size: 8px; color: #666; margin: 0 0 10px; }
+    table { width: 100%; border-collapse: collapse; margin-bottom: 10px; }
+    th, td { border: 1px solid #ccc; padding: 3px 5px; vertical-align: top; text-align: left; }
+    thead th { background: #eee; font-weight: bold; }
+    tbody tr:nth-child(even) { background: #fafafa; }
+    .update-card { border: 1px solid #ddd; border-radius: 4px; padding: 6px 8px; margin-bottom: 6px; }
+    .update-meta { font-size: 8px; color: #666; margin-bottom: 3px; }
+    @media print { body { -webkit-print-color-adjust: exact; print-color-adjust: exact; } }
+  </style></head><body>${body}</body></html>`;
+}
+
+function exportarProjetoPdf(id) {
+  const proj = projetos.find((p) => p.id === id);
+  if (!proj) return;
+  const win = window.open("", "_blank");
+  if (!win) { showToast("Desbloqueie popups no navegador.", "error"); return; }
+  win.document.write(_gerarHtmlPdfProjeto(proj, true));
+  win.document.close();
+  win.focus();
+  win.print();
+  fecharModalExportarProjeto();
+}
+
+function exportarProjetoPdfResumo(id) {
+  const proj = projetos.find((p) => p.id === id);
+  if (!proj) return;
+  const win = window.open("", "_blank");
+  if (!win) { showToast("Desbloqueie popups no navegador.", "error"); return; }
+  win.document.write(_gerarHtmlPdfProjeto(proj, false));
+  win.document.close();
+  win.focus();
+  win.print();
+  fecharModalExportarProjeto();
+}
+
+// ─── Fim Export de Projeto ───────────────────────────────────────────────────
 
 // Expõe as funções de restauração para irPara()
 window._restaurarFiltrosPorSecao = {

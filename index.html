@@ -35,36 +35,67 @@
       <div class="modal-body modal-alertas-body">
         <div class="alertas-toolbar">
           <div class="alertas-tabs">
-              <button type="button" class="alerta-tab active" data-tab="todos" onclick="trocarAbaAlertas('todos')">Todos</button>
-              <button type="button" class="alerta-tab" data-tab="nao_lidos" onclick="trocarAbaAlertas('nao_lidos')">Não lidos</button>
-              <button type="button" class="alerta-tab" data-tab="pendentes_aprovacao" onclick="trocarAbaAlertas('pendentes_aprovacao')">Pendentes aprovação</button>
-              <button type="button" class="alerta-tab" data-tab="atrasados" onclick="trocarAbaAlertas('atrasados')">Atrasados</button>
-              <button type="button" class="alerta-tab" data-tab="ignorados" onclick="trocarAbaAlertas('ignorados')">Ignorados</button>
-              <button type="button" class="alerta-tab" data-tab="resolvidos" onclick="trocarAbaAlertas('resolvidos')">Resolvidos</button>
-              <button type="button" class="alerta-tab" data-tab="arquivados" onclick="trocarAbaAlertas('arquivados')">Arquivados</button>
+            <button type="button" class="alerta-tab active" data-tab="todos" onclick="trocarAbaAlertas('todos')">Todos</button>
+            <button type="button" class="alerta-tab" data-tab="nao_lidos" onclick="trocarAbaAlertas('nao_lidos')">Não lidos</button>
+            <button type="button" class="alerta-tab" data-tab="pendentes_aprovacao" onclick="trocarAbaAlertas('pendentes_aprovacao')">Pendentes</button>
+            <button type="button" class="alerta-tab" data-tab="atrasados" onclick="trocarAbaAlertas('atrasados')">Atrasados</button>
+            <button type="button" class="alerta-tab" data-tab="ignorados" onclick="trocarAbaAlertas('ignorados')">Ignorados</button>
+            <button type="button" class="alerta-tab" data-tab="resolvidos" onclick="trocarAbaAlertas('resolvidos')">Resolvidos</button>
+            <button type="button" class="alerta-tab" data-tab="arquivados" onclick="trocarAbaAlertas('arquivados')">Arquivados</button>
           </div>
 
-          <div class="alertas-filtros">
-            <input type="text" id="alertasBusca" placeholder="Buscar alerta..." oninput="renderListaAlertas()" />
+          <div class="alertas-filtros-row">
+            <div class="alertas-filtros-linha">
+              <div class="alertas-busca-wrap">
+                <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="11" cy="11" r="8"/><path d="m21 21-4.35-4.35"/></svg>
+                <input type="text" id="alertasBusca" placeholder="Buscar alertas..." oninput="renderListaAlertas()" />
+              </div>
 
-            <select id="filtroTipoAlerta" onchange="renderListaAlertas()">
-              <option value="">Tipo: todos</option>
-              <option value="followup">Follow-up</option>
-              <option value="prazo_entrega">Prazo de entrega</option>
-              <option value="prazo_entrega_atrasado">Prazo atrasado</option>
-              <option value="pedido_sem_nf">Pedido sem NF</option>
-            </select>
+              <select id="filtroTipoAlerta" class="alerta-filtro-select" onchange="renderListaAlertas()">
+                <option value="">Tipo: todos</option>
+                <option value="followup">Follow-up</option>
+                <option value="prazo_entrega">Prazo de entrega</option>
+                <option value="prazo_entrega_atrasado">Prazo atrasado</option>
+                <option value="pedido_sem_nf">Pedido sem NF</option>
+              </select>
 
-            <select id="filtroPrioridadeAlerta" onchange="renderListaAlertas()">
-              <option value="">Prioridade: todas</option>
-              <option value="baixa">Baixa</option>
-              <option value="media">Média</option>
-              <option value="alta">Alta</option>
-              <option value="critica">Crítica</option>
-            </select>
+              <select id="filtroPrioridadeAlerta" class="alerta-filtro-select" onchange="renderListaAlertas()">
+                <option value="">Prioridade: todas</option>
+                <option value="baixa">Baixa</option>
+                <option value="media">Média</option>
+                <option value="alta">Alta</option>
+                <option value="critica">Crítica</option>
+              </select>
 
-            <input type="text" id="filtroResponsavelAlerta" placeholder="Responsável..."
-              oninput="renderListaAlertas()" />
+              <select id="ordemAlertas" class="alerta-filtro-select" onchange="renderListaAlertas()">
+                <option value="prioridade">Ordenar: prioridade</option>
+                <option value="recente">Mais recente</option>
+                <option value="antigo">Mais antigo</option>
+              </select>
+            </div>
+
+            <div class="alertas-filtros-linha">
+              <select id="filtroPeriodoAlerta" class="alerta-filtro-select" onchange="renderListaAlertas()">
+                <option value="">Período: todos</option>
+                <option value="hoje">Hoje</option>
+                <option value="7">Últimos 7 dias</option>
+                <option value="30">Últimos 30 dias</option>
+              </select>
+
+              <select id="filtroUrgenciaAlerta" class="alerta-filtro-select" onchange="renderListaAlertas()">
+                <option value="">Urgência: todas</option>
+                <option value="1">+1 dia em aberto</option>
+                <option value="3">+3 dias em aberto</option>
+                <option value="7">+7 dias em aberto</option>
+                <option value="15">+15 dias em aberto</option>
+              </select>
+
+              <select id="filtroResponsavelAlerta" class="alerta-filtro-select" onchange="renderListaAlertas()">
+                <option value="">Responsável: todos</option>
+              </select>
+
+              <button type="button" id="btnLimparFiltrosAlertas" class="alertas-btn-limpar hidden" onclick="limparFiltrosAlertas()">✕ Limpar filtros</button>
+            </div>
           </div>
         </div>
 
@@ -81,6 +112,54 @@
         <button type="button" class="modal-close" onclick="fecharModalDetalhes()">✕</button>
       </div>
       <div class="modal-body" id="modalCorpo"></div>
+      <div class="modal-footer modal-footer--detalhe">
+        <button id="modalDetalhesEditar" type="button" class="secondary hidden" onclick="modalDetalhesEditarFn && (fecharModalDetalhes(), modalDetalhesEditarFn())">Editar</button>
+        <button type="button" class="secondary" onclick="fecharModalDetalhes()">Fechar</button>
+      </div>
+    </div>
+  </div>
+
+  <div id="modalExportarProjeto" class="modal hidden">
+    <div class="modal-content" style="max-width:420px;">
+      <div class="modal-header">
+        <h3 id="modalExportarProjetoTitulo">Exportar Projeto</h3>
+        <button type="button" class="modal-close" onclick="fecharModalExportarProjeto()">✕</button>
+      </div>
+      <div class="modal-body">
+        <div class="export-proj-grid">
+          <button type="button" class="export-proj-btn" onclick="exportarProjetoExcel(window._exportProjetoId)">
+            <svg class="export-proj-icon" xmlns="http://www.w3.org/2000/svg" width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3" width="18" height="18" rx="2"/><path d="M3 9h18M3 15h18M9 3v18"/></svg>
+            <div>
+              <div class="export-proj-label">Excel completo</div>
+              <div class="export-proj-desc">Projeto, contatos, atualizações e ofertas</div>
+            </div>
+          </button>
+          <button type="button" class="export-proj-btn" onclick="exportarProjetoExcelResumo(window._exportProjetoId)">
+            <svg class="export-proj-icon" xmlns="http://www.w3.org/2000/svg" width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><rect x="3" y="3" width="18" height="18" rx="2"/><path d="M3 9h18M9 3v18"/></svg>
+            <div>
+              <div class="export-proj-label">Excel resumido</div>
+              <div class="export-proj-desc">Dados principais em uma planilha</div>
+            </div>
+          </button>
+          <button type="button" class="export-proj-btn" onclick="exportarProjetoPdf(window._exportProjetoId)">
+            <svg class="export-proj-icon" xmlns="http://www.w3.org/2000/svg" width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/><line x1="16" y1="13" x2="8" y2="13"/><line x1="16" y1="17" x2="8" y2="17"/><polyline points="10 9 9 9 8 9"/></svg>
+            <div>
+              <div class="export-proj-label">PDF completo</div>
+              <div class="export-proj-desc">Relatório completo para impressão</div>
+            </div>
+          </button>
+          <button type="button" class="export-proj-btn" onclick="exportarProjetoPdfResumo(window._exportProjetoId)">
+            <svg class="export-proj-icon" xmlns="http://www.w3.org/2000/svg" width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/><line x1="16" y1="13" x2="8" y2="13"/><line x1="16" y1="17" x2="8" y2="17"/></svg>
+            <div>
+              <div class="export-proj-label">PDF resumido</div>
+              <div class="export-proj-desc">Ficha compacta com dados essenciais</div>
+            </div>
+          </button>
+        </div>
+      </div>
+      <div class="modal-footer">
+        <button type="button" class="secondary" onclick="fecharModalExportarProjeto()">Fechar</button>
+      </div>
     </div>
   </div>
 
@@ -149,8 +228,7 @@
 
       <div class="modal-footer"
         style="display:flex; justify-content:flex-end; gap:10px; padding:16px 20px; border-top:1px solid rgba(255,255,255,.08);">
-        <button id="btnBaixarRelatorioImportacao" type="button" class="secondary hidden">Baixar relatório de
-          erros</button>
+        <button id="btnBaixarRelatorioImportacao" type="button" class="secondary hidden">Relatório completo</button>
         <button id="btnFecharModalImportacao" type="button" class="secondary"
           onclick="fecharModalImportacao()">Fechar</button>
       </div>
@@ -328,7 +406,10 @@
               </div>
 
               <label for="razao">Razão Social *</label>
-              <input type="text" id="razao">
+              <div class="autocomplete-wrap">
+                <input type="text" id="razao" autocomplete="off">
+                <div id="razaoAuto" class="autocomplete-box hidden"></div>
+              </div>
 
               <label for="cnpj_cliente">CNPJ do Cliente *</label>
               <div class="autocomplete-wrap">
