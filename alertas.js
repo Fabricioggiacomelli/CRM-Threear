@@ -77,12 +77,9 @@ function usuarioEhSupervisorAlertas() {
 function usuarioPodeGerenciarDiretoAlerta(alerta) {
   if (usuarioEhAdminAlertas()) return true;
 
+  // Supervisores podem gerenciar alertas que têm permissão de ver
   if (usuarioEhSupervisorAlertas()) {
-    const email = normalizarEmailAlerta(alerta?.responsavelEmail);
-    if (typeof usuarioPodeVerResponsavel === "function") {
-      return usuarioPodeVerResponsavel(email);
-    }
-    return false;
+    return usuarioPodeVerAlerta(alerta);
   }
 
   return false;
@@ -706,17 +703,16 @@ function usuarioPodeVerAlerta(alerta) {
   if (p.role === "admin") return true;
 
   const email = String(alerta?.responsavelEmail || "").toLowerCase().trim();
+  const myEmail = String(window.auth?.currentUser?.email || "").toLowerCase().trim();
 
+  // alertasDeUsuarios configurados → filtra pela lista definida no CRM
   if (Array.isArray(p.alertasDeUsuarios)) {
     if (p.alertasDeUsuarios.includes("*")) return true;
-    const myEmail = String(window.auth?.currentUser?.email || "").toLowerCase().trim();
     return email === myEmail || p.alertasDeUsuarios.includes(email);
   }
 
-  // Fallback to podeVerDe
-  return typeof usuarioPodeVerResponsavel === "function"
-    ? usuarioPodeVerResponsavel(email)
-    : false;
+  // Sem configuração → mostra apenas alertas do próprio usuário
+  return email === myEmail;
 }
 
 function iniciarListenerAlertas() {

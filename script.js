@@ -10977,14 +10977,21 @@ function filtrarPorPermissao(lista) {
   const p = window.permissoesCRM;
   if (!p || p.role === "admin") return lista;
 
-  // If the list has representadaId (offers/registros) and user has representadasPermitidas, filter by that
-  if (Array.isArray(p.representadasPermitidas) && lista.length > 0 && "representadaId" in lista[0]) {
+  // Filtra apenas ofertas (possuem representadaId); clientes/projetos/representadas são catálogos compartilhados
+  if (lista.length === 0 || !("representadaId" in lista[0])) return lista;
+
+  // representadasPermitidas configuradas → filtra por ID de representada
+  if (Array.isArray(p.representadasPermitidas)) {
     if (p.representadasPermitidas.includes("*")) return lista;
     return lista.filter(item => !item.representadaId || p.representadasPermitidas.includes(item.representadaId));
   }
 
-  // Fallback: creator email check (for clients, projects, etc.)
-  return lista.filter((item) => usuarioPodeVerResponsavel(obterEmailResponsavelItem(item)));
+  // Sem configuração → mostra apenas ofertas do próprio usuário
+  const myEmail = String(window.auth?.currentUser?.email || "").toLowerCase().trim();
+  return lista.filter(item => {
+    const resp = String(item.responsavelEmail || item.emailResponsavel || item.criadoPorEmail || item.criadoPor || "").toLowerCase().trim();
+    return resp === myEmail;
+  });
 }
 
 // Aliases — mesma lógica de permissão para todos os tipos
