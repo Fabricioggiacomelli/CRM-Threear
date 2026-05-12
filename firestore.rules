@@ -25,24 +25,10 @@ service cloud.firestore {
       return userRole() == 'admin';
     }
 
-    function isSupervisor() {
-      return userRole() == 'supervisor';
-    }
-
-    // Verifica se o usuário logado tem permissão de ver dados de 'email'
-    // Admin vê tudo; supervisor verifica podeVerDe; user sempre vê o próprio
-    function canSeeEmail(email) {
-      let u = userDoc();
-      return u.role == 'admin'
-        || email == request.auth.token.email
-        || (u.keys().hasAll(['podeVerDe'])
-            && (u.podeVerDe.hasAny(['*']) || u.podeVerDe.hasAny([email])));
-    }
-
     // ─── usuarios ───────────────────────────────────────────────
     // Cada usuário lê e cria o próprio doc (necessário no primeiro login).
     // Admin pode ler e atualizar qualquer doc.
-    // Ninguém (exceto admin) pode alterar campos de segurança no próprio doc.
+    // Ninguém (exceto admin) pode alterar campos de permissão no próprio doc.
     match /usuarios/{uid} {
       allow read:   if isAuthed() && (request.auth.uid == uid || isAdmin());
       allow create: if isAuthed() && request.auth.uid == uid;
@@ -50,9 +36,9 @@ service cloud.firestore {
         isAdmin()
         || (
           request.auth.uid == uid
-          // Bloqueia alteração de campos de segurança pelo próprio usuário
+          // Bloqueia alteração de campos de permissão pelo próprio usuário
           && !request.resource.data.diff(resource.data).affectedKeys()
-              .hasAny(['role', 'aprovado', 'ativo', 'podeVerDe'])
+              .hasAny(['role', 'aprovado', 'ativo', 'representadasPermitidas', 'alertasDeUsuarios'])
         )
       );
       allow delete: if isAuthed() && isAdmin();
@@ -108,12 +94,6 @@ service cloud.firestore {
       allow create: if isAuthed() && isApproved();
       allow update: if isAuthed() && isApproved();
       allow delete: if isAuthed() && isAdmin();
-    }
-
-    // ─── equipes (apenas admin gerencia) ────────────────────────
-    match /equipes/{id} {
-      allow read:   if isAuthed() && isApproved();
-      allow write:  if isAuthed() && isAdmin();
     }
 
     // ─── backups (apenas admin) ──────────────────────────────────

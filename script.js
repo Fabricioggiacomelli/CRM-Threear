@@ -327,6 +327,12 @@ async function carregarPermissoesUsuarioLogado() {
       podeVerDe: Array.isArray(dados.podeVerDe)
         ? dados.podeVerDe.map((e) => String(e).toLowerCase())
         : [emailFallback],
+      representadasPermitidas: Array.isArray(dados.representadasPermitidas)
+        ? dados.representadasPermitidas
+        : null,
+      alertasDeUsuarios: Array.isArray(dados.alertasDeUsuarios)
+        ? dados.alertasDeUsuarios
+        : null,
       ativo: dados.ativo !== false,
     };
 
@@ -1767,7 +1773,10 @@ function openActionsMenu(ev, type, id, extra = null) {
   }
 
   // Botões gerais só aparecem fora das seções de usuário e lixeira
-  if (btnVer) btnVer.style.display = isUsuario ? "none" : "block";
+  if (btnVer) {
+    const showVer = !isUsuario || type === "usuario_existente";
+    btnVer.style.display = showVer ? "block" : "none";
+  }
   if (btnVerContatos) btnVerContatos.style.display = "none";
   if (btnVerOfertas) btnVerOfertas.style.display = "none";
   if (btnEditar) btnEditar.style.display = isUsuario ? "none" : "block";
@@ -1807,6 +1816,7 @@ function openActionsMenu(ev, type, id, extra = null) {
     if (type === "cliente") verCliente(id);
     if (type === "projeto") verProjeto(id);
     if (type === "rep") verRepresentada(id);
+    if (type === "usuario_existente") verUsuario(id);
   };
 
   if (btnVerContatos) {
@@ -5785,7 +5795,7 @@ function initAprovacaoUsuariosUI() {
   const btnReload = document.getElementById("btnReloadUsuariosPendentes");
   if (btnReload) btnReload.addEventListener("click", carregarUsuariosPendentes);
 
-  initGestaoEquipesUI();
+  initPermissoesUI();
 
   auth.onAuthStateChanged((user) => {
     const menu = document.getElementById("menuAprovacao");
@@ -5798,14 +5808,9 @@ function initAprovacaoUsuariosUI() {
 
     if (isAdmin) {
       carregarUsuariosPendentes();
-      carregarGestaoEquipes();
+      carregarTabelaPermissoes();
     }
   });
-}
-
-function initGestaoEquipesUI() {
-  const btn = document.getElementById("btnReloadGestaoEquipes");
-  if (btn) btn.addEventListener("click", carregarGestaoEquipes);
 }
 
 const ROLE_LABELS = {
@@ -5814,490 +5819,399 @@ const ROLE_LABELS = {
   user:       { label: "User",       cls: "badge-role-user" },
 };
 
-async function carregarGestaoEquipes() {
-  const container = document.getElementById("gestaoEquipesContainer");
-  if (!container) return;
-  container.innerHTML = '<p style="color:var(--text-muted);font-size:13px;padding:8px 0;">Carregando...</p>';
+function initPermissoesUI() {
+  const btn = document.getElementById("btnReloadPermissoes");
+  if (btn) btn.addEventListener("click", carregarTabelaPermissoes);
+}
+
+async function carregarTabelaPermissoes() {
+  const tbody = document.querySelector("#tabelaPermissoes tbody");
+  if (!tbody) return;
+  tbody.innerHTML = `<tr><td colspan="5" style="text-align:center;color:var(--text-muted);">Carregando...</td></tr>`;
 
   try {
-    const [snapUsuarios, snapEquipes] = await Promise.all([
-      db.collection("usuarios").get(),
-      db.collection("equipes").get(),
-    ]);
-
-    const todos = snapUsuarios.docs
+    const snap = await db.collection("usuarios").get();
+    const todos = snap.docs
       .map(d => ({ id: d.id, ...d.data() }))
       .filter(u => u.aprovado === true && u.uid)
       .map(u => ({
-        ...u,
+        id: u.id,
         email: (u.email || "").toLowerCase().trim(),
         nome: u.nome || u.email || "-",
         role: u.role || null,
-        podeVerDe: Array.isArray(u.podeVerDe) ? u.podeVerDe.map(e => e.toLowerCase()) : [],
-      }));
+        ativo: u.ativo !== false,
+        representadasPermitidas: Array.isArray(u.representadasPermitidas) ? u.representadasPermitidas : null,
+        alertasDeUsuarios: Array.isArray(u.alertasDeUsuarios) ? u.alertasDeUsuarios : null,
+      }))
+      .sort((a, b) => (a.nome || "").localeCompare(b.nome || "", "pt-BR"));
 
-    const todasEquipes = snapEquipes.docs.map(d => ({ id: d.id, ...d.data() }));
+    if (!todos.length) {
+      tbody.innerHTML = `<tr><td colspan="5">Nenhum usuário aprovado encontrado.</td></tr>`;
+      return;
+    }
 
-    const admins      = todos.filter(u => u.role === "admin");
-    const supervisores = todos.filter(u => u.role === "supervisor");
-    const users       = todos.filter(u => u.role === "user");
-    const semCargo    = todos.filter(u => !u.role || !["admin","supervisor","user"].includes(u.role));
+    tbody.innerHTML = "";
+    todos.forEach(u => {
+      const roleMeta = ROLE_LABELS[u.role] || { label: "Sem cargo", cls: "badge-role-none" };
+      const isAdmin = u.role === "admin";
 
-    renderGestaoEquipes({ admins, supervisores, users, semCargo }, todos, todasEquipes);
+      let repsHtml;
+      if (isAdmin || u.representadasPermitidas?.includes("*")) {
+        repsHtml = '<span class="perm-badge perm-badge-total">Todas</span>';
+      } else if (u.representadasPermitidas?.length) {
+        repsHtml = u.representadasPermitidas
+          .map(id => {
+            const rep = representadas.find(r => r.id === id);
+            return `<span class="perm-badge">${escapeHtml(rep?.nome || id)}</span>`;
+          }).join(" ");
+      } else {
+        repsHtml = '<span class="perm-badge perm-badge-none">Nenhuma</span>';
+      }
+
+      let alertasHtml;
+      if (isAdmin || u.alertasDeUsuarios?.includes("*")) {
+        alertasHtml = '<span class="perm-badge perm-badge-total">Todos</span>';
+      } else if (u.alertasDeUsuarios?.length) {
+        alertasHtml = u.alertasDeUsuarios
+          .map(email => {
+            const usr = todos.find(t => t.email === email);
+            return `<span class="perm-badge">${escapeHtml(usr?.nome || email)}</span>`;
+          }).join(" ");
+      } else {
+        alertasHtml = '<span class="perm-badge perm-badge-none">Apenas próprios</span>';
+      }
+
+      const tr = document.createElement("tr");
+      tr.innerHTML = `
+        <td>
+          <div style="font-weight:500;">${escapeHtml(u.nome)}</div>
+          <div style="font-size:11px;color:var(--text-muted);">${escapeHtml(u.email)}</div>
+        </td>
+        <td><span class="badge-role ${roleMeta.cls}">${roleMeta.label}</span></td>
+        <td class="perm-cell">${repsHtml}</td>
+        <td class="perm-cell">${alertasHtml}</td>
+        <td style="text-align:center;">
+          <button class="secondary perm-edit-btn" data-uid="${escapeHtml(u.id)}">Editar</button>
+        </td>
+      `;
+      tr.querySelector(".perm-edit-btn").addEventListener("click", () => verPermissoesUsuario(u.id));
+      tbody.appendChild(tr);
+    });
   } catch (e) {
-    console.error("ERRO carregarGestaoEquipes:", e);
-    container.innerHTML = '<p style="color:var(--text-muted);font-size:13px;">Erro ao carregar equipes.</p>';
+    console.error("ERRO carregarTabelaPermissoes:", e);
+    tbody.innerHTML = `<tr><td colspan="5">Erro ao carregar permissões.</td></tr>`;
   }
 }
 
-function renderGestaoEquipes(grupos, todosUsuarios, todasEquipes) {
-  const container = document.getElementById("gestaoEquipesContainer");
-  if (!container) return;
-  container.innerHTML = "";
+async function verUsuario(uid) {
+  let uDoc;
+  try {
+    uDoc = await db.collection("usuarios").doc(uid).get();
+  } catch (e) {
+    showToast("Erro ao carregar usuário.", "error");
+    return;
+  }
+  if (!uDoc.exists) return;
+  const u = { id: uid, ...uDoc.data() };
 
-  function criarSecao(titulo, lista) {
-    if (!lista.length) return null;
-    const wrap = document.createElement("div");
-    wrap.className = "equipe-grupo";
-
-    const header = document.createElement("div");
-    header.className = "equipe-grupo-header";
-    header.innerHTML =
-      `<span>${escapeHtml(titulo)}</span>` +
-      `<span class="equipe-grupo-count">${lista.length}</span>`;
-    wrap.appendChild(header);
-
-    const body = document.createElement("div");
-    body.className = "equipe-grupo-body";
-
-    lista.sort((a, b) => (a.nome || "").localeCompare(b.nome || "", "pt-BR")).forEach(u => {
-      const roleMeta = ROLE_LABELS[u.role] || { label: "Sem cargo", cls: "badge-role-none" };
-      const row = document.createElement("div");
-      row.className = "equipe-membro-row";
-      row.innerHTML =
-        `<div class="equipe-membro-info">` +
-          `<span class="equipe-membro-nome">${escapeHtml(u.nome)}</span>` +
-          `<span class="equipe-membro-email">${escapeHtml(u.email)}</span>` +
-        `</div>` +
-        `<div class="equipe-membro-acoes">` +
-          `<span class="badge-role ${roleMeta.cls}">${roleMeta.label}</span>` +
-          `<button class="btn-editar-cargo" type="button">Editar</button>` +
-        `</div>`;
-      row.querySelector(".btn-editar-cargo").addEventListener("click", () => {
-        abrirModalEditarCargo(u.id, u, todosUsuarios);
-      });
-      body.appendChild(row);
-    });
-
-    wrap.appendChild(body);
-    return wrap;
+  function field(label, value, full) {
+    if (!value && value !== 0) return "";
+    return '<div class="md-detail-field' + (full ? ' md-detail-field--full' : '') + '">' +
+      '<div class="md-detail-field-label">' + label + '</div>' +
+      '<div class="md-detail-field-value">' + value + '</div>' +
+      '</div>';
+  }
+  function section(title, fieldsHtml) {
+    if (!fieldsHtml.trim()) return "";
+    return '<div class="md-detail-section">' +
+      '<div class="md-detail-section-title">' + title + '</div>' +
+      '<div class="md-detail-grid">' + fieldsHtml + '</div>' +
+      '</div>';
   }
 
-  [
-    ["Admins", grupos.admins],
-    ["Supervisores", grupos.supervisores],
-    ["Users", grupos.users],
-    ["Sem cargo", grupos.semCargo],
-  ].forEach(([titulo, lista]) => {
-    const sec = criarSecao(titulo, lista);
-    if (sec) container.appendChild(sec);
-  });
+  const roleMeta = ROLE_LABELS[u.role] || { label: "Sem cargo", cls: "badge-role-none" };
+  const roleBadge = `<span class="badge-role ${roleMeta.cls}">${escapeHtml(roleMeta.label)}</span>`;
+  const statusBadge = u.ativo !== false
+    ? '<span style="color:#16a34a;font-weight:600;">● Ativo</span>'
+    : '<span style="color:#dc2626;font-weight:600;">● Inativo</span>';
 
-  // --- Equipes ---
-  const hr = document.createElement("hr");
-  hr.style.cssText = "margin:20px 0 16px;opacity:.2;";
-  container.appendChild(hr);
+  // Representadas visíveis
+  let repsHtml;
+  if (u.role === "admin" || (Array.isArray(u.representadasPermitidas) && u.representadasPermitidas.includes("*"))) {
+    repsHtml = "Acesso total — todas as representadas";
+  } else if (Array.isArray(u.representadasPermitidas) && u.representadasPermitidas.length) {
+    repsHtml = u.representadasPermitidas
+      .map(id => {
+        const rep = representadas.find(r => r.id === id);
+        return '<span class="perm-badge">' + escapeHtml(rep?.nome || id) + '</span>';
+      })
+      .join(" ");
+  } else {
+    repsHtml = '<span style="color:var(--text-muted);font-style:italic;">Nenhuma configurada</span>';
+  }
 
-  const equipesBar = document.createElement("div");
-  equipesBar.style.cssText = "display:flex;align-items:center;justify-content:space-between;margin-bottom:12px;";
+  // Alertas monitorados
+  let alertasHtml;
+  if (u.role === "admin" || (Array.isArray(u.alertasDeUsuarios) && u.alertasDeUsuarios.includes("*"))) {
+    alertasHtml = "Acesso total — todos os usuários";
+  } else if (Array.isArray(u.alertasDeUsuarios) && u.alertasDeUsuarios.length) {
+    alertasHtml = u.alertasDeUsuarios
+      .map(email => '<span class="perm-badge">' + escapeHtml(email) + '</span>')
+      .join(" ");
+  } else {
+    alertasHtml = '<span style="color:var(--text-muted);font-style:italic;">Apenas os próprios alertas</span>';
+  }
 
-  const equipesTitle = document.createElement("span");
-  equipesTitle.textContent = "Equipes";
-  equipesTitle.style.cssText = "font-size:15px;font-weight:600;color:var(--text-strong);";
+  let html = section("Dados do Usuário",
+    field("Nome", escapeHtml(u.nome || "-")) +
+    field("Email", escapeHtml(u.email || "-")) +
+    field("Cargo", roleBadge) +
+    field("Status", statusBadge)
+  );
 
-  const btnCriar = document.createElement("button");
-  btnCriar.textContent = "+ Criar Equipe";
-  btnCriar.className = "secondary";
-  btnCriar.style.fontSize = "13px";
-  btnCriar.addEventListener("click", () => abrirModalCriarEquipe(null, todosUsuarios, todasEquipes));
+  html += section("Permissões",
+    field("Representadas visíveis", repsHtml, true) +
+    field("Alertas monitorados", alertasHtml, true)
+  );
 
-  equipesBar.appendChild(equipesTitle);
-  equipesBar.appendChild(btnCriar);
-  container.appendChild(equipesBar);
+  html += section("Histórico",
+    field("Criado em", formatDateTimeBR(u.criadoEm) || "-") +
+    field("Atualizado em", formatDateTimeBR(u.atualizadoEm) || "-") +
+    (u.atualizadoPorAdmin ? field("Editado por", escapeHtml(u.atualizadoPorAdmin)) : "")
+  );
 
-  if (!todasEquipes.length) {
-    const vazio = document.createElement("p");
-    vazio.style.cssText = "color:var(--text-muted);font-size:13px;margin:0;";
-    vazio.textContent = "Nenhuma equipe criada ainda.";
-    container.appendChild(vazio);
+  abrirModal(
+    `Usuário — ${escapeHtml(u.nome || u.email || "")}`,
+    html,
+    isAdmin() ? () => verPermissoesUsuario(uid) : null
+  );
+}
+
+async function verPermissoesUsuario(uid) {
+  let uDoc, todosSnap;
+  try {
+    [uDoc, todosSnap] = await Promise.all([
+      db.collection("usuarios").doc(uid).get(),
+      db.collection("usuarios").get(),
+    ]);
+  } catch (e) {
+    showToast("Erro ao carregar dados do usuário.", "error");
     return;
   }
 
-  todasEquipes.forEach(eq => {
-    const card = document.createElement("div");
-    card.className = "equipe-grupo";
+  if (!uDoc.exists) return;
+  const u = { id: uid, ...uDoc.data() };
 
-    const h = document.createElement("div");
-    h.className = "equipe-grupo-header";
+  const todosUsuarios = todosSnap.docs
+    .map(d => ({ id: d.id, ...d.data() }))
+    .filter(d => d.aprovado === true && d.uid && d.email)
+    .map(d => ({ id: d.id, email: (d.email || "").toLowerCase(), nome: d.nome || d.email }))
+    .sort((a, b) => (a.nome || "").localeCompare(b.nome || "", "pt-BR"));
 
-    const nTotal = (eq.supervisoresEmails || []).length + (eq.membrosEmails || []).length;
-    h.innerHTML =
-      `<span>${escapeHtml(eq.nome || "Equipe")}</span>` +
-      `<span class="equipe-grupo-count">${nTotal} ${nTotal === 1 ? "membro" : "membros"}</span>`;
+  const todasReps = representadas
+    .filter(r => !r.deletado)
+    .sort((a, b) => (a.nome || "").localeCompare(b.nome || "", "pt-BR"));
 
-    const acoes = document.createElement("div");
-    acoes.style.cssText = "display:flex;gap:6px;align-items:center;margin-left:auto;";
+  const adminLogado = isAdmin();
+  const emailUsuario = (u.email || "").toLowerCase();
+  const nomeUsuario = u.nome || u.email || "-";
+  const currentRole = u.role || "";
+  const currentReps = new Set(Array.isArray(u.representadasPermitidas) ? u.representadasPermitidas : []);
+  const currentAlertas = new Set(Array.isArray(u.alertasDeUsuarios) ? u.alertasDeUsuarios : []);
 
-    const btnEdit = document.createElement("button");
-    btnEdit.textContent = "Editar";
-    btnEdit.className = "secondary";
-    btnEdit.style.cssText = "font-size:12px;padding:3px 10px;";
-    btnEdit.addEventListener("click", () => abrirModalCriarEquipe(eq, todosUsuarios, todasEquipes));
-
-    const btnDel = document.createElement("button");
-    btnDel.textContent = "Deletar";
-    btnDel.style.cssText = "font-size:12px;padding:3px 10px;background:transparent;border:1px solid var(--danger,#ef4444);color:var(--danger,#ef4444);border-radius:6px;cursor:pointer;";
-    btnDel.addEventListener("click", () => confirmarDeletarEquipe(eq, todasEquipes, todosUsuarios));
-
-    acoes.appendChild(btnEdit);
-    acoes.appendChild(btnDel);
-    h.appendChild(acoes);
-    card.appendChild(h);
-
-    const body = document.createElement("div");
-    body.className = "equipe-grupo-body";
-
-    (eq.supervisoresEmails || []).forEach(email => {
-      const u = todosUsuarios.find(u => u.email === email);
-      const row = document.createElement("div");
-      row.className = "equipe-membro-row";
-      row.innerHTML =
-        `<div class="equipe-membro-info">` +
-          `<span class="equipe-membro-nome">${escapeHtml(u?.nome || email)}</span>` +
-          `<span class="equipe-membro-email">${escapeHtml(email)}</span>` +
-        `</div>` +
-        `<div class="equipe-membro-acoes"><span class="badge-role badge-role-supervisor">Supervisor</span></div>`;
-      body.appendChild(row);
-    });
-
-    (eq.membrosEmails || []).forEach(email => {
-      const u = todosUsuarios.find(u => u.email === email);
-      const row = document.createElement("div");
-      row.className = "equipe-membro-row";
-      row.innerHTML =
-        `<div class="equipe-membro-info">` +
-          `<span class="equipe-membro-nome">${escapeHtml(u?.nome || email)}</span>` +
-          `<span class="equipe-membro-email">${escapeHtml(email)}</span>` +
-        `</div>` +
-        `<div class="equipe-membro-acoes"><span class="badge-role badge-role-user">User</span></div>`;
-      body.appendChild(row);
-    });
-
-    card.appendChild(body);
-    container.appendChild(card);
-  });
-
-  if (!container.children.length) {
-    container.innerHTML = '<p style="color:var(--text-muted);font-size:13px;padding:8px 0;">Nenhum usuário aprovado encontrado.</p>';
-  }
-}
-
-function abrirModalEditarCargo(uid, userData, todosUsuarios) {
-  document.getElementById("modalEditarCargo")?.remove();
+  document.getElementById("modalPermissoes")?.remove();
 
   const overlay = document.createElement("div");
-  overlay.id = "modalEditarCargo";
+  overlay.id = "modalPermissoes";
   overlay.className = "crm-formato-overlay";
   overlay.style.zIndex = "2147483641";
 
   const card = document.createElement("div");
-  card.className = "crm-formato-card cargo-modal-card";
+  card.className = "crm-formato-card perm-modal-card";
+
+  // Header zone
+  const headerZone = document.createElement("div");
+  headerZone.className = "perm-modal-header";
 
   const headerEl = document.createElement("div");
   headerEl.className = "crm-formato-title";
-  headerEl.textContent = userData.nome || userData.email;
+  headerEl.textContent = nomeUsuario;
 
-  const emailEl = document.createElement("div");
-  emailEl.style.cssText = "font-size:13px;color:var(--text-muted);margin-bottom:20px;";
-  emailEl.textContent = userData.email;
+  const emailEl = document.createElement("p");
+  emailEl.style.cssText = "font-size:13px;color:var(--text-muted);margin:2px 0 0;";
+  emailEl.textContent = emailUsuario;
 
-  const roleLabel = document.createElement("div");
-  roleLabel.className = "cargo-modal-label";
-  roleLabel.textContent = "Cargo:";
+  headerZone.appendChild(headerEl);
+  headerZone.appendChild(emailEl);
 
-  const roleSelect = document.createElement("div");
-  roleSelect.className = "cargo-modal-roles";
+  // Scrollable body zone
+  const bodyZone = document.createElement("div");
+  bodyZone.className = "perm-modal-body";
 
+  function makeSection(labelText, descText) {
+    const wrap = document.createElement("div");
+    wrap.className = "perm-section";
+    const lbl = document.createElement("div");
+    lbl.className = "perm-section-label";
+    lbl.textContent = labelText;
+    const desc = document.createElement("div");
+    desc.className = "perm-section-desc";
+    desc.textContent = descText;
+    wrap.appendChild(lbl);
+    wrap.appendChild(desc);
+    return wrap;
+  }
+
+  // --- Cargo ---
+  const cargoSection = makeSection("Cargo", "Define o nível de acesso geral no sistema.");
+  const roleDiv = document.createElement("div");
+  roleDiv.className = "cargo-modal-roles";
   [
-    { value: "admin",      label: "Admin" },
+    { value: "admin", label: "Admin" },
     { value: "supervisor", label: "Supervisor" },
-    { value: "user",       label: "User" },
-    { value: "",           label: "Sem cargo" },
+    { value: "user", label: "User" },
+    { value: "", label: "Sem cargo" },
   ].forEach(r => {
     const lbl = document.createElement("label");
     lbl.className = "cargo-role-option";
     const inp = document.createElement("input");
     inp.type = "radio";
-    inp.name = "cargo_role_" + uid;
+    inp.name = "perm_role_" + uid;
     inp.value = r.value;
-    inp.checked = (userData.role || "") === r.value;
+    inp.checked = currentRole === r.value;
+    inp.disabled = !adminLogado;
     lbl.appendChild(inp);
     lbl.append(" " + r.label);
-    roleSelect.appendChild(lbl);
+    roleDiv.appendChild(lbl);
   });
+  cargoSection.appendChild(roleDiv);
 
+  // --- Ofertas ---
+  const ofertasSection = makeSection(
+    "Ofertas — Representadas visíveis",
+    "Quais representadas este usuário pode ver nas ofertas."
+  );
+  const repsDiv = document.createElement("div");
+  repsDiv.className = "cargo-modal-checks perm-checks-grid";
+  if (!todasReps.length) {
+    const p = document.createElement("p");
+    p.style.cssText = "font-size:12px;color:var(--text-muted);margin:4px 0;font-style:italic;";
+    p.textContent = "Nenhuma representada cadastrada.";
+    repsDiv.appendChild(p);
+  } else {
+    todasReps.forEach(rep => {
+      const item = document.createElement("label");
+      item.className = "cargo-check-item";
+      const chk = document.createElement("input");
+      chk.type = "checkbox";
+      chk.value = rep.id;
+      chk.checked = currentReps.has("*") || currentReps.has(rep.id);
+      chk.disabled = !adminLogado;
+      const span = document.createElement("span");
+      span.textContent = rep.nome || rep.id;
+      item.appendChild(chk);
+      item.appendChild(span);
+      repsDiv.appendChild(item);
+    });
+  }
+  ofertasSection.appendChild(repsDiv);
 
-  const row = document.createElement("div");
-  row.className = "crm-formato-row";
-  row.style.marginTop = "20px";
+  // --- Alertas ---
+  const alertasSection = makeSection(
+    "Alertas — Usuários monitorados",
+    "De quais usuários este usuário pode ver os alertas."
+  );
+  const alertasDiv = document.createElement("div");
+  alertasDiv.className = "cargo-modal-checks";
+  todosUsuarios.forEach(usr => {
+    const item = document.createElement("label");
+    item.className = "cargo-check-item";
+    const chk = document.createElement("input");
+    chk.type = "checkbox";
+    chk.value = usr.email;
+    chk.checked = currentAlertas.has("*") || currentAlertas.has(usr.email);
+    chk.disabled = !adminLogado;
+    const span = document.createElement("span");
+    span.textContent = usr.nome || usr.email;
+    item.appendChild(chk);
+    item.appendChild(span);
+    alertasDiv.appendChild(item);
+  });
+  alertasSection.appendChild(alertasDiv);
 
-  const btnCancel = document.createElement("button");
-  btnCancel.textContent = "Cancelar";
-  btnCancel.className = "secondary";
-
-  const btnSave = document.createElement("button");
-  btnSave.textContent = "Salvar";
+  // --- Footer buttons ---
+  const footerZone = document.createElement("div");
+  footerZone.className = "perm-modal-footer";
 
   const close = () => overlay.remove();
 
+  const btnCancel = document.createElement("button");
+  btnCancel.textContent = adminLogado ? "Cancelar" : "Fechar";
+  btnCancel.className = "secondary";
   btnCancel.addEventListener("click", close);
   overlay.addEventListener("click", e => { if (e.target === overlay) close(); });
   document.addEventListener("keydown", function handler(e) {
     if (e.key === "Escape") { document.removeEventListener("keydown", handler); close(); }
   });
+  footerZone.appendChild(btnCancel);
 
-  btnSave.addEventListener("click", async () => {
-    const novoRole = roleSelect.querySelector(`input[name="cargo_role_${uid}"]:checked`)?.value || "";
+  if (adminLogado) {
+    const btnSave = document.createElement("button");
+    btnSave.textContent = "Salvar";
+    btnSave.addEventListener("click", async () => {
+      const novoRole = roleDiv.querySelector(`input[name="perm_role_${uid}"]:checked`)?.value || "";
+      const repIds = Array.from(repsDiv.querySelectorAll("input[type=checkbox]:checked")).map(c => c.value);
+      const alertaEmails = Array.from(alertasDiv.querySelectorAll("input[type=checkbox]:checked")).map(c => c.value);
+      btnSave.disabled = true;
+      btnSave.textContent = "Salvando...";
+      try {
+        await salvarPermissoesUsuario(uid, emailUsuario, novoRole, repIds, alertaEmails);
+        close();
+      } catch (err) {
+        showToast({ title: "Erro ao salvar", description: err.message }, "error");
+        btnSave.disabled = false;
+        btnSave.textContent = "Salvar";
+      }
+    });
+    footerZone.appendChild(btnSave);
+  }
 
-    btnSave.disabled = true;
-    btnSave.textContent = "Salvando...";
-    try {
-      await salvarEdicaoCargo(uid, userData.email, novoRole);
-      close();
-    } catch (err) {
-      showToast({ title: "Erro ao salvar", description: err.message }, "error");
-      btnSave.disabled = false;
-      btnSave.textContent = "Salvar";
-    }
-  });
+  // Assemble body
+  const sep1 = document.createElement("hr");
+  sep1.className = "perm-sep";
+  const sep2 = document.createElement("hr");
+  sep2.className = "perm-sep";
 
-  row.appendChild(btnCancel);
-  row.appendChild(btnSave);
-  card.appendChild(headerEl);
-  card.appendChild(emailEl);
-  card.appendChild(roleLabel);
-  card.appendChild(roleSelect);
-  card.appendChild(row);
+  bodyZone.appendChild(cargoSection);
+  bodyZone.appendChild(sep1);
+  bodyZone.appendChild(ofertasSection);
+  bodyZone.appendChild(sep2);
+  bodyZone.appendChild(alertasSection);
+
+  card.appendChild(headerZone);
+  card.appendChild(bodyZone);
+  card.appendChild(footerZone);
   overlay.appendChild(card);
   document.body.appendChild(overlay);
 }
 
-async function salvarEdicaoCargo(uid, email, novoRole) {
+async function salvarPermissoesUsuario(uid, email, novoRole, repIds, alertaEmails) {
+  const extra = novoRole === "admin"
+    ? { representadasPermitidas: ["*"], alertasDeUsuarios: ["*"] }
+    : { representadasPermitidas: repIds, alertasDeUsuarios: alertaEmails };
+
   await db.collection("usuarios").doc(uid).set({
     role: novoRole || null,
+    ...extra,
     atualizadoEm: new Date().toISOString(),
     atualizadoPorAdmin: auth.currentUser?.email || "",
   }, { merge: true });
 
-  showToast({ title: "Cargo atualizado", description: `${email} atualizado com sucesso.` }, "success");
-  await carregarGestaoEquipes();
-  await carregarUsuariosExistentes(document.getElementById("searchUsuariosExistentes")?.value || "");
-}
-
-function abrirModalCriarEquipe(equipe, todosUsuarios, todasEquipes) {
-  document.getElementById("modalCriarEquipe")?.remove();
-
-  const overlay = document.createElement("div");
-  overlay.id = "modalCriarEquipe";
-  overlay.className = "crm-formato-overlay";
-  overlay.style.zIndex = "2147483641";
-
-  const card = document.createElement("div");
-  card.className = "crm-formato-card cargo-modal-card";
-
-  const title = document.createElement("div");
-  title.className = "crm-formato-title";
-  title.textContent = equipe ? "Editar Equipe" : "Nova Equipe";
-
-  const nomeLabel = document.createElement("div");
-  nomeLabel.className = "cargo-modal-label";
-  nomeLabel.style.marginTop = "16px";
-  nomeLabel.textContent = "Nome da equipe:";
-
-  const nomeInput = document.createElement("input");
-  nomeInput.type = "text";
-  nomeInput.value = equipe?.nome || "";
-  nomeInput.placeholder = "Ex: Equipe - Prysmian";
-  nomeInput.style.cssText = "width:100%;box-sizing:border-box;padding:8px 10px;border:1px solid var(--border-soft);border-radius:8px;background:var(--bg-input,var(--bg-container));color:var(--text-strong);font-size:14px;margin-bottom:14px;";
-
-  const supLabel = document.createElement("div");
-  supLabel.className = "cargo-modal-label";
-  supLabel.textContent = "Supervisores:";
-
-  const supLista = document.createElement("div");
-  supLista.className = "cargo-modal-checks";
-  const currentSups = new Set(equipe?.supervisoresEmails || []);
-  todosUsuarios
-    .filter(u => u.role === "supervisor")
-    .sort((a, b) => (a.nome || "").localeCompare(b.nome || "", "pt-BR"))
-    .forEach(sup => {
-      const item = document.createElement("label");
-      item.className = "cargo-check-item";
-      const chk = document.createElement("input");
-      chk.type = "checkbox";
-      chk.value = sup.email;
-      chk.checked = currentSups.has(sup.email);
-      item.appendChild(chk);
-      item.append(" " + (sup.nome || sup.email));
-      supLista.appendChild(item);
-    });
-
-  const memLabel = document.createElement("div");
-  memLabel.className = "cargo-modal-label";
-  memLabel.style.marginTop = "14px";
-  memLabel.textContent = "Membros (users):";
-
-  const memLista = document.createElement("div");
-  memLista.className = "cargo-modal-checks";
-  const currentMems = new Set(equipe?.membrosEmails || []);
-  todosUsuarios
-    .filter(u => u.role === "user")
-    .sort((a, b) => (a.nome || "").localeCompare(b.nome || "", "pt-BR"))
-    .forEach(u => {
-      const item = document.createElement("label");
-      item.className = "cargo-check-item";
-      const chk = document.createElement("input");
-      chk.type = "checkbox";
-      chk.value = u.email;
-      chk.checked = currentMems.has(u.email);
-      item.appendChild(chk);
-      item.append(" " + (u.nome || u.email));
-      memLista.appendChild(item);
-    });
-
-  const row = document.createElement("div");
-  row.className = "crm-formato-row";
-  row.style.marginTop = "20px";
-
-  const btnCancel = document.createElement("button");
-  btnCancel.textContent = "Cancelar";
-  btnCancel.className = "secondary";
-
-  const btnSave = document.createElement("button");
-  btnSave.textContent = "Salvar";
-
-  const close = () => overlay.remove();
-  btnCancel.addEventListener("click", close);
-  overlay.addEventListener("click", e => { if (e.target === overlay) close(); });
-  document.addEventListener("keydown", function handler(e) {
-    if (e.key === "Escape") { document.removeEventListener("keydown", handler); close(); }
-  });
-
-  btnSave.addEventListener("click", async () => {
-    const nome = nomeInput.value.trim();
-    if (!nome) { showToast({ title: "Informe o nome da equipe" }, "error"); return; }
-
-    const supEmails  = Array.from(supLista.querySelectorAll("input:checked")).map(c => c.value);
-    const memEmails  = Array.from(memLista.querySelectorAll("input:checked")).map(c => c.value);
-
-    btnSave.disabled = true;
-    btnSave.textContent = "Salvando...";
-    try {
-      await salvarEquipe(equipe?.id || null, nome, supEmails, memEmails, todosUsuarios, todasEquipes);
-      close();
-    } catch (err) {
-      showToast({ title: "Erro ao salvar", description: err.message }, "error");
-      btnSave.disabled = false;
-      btnSave.textContent = "Salvar";
-    }
-  });
-
-  row.appendChild(btnCancel);
-  row.appendChild(btnSave);
-  card.appendChild(title);
-  card.appendChild(nomeLabel);
-  card.appendChild(nomeInput);
-  card.appendChild(supLabel);
-  card.appendChild(supLista);
-  card.appendChild(memLabel);
-  card.appendChild(memLista);
-  card.appendChild(row);
-  overlay.appendChild(card);
-  document.body.appendChild(overlay);
-}
-
-async function salvarEquipe(id, nome, supervisoresEmails, membrosEmails, todosUsuarios, todasEquipes) {
-  const batch = db.batch();
-
-  const equipeRef = id
-    ? db.collection("equipes").doc(id)
-    : db.collection("equipes").doc();
-
-  batch.set(equipeRef, {
-    nome,
-    supervisoresEmails,
-    membrosEmails,
-    atualizadoEm: new Date().toISOString(),
-  });
-
-  // Recalcula podeVerDe para todos os supervisores afetados
-  const equipeAtualizada = { id: equipeRef.id, nome, supervisoresEmails, membrosEmails };
-  const equipesAtual = [...todasEquipes.filter(e => e.id !== id), equipeAtualizada];
-  const oldEquipe = todasEquipes.find(e => e.id === id);
-  const supAfetados = new Set([...supervisoresEmails, ...(oldEquipe?.supervisoresEmails || [])]);
-
-  supAfetados.forEach(supEmail => {
-    const sup = todosUsuarios.find(u => u.email === supEmail && u.role === "supervisor");
-    if (!sup) return;
-    const pvd = new Set([supEmail]);
-    equipesAtual
-      .filter(e => (e.supervisoresEmails || []).includes(supEmail))
-      .forEach(e => {
-        (e.supervisoresEmails || []).forEach(s => pvd.add(s));
-        (e.membrosEmails || []).forEach(m => pvd.add(m));
-      });
-    batch.set(db.collection("usuarios").doc(sup.id), {
-      podeVerDe: Array.from(pvd),
-      atualizadoEm: new Date().toISOString(),
-    }, { merge: true });
-  });
-
-  await batch.commit();
-  showToast({ title: nome, description: "Equipe salva com sucesso." }, "success");
-  await carregarGestaoEquipes();
-}
-
-async function confirmarDeletarEquipe(eq, todasEquipes, todosUsuarios) {
-  const ok = await showConfirm(`Deletar a equipe "${eq.nome}"?`, "Esta ação não pode ser desfeita.");
-  if (!ok) return;
-
-  try {
-    const batch = db.batch();
-    batch.delete(db.collection("equipes").doc(eq.id));
-
-    const equipesRestantes = todasEquipes.filter(e => e.id !== eq.id);
-    (eq.supervisoresEmails || []).forEach(supEmail => {
-      const sup = todosUsuarios.find(u => u.email === supEmail && u.role === "supervisor");
-      if (!sup) return;
-      const pvd = new Set([supEmail]);
-      equipesRestantes
-        .filter(e => (e.supervisoresEmails || []).includes(supEmail))
-        .forEach(e => {
-          (e.supervisoresEmails || []).forEach(s => pvd.add(s));
-          (e.membrosEmails || []).forEach(m => pvd.add(m));
-        });
-      batch.set(db.collection("usuarios").doc(sup.id), {
-        podeVerDe: Array.from(pvd),
-        atualizadoEm: new Date().toISOString(),
-      }, { merge: true });
-    });
-
-    await batch.commit();
-    showToast({ title: "Equipe deletada" }, "success");
-    await carregarGestaoEquipes();
-  } catch (e) {
-    showToast({ title: "Erro ao deletar", description: e.message }, "error");
-  }
+  showToast({ title: "Permissões atualizadas", description: `${email} salvo com sucesso.` }, "success");
+  await Promise.all([
+    carregarTabelaPermissoes(),
+    carregarUsuariosExistentes(document.getElementById("searchUsuariosExistentes")?.value || ""),
+  ]);
 }
 
 async function carregarUsuariosPendentes() {
@@ -11060,6 +10974,16 @@ function obterEmailResponsavelItem(item) {
 
 function filtrarPorPermissao(lista) {
   if (!Array.isArray(lista)) return [];
+  const p = window.permissoesCRM;
+  if (!p || p.role === "admin") return lista;
+
+  // If the list has representadaId (offers/registros) and user has representadasPermitidas, filter by that
+  if (Array.isArray(p.representadasPermitidas) && lista.length > 0 && "representadaId" in lista[0]) {
+    if (p.representadasPermitidas.includes("*")) return lista;
+    return lista.filter(item => !item.representadaId || p.representadasPermitidas.includes(item.representadaId));
+  }
+
+  // Fallback: creator email check (for clients, projects, etc.)
   return lista.filter((item) => usuarioPodeVerResponsavel(obterEmailResponsavelItem(item)));
 }
 

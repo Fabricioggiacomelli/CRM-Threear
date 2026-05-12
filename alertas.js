@@ -701,7 +701,19 @@ async function verificarAlertasSistema() {
 let unsubscribeAlertas = null;
 
 function usuarioPodeVerAlerta(alerta) {
+  const p = window.permissoesCRM || window.usuarioLogadoCRM;
+  if (!p) return false;
+  if (p.role === "admin") return true;
+
   const email = String(alerta?.responsavelEmail || "").toLowerCase().trim();
+
+  if (Array.isArray(p.alertasDeUsuarios)) {
+    if (p.alertasDeUsuarios.includes("*")) return true;
+    const myEmail = String(window.auth?.currentUser?.email || "").toLowerCase().trim();
+    return email === myEmail || p.alertasDeUsuarios.includes(email);
+  }
+
+  // Fallback to podeVerDe
   return typeof usuarioPodeVerResponsavel === "function"
     ? usuarioPodeVerResponsavel(email)
     : false;

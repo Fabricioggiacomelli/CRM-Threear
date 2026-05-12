@@ -2476,62 +2476,6 @@ body.dark .badge-role-none       { background: rgba(255,255,255,0.07); color: va
   letter-spacing: 0.06em;
   margin-bottom: 10px;
 }
-.cargo-modal-roles {
-  display: flex;
-  gap: 6px;
-  flex-wrap: wrap;
-  margin-bottom: 4px;
-}
-.cargo-role-option {
-  display: flex;
-  align-items: center;
-  gap: 6px;
-  padding: 7px 14px;
-  border: 1px solid var(--border-soft);
-  border-radius: 8px;
-  cursor: pointer;
-  font-size: 13px;
-  font-weight: 500;
-  color: var(--text-main);
-  transition: border-color 0.15s, background 0.15s;
-  user-select: none;
-}
-.cargo-role-option:has(input:checked) {
-  border-color: var(--primary);
-  background: var(--primary-light);
-  color: var(--primary);
-}
-.cargo-role-option:hover { border-color: var(--primary); }
-.cargo-role-option input[type=radio] { cursor: pointer; accent-color: var(--primary); }
-.cargo-modal-checks {
-  max-height: 200px;
-  overflow-y: auto;
-  border: 1px solid var(--border-soft);
-  border-radius: 8px;
-  padding: 4px;
-  margin-bottom: 8px;
-  background: var(--bg-body);
-}
-.cargo-check-item {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  padding: 7px 10px;
-  font-size: 13px;
-  color: var(--text-main);
-  border-radius: 6px;
-  cursor: pointer;
-  transition: background 0.12s;
-  user-select: none;
-}
-.cargo-check-item:hover { background: var(--bg-sidebar-item-hover); }
-.cargo-check-item input[type=checkbox] { cursor: pointer; accent-color: var(--primary); }
-.cargo-modal-hint {
-  font-size: 12px;
-  color: var(--text-muted);
-  padding: 2px 2px 8px;
-  font-style: italic;
-}
 
 @media (max-width: 480px) {
   .cargo-modal-card { width: 100% !important; }
@@ -2618,3 +2562,216 @@ body.dark .export-proj-btn:hover { background: rgba(59,130,246,0.1); border-colo
   .proj-tab { flex: 1 1 auto; }
 }
 
+
+/* ── Permissions table & modal ───────────────────────────────────────────── */
+
+/* Modal card override */
+.perm-modal-card {
+  width: 580px !important;
+  max-width: calc(100vw - 32px) !important;
+  max-height: calc(100vh - 48px) !important;
+  display: flex !important;
+  flex-direction: column !important;
+  padding: 0 !important;
+  overflow: hidden !important;
+}
+
+.perm-modal-header {
+  padding: 22px 24px 16px;
+  border-bottom: 1px solid var(--border-soft);
+  flex-shrink: 0;
+}
+
+.perm-modal-header .crm-formato-title {
+  margin-bottom: 2px;
+  font-size: 16px;
+}
+
+.perm-modal-body {
+  flex: 1;
+  overflow-y: auto;
+  padding: 20px 24px;
+}
+
+.perm-modal-footer {
+  padding: 14px 24px;
+  border-top: 1px solid var(--border-soft);
+  display: flex;
+  justify-content: flex-end;
+  gap: 10px;
+  flex-shrink: 0;
+  background: var(--bg-container);
+}
+
+/* Sections */
+.perm-section {
+  margin-bottom: 6px;
+}
+
+.perm-section-label {
+  font-size: 12px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: .06em;
+  color: var(--text-muted);
+  margin-bottom: 4px;
+}
+
+.perm-section-desc {
+  font-size: 12px;
+  color: var(--text-muted);
+  margin-bottom: 10px;
+  opacity: .8;
+}
+
+/* Role options */
+.cargo-modal-roles {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.cargo-role-option {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 7px 16px;
+  border: 1.5px solid var(--border-soft);
+  border-radius: 20px;
+  cursor: pointer;
+  font-size: 13px;
+  font-weight: 500;
+  color: var(--text-main);
+  background: var(--bg-body);
+  transition: border-color 0.15s, background 0.15s, color 0.15s;
+  user-select: none;
+  white-space: nowrap;
+}
+
+.cargo-role-option:has(input:checked) {
+  border-color: var(--primary);
+  background: rgba(37,99,235,0.1);
+  color: var(--primary);
+  font-weight: 600;
+}
+
+body.dark .cargo-role-option:has(input:checked) {
+  background: rgba(59,130,246,0.15);
+  color: #60A5FA;
+  border-color: #3B82F6;
+}
+
+.cargo-role-option:hover { border-color: var(--primary); }
+.cargo-role-option input[type=radio] { display: none; }
+
+/* Checkbox lists */
+.cargo-modal-checks {
+  max-height: 180px;
+  overflow-y: auto;
+  border: 1px solid var(--border-soft);
+  border-radius: 10px;
+  padding: 6px;
+  background: var(--bg-body);
+}
+
+.perm-checks-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 2px;
+  max-height: 200px;
+}
+
+.cargo-check-item {
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  padding: 7px 10px;
+  font-size: 13px;
+  color: var(--text-main);
+  border-radius: 7px;
+  cursor: pointer;
+  transition: background 0.12s;
+  user-select: none;
+  text-align: left;
+  min-width: 0;
+}
+
+.cargo-check-item span {
+  flex: 1;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  line-height: 1.3;
+}
+
+.cargo-check-item:hover { background: var(--bg-sidebar-item-hover); }
+
+.cargo-check-item input[type=checkbox] {
+  cursor: pointer;
+  accent-color: var(--primary);
+  width: 15px;
+  height: 15px;
+  flex-shrink: 0;
+}
+
+/* Section divider */
+.perm-sep {
+  border: none;
+  border-top: 1px solid var(--border-soft);
+  margin: 18px 0;
+  opacity: .5;
+}
+
+/* Permissions table */
+.perm-cell {
+  max-width: 260px;
+  line-height: 1.8;
+}
+
+.perm-badge {
+  display: inline-block;
+  padding: 2px 8px;
+  border-radius: 12px;
+  font-size: 11px;
+  font-weight: 500;
+  background: var(--bg-body);
+  border: 1px solid var(--border-soft);
+  color: var(--text-main);
+  margin: 1px 2px;
+  white-space: nowrap;
+}
+
+.perm-badge-total {
+  background: rgba(37,99,235,0.1);
+  border-color: rgba(37,99,235,0.3);
+  color: #1D4ED8;
+}
+
+body.dark .perm-badge-total {
+  background: rgba(59,130,246,0.12);
+  border-color: rgba(59,130,246,0.3);
+  color: #60A5FA;
+}
+
+.perm-badge-none {
+  color: var(--text-muted);
+  font-style: italic;
+  border-color: transparent;
+  background: transparent;
+}
+
+.perm-edit-btn {
+  font-size: 12px !important;
+  padding: 3px 10px !important;
+}
+
+#tabelaPermissoes th, #tabelaPermissoes td {
+  vertical-align: top;
+  padding: 10px 12px;
+}
+
+@media (max-width: 640px) {
+  .perm-modal-card { width: 100% !important; }
+  .perm-cell { max-width: 120px; }
+  .perm-checks-grid { grid-template-columns: 1fr; }
+}

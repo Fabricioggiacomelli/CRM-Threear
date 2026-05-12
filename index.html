@@ -1147,14 +1147,27 @@
 
         <hr style="margin:24px 0 18px; opacity:.25">
 
-        <h3>Gestão de Equipes e Cargos</h3>
-        <p style="opacity:.85">Visualize e edite cargos e equipes de todos os usuários aprovados.</p>
+        <h3>Permissões por Usuário</h3>
+        <p style="opacity:.85">Configure cargo, representadas visíveis e alertas monitorados de cada usuário.</p>
 
         <div class="actions-row">
-          <button id="btnReloadGestaoEquipes" class="secondary" type="button">Atualizar</button>
+          <button id="btnReloadPermissoes" class="secondary" type="button">Atualizar</button>
         </div>
 
-        <div id="gestaoEquipesContainer"></div>
+        <div class="table-responsive" style="overflow-x:auto;">
+          <table id="tabelaPermissoes">
+            <thead>
+              <tr>
+                <th>Usuário</th>
+                <th>Cargo</th>
+                <th>Ofertas visíveis (Representadas)</th>
+                <th>Alertas de</th>
+                <th style="text-align:center;">Ações</th>
+              </tr>
+            </thead>
+            <tbody></tbody>
+          </table>
+        </div>
 
       </section>
 
