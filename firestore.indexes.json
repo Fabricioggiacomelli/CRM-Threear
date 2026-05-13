@@ -1,0 +1,62 @@
+{
+  "indexes": [
+    {
+      "collectionGroup": "ofertas",
+      "queryScope": "COLLECTION",
+      "fields": [
+        { "fieldPath": "deletado",  "order": "ASCENDING"  },
+        { "fieldPath": "criadoEm", "order": "DESCENDING" }
+      ]
+    },
+    {
+      "collectionGroup": "ofertas",
+      "queryScope": "COLLECTION",
+      "fields": [
+        { "fieldPath": "deletado",       "order": "ASCENDING"  },
+        { "fieldPath": "representadaId", "order": "ASCENDING"  },
+        { "fieldPath": "criadoEm",       "order": "DESCENDING" }
+      ]
+    },
+    {
+      "collectionGroup": "ofertas",
+      "queryScope": "COLLECTION",
+      "fields": [
+        { "fieldPath": "deletado",         "order": "ASCENDING"  },
+        { "fieldPath": "responsavelEmail", "order": "ASCENDING"  },
+        { "fieldPath": "criadoEm",         "order": "DESCENDING" }
+      ]
+    },
+    {
+      "collectionGroup": "alertas",
+      "queryScope": "COLLECTION",
+      "fields": [
+        { "fieldPath": "chaveUnica", "order": "ASCENDING" },
+        { "fieldPath": "status",     "order": "ASCENDING" }
+      ]
+    },
+    {
+      "collectionGroup": "alertas",
+      "queryScope": "COLLECTION",
+      "fields": [
+        { "fieldPath": "entidadeId", "order": "ASCENDING" },
+        { "fieldPath": "status",     "order": "ASCENDING" }
+      ]
+    },
+    {
+      "collectionGroup": "alertas",
+      "queryScope": "COLLECTION",
+      "fields": [
+        { "fieldPath": "tipo",   "order": "ASCENDING" },
+        { "fieldPath": "status", "order": "ASCENDING" }
+      ]
+    },
+    {
+      "collectionGroup": "backups",
+      "queryScope": "COLLECTION",
+      "fields": [
+        { "fieldPath": "criadoEm", "order": "DESCENDING" }
+      ]
+    }
+  ],
+  "fieldOverrides": []
+}

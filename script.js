@@ -599,13 +599,38 @@ async function carregarRepresentadasFirebase() {
     .filter((r) => !r.deletado);
 }
 
+const OFERTAS_CHUNK_SIZE = 500; // registros por página Firestore
+const OFERTAS_MAX_DOCS   = 5000; // limite de segurança total
+
 async function carregarRegistrosFirebase() {
   try {
-    const snap = await db.collection("ofertas").get();
-    registros = snap.docs
-      .map((doc) => ({ id: doc.id, ...doc.data() }))
-      .filter((r) => !r.deletado);
-    console.log(`[Ofertas] ${registros.length} ofertas carregadas.`);
+    registros = [];
+    let lastDoc   = null;
+    let totalLidos = 0;
+
+    while (totalLidos < OFERTAS_MAX_DOCS) {
+      let query = db.collection("ofertas").limit(OFERTAS_CHUNK_SIZE);
+      if (lastDoc) query = query.startAfter(lastDoc);
+
+      const snap = await query.get();
+      if (snap.empty) break;
+
+      const chunk = snap.docs
+        .map((doc) => ({ id: doc.id, ...doc.data() }))
+        .filter((r) => !r.deletado);
+
+      registros = registros.concat(chunk);
+      totalLidos += snap.size;
+
+      // Renderiza após o primeiro bloco — usuário vê dados antes de tudo carregar
+      if (totalLidos <= OFERTAS_CHUNK_SIZE) renderTabela?.();
+
+      if (snap.size < OFERTAS_CHUNK_SIZE) break; // último bloco
+      lastDoc = snap.docs[snap.docs.length - 1];
+    }
+
+    renderTabela?.();
+    console.log(`[Ofertas] ${registros.length} ofertas ativas (${totalLidos} docs lidos).`);
   } catch (e) {
     console.error("[Ofertas] Falha ao carregar:", e.code, e.message);
     registros = [];
@@ -5830,6 +5855,12 @@ async function carregarTabelaPermissoes() {
   tbody.innerHTML = `<tr><td colspan="5" style="text-align:center;color:var(--text-muted);">Carregando...</td></tr>`;
 
   try {
+    // Garante que representadas estão disponíveis (podem não estar se chamado antes de carregarDadosDoFirebase)
+    if (!representadas.length) {
+      const rSnap = await db.collection("representadas").get();
+      representadas = rSnap.docs.map(d => ({ id: d.id, ...d.data() })).filter(r => !r.deletado);
+    }
+
     const snap = await db.collection("usuarios").get();
     const todos = snap.docs
       .map(d => ({ id: d.id, ...d.data() }))
@@ -5874,7 +5905,9 @@ async function carregarTabelaPermissoes() {
       } else if (u.alertasDeUsuarios?.length) {
         alertasHtml = u.alertasDeUsuarios
           .map(email => {
-            const usr = todos.find(t => t.email === email);
+            const emailNorm = (email || "").toLowerCase().trim();
+            const usr = todos.find(t => t.email === emailNorm)
+              || usuarios.find(x => (x.email || "").toLowerCase().trim() === emailNorm);
             return `<span class="perm-badge">${escapeHtml(usr?.nome || email)}</span>`;
           }).join(" ");
       } else {
@@ -5904,15 +5937,23 @@ async function carregarTabelaPermissoes() {
 }
 
 async function verUsuario(uid) {
-  let uDoc;
+  let uDoc, todosSnap;
   try {
-    uDoc = await db.collection("usuarios").doc(uid).get();
+    [uDoc, todosSnap] = await Promise.all([
+      db.collection("usuarios").doc(uid).get(),
+      db.collection("usuarios").get(),
+    ]);
   } catch (e) {
     showToast("Erro ao carregar usuário.", "error");
     return;
   }
   if (!uDoc.exists) return;
   const u = { id: uid, ...uDoc.data() };
+  const _todosMap = {};
+  todosSnap.docs.forEach(d => {
+    const em = (d.data().email || "").toLowerCase().trim();
+    if (em) _todosMap[em] = d.data().nome || d.data().email || em;
+  });
 
   function field(label, value, full) {
     if (!value && value !== 0) return "";
@@ -5956,7 +5997,13 @@ async function verUsuario(uid) {
     alertasHtml = "Acesso total — todos os usuários";
   } else if (Array.isArray(u.alertasDeUsuarios) && u.alertasDeUsuarios.length) {
     alertasHtml = u.alertasDeUsuarios
-      .map(email => '<span class="perm-badge">' + escapeHtml(email) + '</span>')
+      .map(email => {
+        const emailNorm = (email || "").toLowerCase().trim();
+        const nome = _todosMap[emailNorm]
+          || (usuarios.find(x => (x.email || "").toLowerCase().trim() === emailNorm) || {}).nome
+          || email;
+        return '<span class="perm-badge">' + escapeHtml(nome) + '</span>';
+      })
       .join(" ");
   } else {
     alertasHtml = '<span style="color:var(--text-muted);font-style:italic;">Apenas os próprios alertas</span>';

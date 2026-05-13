@@ -1,5 +1,6 @@
 const express = require("express");
 const cors = require("cors");
+const helmet = require("helmet");
 const speakeasy = require("speakeasy");
 const QRCode = require("qrcode");
 const admin = require("firebase-admin");
@@ -8,6 +9,8 @@ const rateLimit = require("express-rate-limit");
 
 const app = express();
 const PORT = process.env.PORT || 3001;
+
+app.use(helmet());
 
 const ALLOWED_ORIGINS = (process.env.ALLOWED_ORIGINS || [
   "http://127.0.0.1:3001",

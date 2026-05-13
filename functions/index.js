@@ -4,6 +4,7 @@ const logger = require("firebase-functions/logger");
 
 const express = require("express");
 const cors = require("cors");
+const helmet = require("helmet");
 const speakeasy = require("speakeasy");
 const QRCode = require("qrcode");
 
@@ -19,6 +20,7 @@ const mfaRef = db.collection("usuarios_mfa");
 
 const app = express();
 
+app.use(helmet());
 app.use(
   cors({
     origin: true,
