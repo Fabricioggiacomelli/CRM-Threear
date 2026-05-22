@@ -38,6 +38,12 @@
       <button class="menu-item" onclick="scrollToSection('sec-projetos')">
         <span class="icon">📁</span><span class="label">Projetos</span>
       </button>
+      <button class="menu-item" onclick="scrollToSection('sec-ciclo')">
+        <span class="icon">⏱</span><span class="label">Ciclo</span>
+      </button>
+      <button class="menu-item" onclick="scrollToSection('sec-perdas')">
+        <span class="icon">📉</span><span class="label">Perdas</span>
+      </button>
 
       <button class="menu-item" id="btnTema">
         <span class="icon">🌓</span><span class="label" id="temaLabel">Modo escuro</span>
@@ -216,6 +222,24 @@
           <div class="kpi-trend kpi-trend-neutral">—</div>
         </div>
 
+        <div class="d-kpi d-kpi--orange d-kpi--drill" onclick="openKpiModal('cicloVendas')" title="Ver ciclo de vendas detalhado">
+          <div class="d-kpi-label">Ciclo médio (dias)</div>
+          <div class="d-kpi-value" id="kpiCicloVendas">—</div>
+          <div class="kpi-trend kpi-trend-neutral" id="kpiCicloVendasTrend">vs período ant.</div>
+        </div>
+
+        <div class="d-kpi d-kpi--red d-kpi--drill" onclick="openKpiModal('taxaPerda')" title="Ver ofertas perdidas">
+          <div class="d-kpi-label">Taxa de Perda</div>
+          <div class="d-kpi-value" id="kpiTaxaPerda">—</div>
+          <div class="kpi-trend kpi-trend-neutral" id="kpiTaxaPerdaTrend">vs período ant.</div>
+        </div>
+
+        <div class="d-kpi d-kpi--rose d-kpi--drill" onclick="openKpiModal('perdas')" title="Ver perdas e cancelamentos">
+          <div class="d-kpi-label">Perdas + Cancelamentos</div>
+          <div class="d-kpi-value" id="kpiPerdasTotal">—</div>
+          <div class="kpi-trend kpi-trend-neutral" id="kpiPerdasTotalTrend">vs período ant.</div>
+        </div>
+
       </div>
 
       <!-- Alertas -->
@@ -319,6 +343,50 @@
           <div class="d-card">
             <div class="d-card-label">Projetos sem atualização recente</div>
             <div class="d-table-wrap" id="projetosParadosBox"></div>
+          </div>
+        </div>
+      </section>
+
+      <!-- ── 05: Ciclo de Vendas ──────────────────────────────── -->
+      <section class="d-section" id="sec-ciclo">
+        <div class="d-section-head">
+          <span class="d-section-num">05</span>
+          <h2 class="d-section-title">Ciclo de Vendas</h2>
+        </div>
+        <div class="d-grid-3">
+          <div class="d-card">
+            <div class="d-card-label">Dias médios até pedido — por representada</div>
+            <canvas id="chartCicloRep" role="img" aria-label="Gráfico de dias médios até pedido por representada"></canvas>
+          </div>
+          <div class="d-card">
+            <div class="d-card-label">Dias médios até pedido — por vendedor</div>
+            <canvas id="chartCicloVendedor" role="img" aria-label="Gráfico de dias médios até pedido por vendedor"></canvas>
+          </div>
+          <div class="d-card">
+            <div class="d-card-label">Ranking — pedidos mais rápidos e lentos</div>
+            <div class="d-table-wrap" id="cicloRankingBox"></div>
+          </div>
+        </div>
+      </section>
+
+      <!-- ── 06: Análise de Perdas ────────────────────────────── -->
+      <section class="d-section" id="sec-perdas">
+        <div class="d-section-head">
+          <span class="d-section-num">06</span>
+          <h2 class="d-section-title">Análise de Perdas</h2>
+        </div>
+        <div class="d-grid-3">
+          <div class="d-card">
+            <div class="d-card-label">Evolução mensal — ganhos × perdas × cancelamentos</div>
+            <canvas id="chartPerdasEvolucao" role="img" aria-label="Gráfico de evolução mensal de ganhos, perdas e cancelamentos"></canvas>
+          </div>
+          <div class="d-card">
+            <div class="d-card-label">Principais motivos de perda</div>
+            <canvas id="chartMotivosPerdas" role="img" aria-label="Gráfico de motivos de perda das ofertas"></canvas>
+          </div>
+          <div class="d-card">
+            <div class="d-card-label">Clientes com mais perdas</div>
+            <div class="d-table-wrap" id="clientesPerdasBox"></div>
           </div>
         </div>
       </section>

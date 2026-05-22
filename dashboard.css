@@ -291,6 +291,8 @@ body.light .d-kpi:hover { box-shadow: 0 10px 32px rgba(0, 0, 0, 0.10); }
 .d-kpi--cyan   { --kc: #22d3ee; }
 .d-kpi--indigo { --kc: #818cf8; }
 .d-kpi--rose   { --kc: #fb7185; }
+.d-kpi--orange { --kc: #f97316; }
+.d-kpi--red    { --kc: #ef4444; }
 
 .d-kpi-label {
   font-size: 10px;

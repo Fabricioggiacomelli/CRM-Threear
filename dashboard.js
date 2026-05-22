@@ -359,6 +359,11 @@ function calcularKPIs(ofertas) {
   const pedidos = ofertas.filter(isPedidoSim);
   const vProp = ofertas.reduce((s, o) => s + getValorProposta(o), 0);
   const vPed = pedidos.reduce((s, o) => s + getValorPedidoReal(o), 0);
+  const { mediaGeral: cicloMedio } = calcularCicloVendas(ofertas);
+  const perdidas   = ofertas.filter(isPerdida).length;
+  const canceladas = ofertas.filter(isCancelada).length;
+  const finalizadas = pedidos.length + perdidas + canceladas;
+  const taxaPerda  = finalizadas > 0 ? (perdidas / finalizadas) * 100 : null;
   return {
     propostas: ofertas.length,
     pedidos: pedidos.length,
@@ -370,6 +375,7 @@ function calcularKPIs(ofertas) {
     clientesAtivos: new Set(ofertas.map(getClienteLabel).filter(c => c !== "Sem cliente")).size,
     repsAtivas: new Set(ofertas.map(getRepNameFromOferta).filter(Boolean)).size,
     aguardando: ofertas.filter(o => !isPedidoSim(o) && norm(getStatusText(o)).includes("aguard")).length,
+    cicloMedio, perdidas, canceladas, taxaPerda,
   };
 }
 
@@ -377,14 +383,15 @@ function calcularKPIs(ofertas) {
 // KPIs
 // =============================================================
 
-function setTrend(id, atual, anterior, isPercent = false) {
+function setTrend(id, atual, anterior, isPercent = false, invert = false) {
   const el = $(id);
   if (!el) return;
   if (anterior == null) { el.style.display = "none"; return; }
   el.style.display = "";
   if (anterior === 0) {
     const txt = atual > 0 ? "↑ novo" : "—";
-    const cls = "kpi-trend " + (atual > 0 ? "kpi-trend-up" : "kpi-trend-neutral");
+    const isGood = invert ? atual <= 0 : atual > 0;
+    const cls = "kpi-trend " + (isGood ? "kpi-trend-up" : "kpi-trend-neutral");
     el.dataset.real = txt;
     el.dataset.realClass = cls;
     el.textContent = kpisOcultos ? "—" : txt;
@@ -396,12 +403,14 @@ function setTrend(id, atual, anterior, isPercent = false) {
     const diff = atual - anterior;
     const sign = diff >= 0 ? "↑" : "↓";
     txt = `${sign} ${Math.abs(diff).toFixed(1)} pts`;
-    cls = `kpi-trend ${diff >= 0 ? "kpi-trend-up" : "kpi-trend-down"}`;
+    const positive = invert ? diff < 0 : diff >= 0;
+    cls = `kpi-trend ${positive ? "kpi-trend-up" : "kpi-trend-down"}`;
   } else {
     const diff = ((atual - anterior) / Math.abs(anterior)) * 100;
     const sign = diff >= 0 ? "↑" : "↓";
     txt = `${sign} ${Math.abs(diff).toFixed(1)}%`;
-    cls = `kpi-trend ${diff >= 0 ? "kpi-trend-up" : "kpi-trend-down"}`;
+    const positive = invert ? diff < 0 : diff >= 0;
+    cls = `kpi-trend ${positive ? "kpi-trend-up" : "kpi-trend-down"}`;
   }
   el.dataset.real = txt;
   el.dataset.realClass = cls;
@@ -468,10 +477,62 @@ function renderKPIs(ofertasFiltradas, ofertasAnteriores) {
   setTrend("kpiClientesAtivosTrend",k.clientesAtivos,ka?.clientesAtivos ?? null);
   setTrend("kpiRepsAtivasTrend",    k.repsAtivas,   ka?.repsAtivas   ?? null);
 
+  // Ciclo de vendas (invertido: menor = melhor → ↓ é positivo)
+  if (k.cicloMedio !== null) {
+    setText("kpiCicloVendas", String(k.cicloMedio) + "d");
+    if (ka?.cicloMedio !== null && ka?.cicloMedio != null) {
+      const diff = ((k.cicloMedio - ka.cicloMedio) / Math.abs(ka.cicloMedio)) * 100;
+      const melhorou = diff < 0;
+      const sign = melhorou ? "↓" : "↑";
+      const txt = `${sign} ${Math.abs(diff).toFixed(1)}%`;
+      const cls = `kpi-trend ${melhorou ? "kpi-trend-up" : "kpi-trend-down"}`;
+      const el = $("kpiCicloVendasTrend");
+      if (el) {
+        el.dataset.real = txt;
+        el.dataset.realClass = cls;
+        el.textContent = kpisOcultos ? "—" : txt;
+        el.className = kpisOcultos ? "kpi-trend kpi-trend-neutral" : cls;
+        el.style.display = "";
+      }
+    }
+  } else {
+    setText("kpiCicloVendas", "—");
+    const el = $("kpiCicloVendasTrend");
+    if (el) el.style.display = "none";
+  }
+
+  // Taxa de Perda (invertida: menor = melhor)
+  if (k.taxaPerda !== null) {
+    setText("kpiTaxaPerda", k.taxaPerda.toFixed(1) + "%");
+    if (ka?.taxaPerda !== null && ka?.taxaPerda != null) {
+      const diff = k.taxaPerda - ka.taxaPerda;
+      const melhorou = diff < 0;
+      const sign = melhorou ? "↓" : "↑";
+      const txt = `${sign} ${Math.abs(diff).toFixed(1)} pts`;
+      const cls = `kpi-trend ${melhorou ? "kpi-trend-up" : "kpi-trend-down"}`;
+      const el = $("kpiTaxaPerdaTrend");
+      if (el) {
+        el.dataset.real = txt; el.dataset.realClass = cls;
+        el.textContent = kpisOcultos ? "—" : txt;
+        el.className = kpisOcultos ? "kpi-trend kpi-trend-neutral" : cls;
+        el.style.display = "";
+      }
+    }
+  } else {
+    setText("kpiTaxaPerda", "—");
+    const el = $("kpiTaxaPerdaTrend"); if (el) el.style.display = "none";
+  }
+
+  // Perdas + Cancelamentos (total absoluto — invertido: menos = melhor)
+  const perdasTotal = (k.perdidas || 0) + (k.canceladas || 0);
+  setText("kpiPerdasTotal", String(perdasTotal));
+  setTrend("kpiPerdasTotalTrend", perdasTotal, (ka ? (ka.perdidas || 0) + (ka.canceladas || 0) : null), false, true);
+
   const alerts = [];
   if (k.aguardando > 0) alerts.push({ type: "warn", text: `<strong>${escapeHtml(String(k.aguardando))}</strong> oferta(s) aguardando pedido.` });
   if (k.propostas === 0) alerts.push({ type: "danger", text: "Nenhuma proposta encontrada com os filtros atuais." });
   if (k.pedidos > 0) alerts.push({ type: "ok", text: `<strong>${escapeHtml(String(k.pedidos))}</strong> pedido(s) e taxa de conversão de <strong>${escapeHtml(k.convQtd.toFixed(1))}%</strong> (qtd) / <strong>${escapeHtml(k.convValor.toFixed(1))}%</strong> (valor) no período.` });
+  if (k.taxaPerda !== null && k.taxaPerda > 30) alerts.push({ type: "danger", text: `Taxa de perda elevada: <strong>${escapeHtml(k.taxaPerda.toFixed(1))}%</strong> das finalizadas foram perdidas.` });
   const box = $("dashAlerts");
   if (box) box.innerHTML = alerts.map(a => `<div class="alert ${a.type}">${a.text}</div>`).join("");
 }
@@ -644,6 +705,9 @@ function exportExcel() {
     ["Representadas ativas", kpiReal("kpiRepsAtivas")],
     ["Projetos ativos",      kpiReal("kpiProjetosAtivos")],
     ["Aguardando pedido",    kpiReal("kpiAguardando")],
+    ["Ciclo médio (dias)",   kpiReal("kpiCicloVendas")],
+    ["Taxa de perda",        kpiReal("kpiTaxaPerda")],
+    ["Perdas + cancelamentos", kpiReal("kpiPerdasTotal")],
   ];
   const wsKpi = XLSX.utils.aoa_to_sheet(kpiRows);
   wsKpi["!cols"] = [{ wch: 28 }, { wch: 20 }];
@@ -1095,7 +1159,11 @@ function openKpiModal(type) {
     clientes:   { title: "Clientes ativos no período",   mode: "clientes" },
     reps:       { title: "Representadas ativas",         mode: "reps" },
     projetos:   { title: "Projetos com propostas",       mode: "projetos" },
-    aguardando: { title: "Aguardando pedido",            getRows: f => f.filter(o => !isPedidoSim(o) && norm(getStatusText(o)).includes("aguard")) },
+    aguardando:  { title: "Aguardando pedido",            getRows: f => f.filter(o => !isPedidoSim(o) && norm(getStatusText(o)).includes("aguard")) },
+    cicloVendas: { title: "Ciclo de vendas — pedidos com data P.O.",
+                   getRows: f => f.filter(isPedidoSim).filter(o => getDiasCiclo(o) !== null).sort((a, b) => (getDiasCiclo(a) || 0) - (getDiasCiclo(b) || 0)) },
+    taxaPerda:   { title: "Ofertas perdidas", getRows: f => f.filter(isPerdida).sort((a, b) => +(getOfertaDate(b)||0) - +(getOfertaDate(a)||0)) },
+    perdas:      { title: "Perdas e cancelamentos", getRows: f => f.filter(o => isPerdida(o) || isCancelada(o)).sort((a, b) => +(getOfertaDate(b)||0) - +(getOfertaDate(a)||0)) },
   };
 
   const cfg = CFGS[type] || { title: "Detalhes", getRows: f => f };
@@ -1783,6 +1851,367 @@ function buildProjetosParadosTable() {
 }
 
 // =============================================================
+// SEÇÃO: CICLO DE VENDAS
+// =============================================================
+
+function getDiasCiclo(o) {
+  const dtEntrada = getOfertaDate(o);
+  const p = o.pedido || {};
+  const dtPO = parseDateAny(p.data_po || p.dataPO || p.data_pedido || null);
+  if (!dtEntrada || !dtPO) return null;
+  const dias = Math.round((dtPO.getTime() - dtEntrada.getTime()) / 86400000);
+  if (dias < 0 || dias > 1095) return null;
+  return dias;
+}
+
+function calcularCicloVendas(ofertas) {
+  const comCiclo = ofertas.filter(isPedidoSim).map(o => ({ o, dias: getDiasCiclo(o) })).filter(x => x.dias !== null);
+  if (!comCiclo.length) return { mediaGeral: null, count: 0 };
+  const mediaGeral = comCiclo.reduce((s, x) => s + x.dias, 0) / comCiclo.length;
+  return { mediaGeral: Math.round(mediaGeral), count: comCiclo.length, comCiclo };
+}
+
+function buildCicloRepChart(ofertasFiltradas) {
+  const map = {};
+  ofertasFiltradas.filter(isPedidoSim).forEach(o => {
+    const dias = getDiasCiclo(o);
+    if (dias === null) return;
+    const rep = getRepNameFromOferta(o) || "Sem representada";
+    if (!map[rep]) map[rep] = { soma: 0, count: 0 };
+    map[rep].soma += dias;
+    map[rep].count++;
+  });
+
+  const arr = Object.entries(map)
+    .filter(([, v]) => v.count >= 1)
+    .map(([rep, v]) => ({ rep, media: Math.round(v.soma / v.count), count: v.count }))
+    .sort((a, b) => a.media - b.media)
+    .slice(0, 12);
+
+  const canvasParent = $("chartCicloRep")?.parentElement;
+  canvasParent?.querySelectorAll(".dash-empty").forEach(el => el.remove());
+
+  if (!arr.length) {
+    if (canvasParent) canvasParent.insertAdjacentHTML("beforeend", '<div class="dash-empty">Sem dados de ciclo no período.</div>');
+    return;
+  }
+
+  const isDk = isDark();
+  const tickColor = isDk ? "rgba(196,208,238,0.5)" : "rgba(30,41,64,0.5)";
+  const gridColor = isDk ? "rgba(255,255,255,0.05)" : "rgba(0,0,0,0.06)";
+
+  const colors = arr.map(x =>
+    x.media <= 14  ? paletteAlpha("#10B981", 0.8) :
+    x.media <= 30  ? paletteAlpha("#F59E0B", 0.8) :
+                     paletteAlpha("#EF4444", 0.8)
+  );
+
+  charts.cicloRep = safeChart("chartCicloRep", {
+    type: "bar",
+    data: {
+      labels: arr.map(x => x.rep.length > 20 ? x.rep.slice(0, 18) + "…" : x.rep),
+      datasets: [{
+        label: "Dias médios",
+        data: arr.map(x => x.media),
+        backgroundColor: colors,
+        borderRadius: 6,
+      }]
+    },
+    options: {
+      responsive: true, maintainAspectRatio: false,
+      plugins: {
+        legend: { display: false },
+        tooltip: {
+          callbacks: {
+            label: ctx => {
+              const d = arr[ctx.dataIndex];
+              return ` ${ctx.parsed.y} dia${ctx.parsed.y !== 1 ? "s" : ""} (${d.count} pedido${d.count !== 1 ? "s" : ""})`;
+            }
+          }
+        }
+      },
+      scales: {
+        x: { ticks: { color: tickColor, font: { size: 10 }, maxRotation: 40, minRotation: 40 }, grid: { display: false }, border: { display: false } },
+        y: { ticks: { color: tickColor, stepSize: 5, font: { size: 11 }, callback: v => v + "d" }, grid: { color: gridColor }, border: { display: false } }
+      }
+    }
+  });
+}
+
+function buildCicloVendedorChart(ofertasFiltradas) {
+  const map = {};
+  ofertasFiltradas.filter(isPedidoSim).forEach(o => {
+    const dias = getDiasCiclo(o);
+    if (dias === null) return;
+    const vendedor = getUserNameFromOferta(o) || "Sem vendedor";
+    if (!map[vendedor]) map[vendedor] = { soma: 0, count: 0 };
+    map[vendedor].soma += dias;
+    map[vendedor].count++;
+  });
+
+  const arr = Object.entries(map)
+    .filter(([, v]) => v.count >= 1)
+    .map(([vendedor, v]) => ({ vendedor, media: Math.round(v.soma / v.count), count: v.count }))
+    .sort((a, b) => a.media - b.media)
+    .slice(0, 12);
+
+  const canvasParent = $("chartCicloVendedor")?.parentElement;
+  canvasParent?.querySelectorAll(".dash-empty").forEach(el => el.remove());
+
+  if (!arr.length) {
+    if (canvasParent) canvasParent.insertAdjacentHTML("beforeend", '<div class="dash-empty">Sem dados de ciclo no período.</div>');
+    return;
+  }
+
+  const isDk = isDark();
+  const tickColor = isDk ? "rgba(196,208,238,0.5)" : "rgba(30,41,64,0.5)";
+  const gridColor = isDk ? "rgba(255,255,255,0.05)" : "rgba(0,0,0,0.06)";
+
+  const colors = arr.map((_, i) => paletteAlpha(PALETTE[i % PALETTE.length], 0.75));
+
+  charts.cicloVendedor = safeChart("chartCicloVendedor", {
+    type: "bar",
+    data: {
+      labels: arr.map(x => x.vendedor.length > 20 ? x.vendedor.slice(0, 18) + "…" : x.vendedor),
+      datasets: [{
+        label: "Dias médios",
+        data: arr.map(x => x.media),
+        backgroundColor: colors,
+        borderRadius: 6,
+      }]
+    },
+    options: {
+      responsive: true, maintainAspectRatio: false,
+      plugins: {
+        legend: { display: false },
+        tooltip: {
+          callbacks: {
+            label: ctx => {
+              const d = arr[ctx.dataIndex];
+              return ` ${ctx.parsed.y} dia${ctx.parsed.y !== 1 ? "s" : ""} (${d.count} pedido${d.count !== 1 ? "s" : ""})`;
+            }
+          }
+        }
+      },
+      scales: {
+        x: { ticks: { color: tickColor, font: { size: 10 }, maxRotation: 40, minRotation: 40 }, grid: { display: false }, border: { display: false } },
+        y: { ticks: { color: tickColor, stepSize: 5, font: { size: 11 }, callback: v => v + "d" }, grid: { color: gridColor }, border: { display: false } }
+      }
+    }
+  });
+}
+
+function buildCicloRankingTable(ofertasFiltradas) {
+  const box = $("cicloRankingBox");
+  if (!box) return;
+
+  const itens = ofertasFiltradas
+    .filter(isPedidoSim)
+    .map(o => ({ o, dias: getDiasCiclo(o) }))
+    .filter(x => x.dias !== null)
+    .sort((a, b) => a.dias - b.dias);
+
+  if (!itens.length) {
+    box.innerHTML = `<div class="dash-empty">Sem dados suficientes para o período.</div>`;
+    return;
+  }
+
+  const rapidos = itens.slice(0, 5);
+  const lentos  = itens.length > 5 ? itens.slice(-5).reverse() : [];
+
+  function row(x, badge) {
+    const numRaw = String(x.o.oferta || x.o.numero_oferta || x.o.numeroOferta || "").trim() || "—";
+    const cliente = getClienteLabel(x.o);
+    const clienteCurto = cliente.length > 20 ? cliente.slice(0, 18) + "…" : cliente;
+    const rep = getRepNameFromOferta(x.o);
+    const repCurto = rep.length > 18 ? rep.slice(0, 16) + "…" : rep;
+    return `<tr>
+      <td>${escapeHtml(numRaw)}</td>
+      <td title="${escapeHtml(cliente)}">${escapeHtml(clienteCurto)}</td>
+      <td title="${escapeHtml(rep)}">${escapeHtml(repCurto)}</td>
+      <td style="text-align:right"><span class="${badge}">${x.dias}d</span></td>
+    </tr>`;
+  }
+
+  box.innerHTML = `
+    <table class="dash-inner-table">
+      <thead><tr>
+        <th>Oferta</th><th>Cliente</th><th>Representada</th><th style="text-align:right">Dias</th>
+      </tr></thead>
+      <tbody>
+        ${rapidos.length ? `<tr><td colspan="4" style="font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:.06em;color:var(--text-muted);padding:8px 8px 4px">Mais rápidos</td></tr>` : ""}
+        ${rapidos.map(x => row(x, "dash-tag-ok")).join("")}
+        ${lentos.length ? `<tr><td colspan="4" style="font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:.06em;color:var(--text-muted);padding:10px 8px 4px">Mais lentos</td></tr>` : ""}
+        ${lentos.map(x => row(x, "dash-tag-danger")).join("")}
+      </tbody>
+    </table>`;
+}
+
+// =============================================================
+// SEÇÃO: ANÁLISE DE PERDAS
+// =============================================================
+
+function isPerdida(o) {
+  if (isPedidoSim(o)) return false;
+  const s = norm(getStatusText(o));
+  return s.includes("perd") || s.includes("recusad") || s.includes("declina");
+}
+
+function isCancelada(o) {
+  if (isPedidoSim(o)) return false;
+  const s = norm(getStatusText(o));
+  return s.includes("cancelad") || s.includes("desistiu") || s.includes("fora do escopo");
+}
+
+function buildPerdasEvolucaoChart(ofertasFiltradas) {
+  const byMonth = {};
+  ofertasFiltradas.forEach(o => {
+    const dt = getOfertaDate(o);
+    if (!dt) return;
+    const key = `${dt.getFullYear()}-${String(dt.getMonth() + 1).padStart(2, "0")}`;
+    if (!byMonth[key]) byMonth[key] = { ganhas: 0, perdidas: 0, canceladas: 0 };
+    if (isPedidoSim(o))    byMonth[key].ganhas++;
+    else if (isPerdida(o)) byMonth[key].perdidas++;
+    else if (isCancelada(o)) byMonth[key].canceladas++;
+  });
+
+  const months = Object.keys(byMonth).sort();
+  if (!months.length) return;
+
+  const labels = months.map(m => { const [y, mm] = m.split("-"); return `${mm}/${y}`; });
+
+  charts.perdasEvolucao = safeChart("chartPerdasEvolucao", {
+    type: "line",
+    data: {
+      labels,
+      datasets: [
+        { label: "Ganhas",      data: months.map(m => byMonth[m].ganhas),     borderColor: "#10B981", backgroundColor: paletteAlpha("#10B981", 0.1), fill: true, tension: 0.3, pointRadius: 4 },
+        { label: "Perdidas",    data: months.map(m => byMonth[m].perdidas),   borderColor: "#EF4444", backgroundColor: paletteAlpha("#EF4444", 0.1), fill: true, tension: 0.3, pointRadius: 4 },
+        { label: "Canceladas",  data: months.map(m => byMonth[m].canceladas), borderColor: "#94A3B8", backgroundColor: paletteAlpha("#94A3B8", 0.08), fill: true, tension: 0.3, pointRadius: 4 },
+      ]
+    },
+    options: {
+      responsive: true, maintainAspectRatio: false,
+      plugins: { legend: { position: "top", labels: { font: { size: 11 }, boxWidth: 12 } } },
+      scales: {
+        y: { ticks: { stepSize: 1, precision: 0 } }
+      }
+    }
+  });
+}
+
+function buildMotivosPerdaChart(ofertasFiltradas) {
+  const freq = {};
+  ofertasFiltradas.filter(isPerdida).forEach(o => {
+    const motivo = String(o.motivo_perda || "").trim() || "Não informado";
+    freq[motivo] = (freq[motivo] || 0) + 1;
+  });
+
+  const canvasParent = $("chartMotivosPerdas")?.parentElement;
+  canvasParent?.querySelectorAll(".dash-empty").forEach(el => el.remove());
+
+  const entries = Object.entries(freq).sort((a, b) => b[1] - a[1]).slice(0, 10);
+
+  if (!entries.length) {
+    if (canvasParent) canvasParent.insertAdjacentHTML("beforeend", '<div class="dash-empty">Nenhuma oferta perdida no período.</div>');
+    return;
+  }
+
+  const isDk = isDark();
+  const tickColor = isDk ? "rgba(196,208,238,0.5)" : "rgba(30,41,64,0.5)";
+  const gridColor = isDk ? "rgba(255,255,255,0.05)" : "rgba(0,0,0,0.06)";
+
+  const labels = entries.map(([m]) => m.length > 30 ? m.slice(0, 28) + "…" : m);
+  const fullLabels = entries.map(([m]) => m);
+  const counts = entries.map(([, c]) => c);
+  const total = counts.reduce((s, c) => s + c, 0);
+
+  charts.motivosPerdas = safeChart("chartMotivosPerdas", {
+    type: "bar",
+    data: {
+      labels,
+      datasets: [{
+        label: "Perdas",
+        data: counts,
+        backgroundColor: counts.map((_, i) => paletteAlpha(["#EF4444","#F87171","#F97316","#FB923C","#FBBF24","#94A3B8","#CBD5E1"][i % 7], 0.8)),
+        borderRadius: 5,
+      }]
+    },
+    options: {
+      responsive: true, maintainAspectRatio: false,
+      indexAxis: "y",
+      plugins: {
+        legend: { display: false },
+        tooltip: {
+          callbacks: {
+            label: ctx => {
+              const pct = total ? ((ctx.parsed.x / total) * 100).toFixed(1) : "0.0";
+              return ` ${ctx.parsed.x} ocorrência${ctx.parsed.x !== 1 ? "s" : ""} (${pct}%)`;
+            },
+            title: ctx => fullLabels[ctx[0].dataIndex],
+          }
+        }
+      },
+      scales: {
+        x: { ticks: { stepSize: 1, precision: 0, color: tickColor }, grid: { color: gridColor }, border: { display: false } },
+        y: { ticks: { color: tickColor, font: { size: 10 } }, grid: { display: false }, border: { display: false } }
+      }
+    }
+  });
+}
+
+function buildClientesPerdasTable(ofertasFiltradas) {
+  const box = $("clientesPerdasBox");
+  if (!box) return;
+
+  const map = {};
+  ofertasFiltradas.forEach(o => {
+    const c = getClienteLabel(o);
+    if (c === "Sem cliente") return;
+    if (!map[c]) map[c] = { perdidas: 0, canceladas: 0, total: 0, vProp: 0 };
+    map[c].total++;
+    map[c].vProp += getValorProposta(o);
+    if (isPerdida(o))    map[c].perdidas++;
+    if (isCancelada(o))  map[c].canceladas++;
+  });
+
+  const lista = Object.entries(map)
+    .filter(([, v]) => v.perdidas + v.canceladas > 0)
+    .sort((a, b) => (b[1].perdidas + b[1].canceladas) - (a[1].perdidas + a[1].canceladas))
+    .slice(0, 10);
+
+  if (!lista.length) {
+    box.innerHTML = `<div class="dash-empty">Nenhuma perda ou cancelamento no período.</div>`;
+    return;
+  }
+
+  box.innerHTML = `
+    <table class="dash-inner-table">
+      <thead><tr>
+        <th>Cliente</th>
+        <th style="text-align:right">Perdas</th>
+        <th style="text-align:right">Canc.</th>
+        <th style="text-align:right">R$ Prop.</th>
+      </tr></thead>
+      <tbody>
+        ${lista.map(([nome, v]) => {
+          const nomeCurto = nome.length > 22 ? nome.slice(0, 20) + "…" : nome;
+          return `<tr class="dash-row-clickable" data-search="${escapeHtml(nome)}" title="${escapeHtml(nome)}">
+            <td>${escapeHtml(nomeCurto)}</td>
+            <td style="text-align:right"><span class="dash-tag-danger">${v.perdidas}</span></td>
+            <td style="text-align:right"><span class="${v.canceladas ? "dash-tag-warn" : ""}">${v.canceladas}</span></td>
+            <td style="text-align:right">${moneyBRShort(v.vProp)}</td>
+          </tr>`;
+        }).join("")}
+      </tbody>
+    </table>`;
+
+  box.querySelectorAll(".dash-row-clickable[data-search]").forEach(row => {
+    row.addEventListener("click", () => drillDown({ searchTerm: row.dataset.search }));
+  });
+}
+
+// =============================================================
 // ORQUESTRAÇÃO
 // =============================================================
 
@@ -1810,6 +2239,16 @@ function buildDashboardVisuals(ofertasFiltradas, ofertasAnteriores, semComparaca
   buildProjetosVolumeChart(ofertasFiltradas);
   buildProjetosStatusChart();
   buildProjetosParadosTable();
+
+  // Ciclo de Vendas
+  buildCicloRepChart(ofertasFiltradas);
+  buildCicloVendedorChart(ofertasFiltradas);
+  buildCicloRankingTable(ofertasFiltradas);
+
+  // Análise de Perdas
+  buildPerdasEvolucaoChart(ofertasFiltradas);
+  buildMotivosPerdaChart(ofertasFiltradas);
+  buildClientesPerdasTable(ofertasFiltradas);
 }
 
 // =============================================================

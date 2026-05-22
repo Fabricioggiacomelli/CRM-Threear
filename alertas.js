@@ -3,6 +3,9 @@ window.alertasCacheAnterior = window.alertasCacheAnterior || 0;
 window.alertasIdsAnteriores = window.alertasIdsAnteriores || new Set();
 window.alertasPrimeiraCargaFeita = window.alertasPrimeiraCargaFeita || false;
 window.alertasLoopHandle = window.alertasLoopHandle || null;
+window._alertasTabId = window._alertasTabId || Math.random().toString(36).slice(2, 10);
+window._alertasBc = window._alertasBc || null;
+window._alertasEhLider = window._alertasEhLider || false;
 
 window.alertasUI = {
   aba: "todos"
@@ -234,8 +237,38 @@ function classeStatusAlerta(status) {
 function statusExcluiAlertaOferta(status, reg) {
   const s = String(status || "").trim().toLowerCase();
   if (s === "perdido" || s === "declinado") return true;
+  if (reg?.deletado === true) return true;
   if (reg && String(reg.possuiPedido || "").trim().toLowerCase() === "sim") return true;
   return false;
+}
+
+// Chamada pelo loop quando uma oferta transitou para status excluído.
+// Resolve automaticamente qualquer follow-up aberto para não deixar alertas fantasmas.
+async function _resolverFollowUpObsoleto(registroId) {
+  const chaveUnica = montarChaveAlerta({
+    tipo: "followup",
+    entidade: "oferta",
+    entidadeId: registroId
+  });
+  const existente = await buscarAlertaPorChave(chaveUnica);
+  if (!existente) return;
+  if (["resolvido", "ignorado", "arquivado"].includes(existente.status)) return;
+
+  const agora = agoraISOAlerta();
+  await getAlertasRef().doc(existente.id).set(
+    {
+      status: "resolvido",
+      resolvidoPor: "system",
+      resolvidoEm: agora,
+      aprovadoPor: "system",
+      aprovadoEm: agora,
+      atualizadoEm: agora
+    },
+    { merge: true }
+  );
+  await adicionarHistoricoAlerta(existente.id, "resolvido_auto_status_excluido", {
+    resolvidoPor: "system"
+  });
 }
 
 function obterUltimaDataOferta(reg) {
@@ -498,6 +531,10 @@ async function verificarAlertasPrazoEntrega() {
   const marcos = [15, 10, 5, 3, 2, 1];
 
   for (const reg of (registros || [])) {
+    if (reg.deletado === true) continue;
+    const statusReg = String(reg.status || "").trim().toLowerCase();
+    if (statusReg === "perdido" || statusReg === "declinado") continue;
+
     const prazo = reg?.pedido?.prazo_entrega_contratual;
     const entregue = String(reg?.pedido?.entregue || "nao").toLowerCase() === "sim";
 
@@ -560,7 +597,12 @@ async function verificarAlertaFollowUpRegistro(reg) {
   const tipo = String(reg.tipo_oferta || "").trim().toLowerCase();
   const status = String(reg.status || "").trim().toLowerCase();
 
-  if (statusExcluiAlertaOferta(status, reg)) return;
+  if (statusExcluiAlertaOferta(status, reg)) {
+    // Oferta perdida, declinada, com pedido ou deletada —
+    // garante que nenhum follow-up aberto fique orphão no sistema
+    await _resolverFollowUpObsoleto(reg.id);
+    return;
+  }
 
   const limiteHoras = getLimiteHorasFollowUp(tipo);
   const intervaloLembrete = getIntervaloLembreteFollowUp(tipo);
@@ -641,8 +683,10 @@ async function verificarAlertasPedidoSemNF() {
   const limite = getLimiteHorasPedidoSemNF();
 
   for (const reg of (registros || [])) {
+    if (reg.deletado === true) continue;
     if (String(reg.possuiPedido || "").toLowerCase() !== "sim") continue;
-    if (statusExcluiAlertaOferta(reg.status, reg)) continue;
+    const statusNF = String(reg.status || "").trim().toLowerCase();
+    if (statusNF === "perdido" || statusNF === "declinado") continue;
 
     const email = normalizarEmailAlerta(reg.responsavelEmail);
     if (!email) continue;
@@ -768,29 +812,105 @@ function iniciarListenerAlertas() {
   });
 }
 
+// =========================
+// COORDENAÇÃO MULTI-ABA (BroadcastChannel)
+// =========================
+
+function _alertasIniciarInterval() {
+  if (window.alertasLoopHandle) clearInterval(window.alertasLoopHandle);
+  const intervaloMs = DEBUG_ALERTAS ? 10000 : 60000;
+  window.alertasLoopHandle = setInterval(() => {
+    if (!window._alertasEhLider) return;
+    apagarAlertasObsoletosParaSempre().catch(console.error);
+    verificarAlertasSistema().catch(console.error);
+  }, intervaloMs);
+}
+
+function _alertasAssumirLideranca() {
+  if (window._alertasEhLider) return;
+  window._alertasEhLider = true;
+  if (window._alertasBc) {
+    window._alertasBc.postMessage({ type: "take-lead", tabId: window._alertasTabId });
+  }
+  _alertasIniciarInterval();
+}
+
+function _alertasLiberarLideranca() {
+  if (!window._alertasEhLider) return;
+  window._alertasEhLider = false;
+  if (window.alertasLoopHandle) {
+    clearInterval(window.alertasLoopHandle);
+    window.alertasLoopHandle = null;
+  }
+  if (window._alertasBc) {
+    window._alertasBc.postMessage({ type: "release-lead", tabId: window._alertasTabId });
+  }
+}
+
+function iniciarAlertasBroadcastChannel() {
+  if (window._alertasBc) return;
+  if (!window.BroadcastChannel) return; // fallback: comportamento anterior
+
+  window._alertasBc = new BroadcastChannel("crm-alertas-loop");
+
+  window._alertasBc.onmessage = (e) => {
+    const msg = e.data || {};
+    if (msg.tabId === window._alertasTabId) return; // mensagem própria, ignorar
+
+    if (msg.type === "take-lead") {
+      // Outra aba assumiu — eu cedo
+      if (window._alertasEhLider) {
+        window._alertasEhLider = false;
+        if (window.alertasLoopHandle) {
+          clearInterval(window.alertasLoopHandle);
+          window.alertasLoopHandle = null;
+        }
+      }
+    } else if (msg.type === "release-lead") {
+      // Líder saiu — assumo se esta aba estiver visível
+      if (!document.hidden) {
+        setTimeout(() => {
+          if (!window._alertasEhLider && !document.hidden) {
+            _alertasAssumirLideranca();
+            apagarAlertasObsoletosParaSempre().catch(console.error);
+            verificarAlertasSistema().catch(console.error);
+          }
+        }, Math.random() * 80 + 20); // atraso aleatório 20–100ms para evitar thundering herd
+      }
+    }
+  };
+}
+
 function iniciarLoopAlertas() {
   if (window.alertasLoopHandle) {
     clearInterval(window.alertasLoopHandle);
     window.alertasLoopHandle = null;
   }
 
-  const intervaloMs = DEBUG_ALERTAS ? 10000 : 60000;
+  iniciarAlertasBroadcastChannel();
 
-  window.alertasLoopHandle = setInterval(() => {
-    apagarAlertasObsoletosParaSempre().catch(console.error);
-    verificarAlertasSistema().catch(console.error);
-  }, intervaloMs);
+  // Só assume liderança se esta aba estiver visível
+  if (!document.hidden) {
+    _alertasAssumirLideranca();
+  }
 
   window._alertasVisibilityHandler = () => {
     if (!document.hidden) {
+      // Aba ficou visível: tenta assumir liderança e dispara verificação imediata
+      _alertasAssumirLideranca();
       apagarAlertasObsoletosParaSempre().catch(console.error);
       verificarAlertasSistema().catch(console.error);
+    } else {
+      // Aba foi para segundo plano: libera liderança para outras abas
+      _alertasLiberarLideranca();
     }
   };
   document.addEventListener("visibilitychange", window._alertasVisibilityHandler);
 }
 
 function limparSistemaAlertas() {
+  _alertasLiberarLideranca();
+
   if (window.alertasLoopHandle) {
     clearInterval(window.alertasLoopHandle);
     window.alertasLoopHandle = null;
@@ -802,6 +922,11 @@ function limparSistemaAlertas() {
   if (window._alertasVisibilityHandler) {
     document.removeEventListener("visibilitychange", window._alertasVisibilityHandler);
     window._alertasVisibilityHandler = null;
+  }
+
+  if (window._alertasBc) {
+    window._alertasBc.close();
+    window._alertasBc = null;
   }
 }
 
@@ -819,8 +944,11 @@ async function limparAlertasTipoObsoleto(tipo) {
 function iniciarSistemaAlertas() {
   iniciarListenerAlertas();
   iniciarLoopAlertas();
-  apagarAlertasObsoletosParaSempre().catch(console.error);
-  verificarAlertasSistema().catch(console.error);
+  // Verificação inicial apenas se a aba está visível (evita writes redundantes em abas de fundo)
+  if (!document.hidden) {
+    apagarAlertasObsoletosParaSempre().catch(console.error);
+    verificarAlertasSistema().catch(console.error);
+  }
 }
 
 // =========================
