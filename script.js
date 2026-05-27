@@ -6243,9 +6243,20 @@ async function verPermissoesUsuario(uid) {
 }
 
 async function salvarPermissoesUsuario(uid, email, novoRole, repIds, alertaEmails) {
+  // Apenas admins e supervisores têm alertasDeUsuarios com efeito real.
+  // Usuários comuns sempre recebem null para evitar vazamento de alertas.
+  let alertasParaSalvar;
+  if (novoRole === "admin") {
+    alertasParaSalvar = ["*"];
+  } else if (novoRole === "supervisor") {
+    alertasParaSalvar = alertaEmails;
+  } else {
+    alertasParaSalvar = null; // user / sem cargo → limpa o campo
+  }
+
   const extra = novoRole === "admin"
-    ? { representadasPermitidas: ["*"], alertasDeUsuarios: ["*"] }
-    : { representadasPermitidas: repIds, alertasDeUsuarios: alertaEmails };
+    ? { representadasPermitidas: ["*"], alertasDeUsuarios: alertasParaSalvar }
+    : { representadasPermitidas: repIds, alertasDeUsuarios: alertasParaSalvar };
 
   await db.collection("usuarios").doc(uid).set({
     role: novoRole || null,

@@ -25,6 +25,10 @@ service cloud.firestore {
       return userRole() == 'admin';
     }
 
+    function isSupervisorOrAdmin() {
+      return userRole() == 'admin' || userRole() == 'supervisor';
+    }
+
     // ─── usuarios ───────────────────────────────────────────────
     // Cada usuário lê e cria o próprio doc (necessário no primeiro login).
     // Admin pode ler e atualizar qualquer doc.
@@ -62,11 +66,24 @@ service cloud.firestore {
     }
 
     // ─── alertas ────────────────────────────────────────────────
-    // Mesma razão: leitura aberta a todos aprovados, filtro feito pelo cliente JS.
+    // Leitura e criação abertas a todos aprovados (filtro feito no cliente JS).
+    // Update: admin/supervisor podem alterar qualquer campo.
+    //         Usuários comuns só podem:
+    //           · Solicitar resolução/ignorar (status → aguardando_*)
+    //           · Adiar / snooze (status → adiado)
+    //           · Marcar como lido (status não muda — resource.data.status == request.resource.data.status)
     match /alertas/{id} {
       allow read:   if isAuthed() && isApproved();
       allow create: if isAuthed() && isApproved();
-      allow update: if isAuthed() && isApproved();
+      allow update: if isAuthed() && isApproved() && (
+        isSupervisorOrAdmin()
+        || resource.data.status == request.resource.data.status        // status inalterado (ex: marcar lido)
+        || request.resource.data.status in [
+             'aguardando_aprovacao_resolucao',
+             'aguardando_aprovacao_ignorar',
+             'adiado'
+           ]
+      );
       allow delete: if isAuthed() && isAdmin();
     }
 

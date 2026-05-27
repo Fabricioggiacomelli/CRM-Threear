@@ -1861,6 +1861,17 @@ body.dark .btn-alertas:hover { background: rgba(59,130,246,0.14) !important; col
   border: 2px solid var(--bg-container);
 }
 
+/* Badge inline dentro dos botões de aba (ex: aba Adiados) */
+.badge-aba {
+  display: inline-flex; align-items: center; justify-content: center;
+  background: #F59E0B; color: #fff;
+  font-size: 9px; font-weight: 800;
+  border-radius: 999px; padding: 1px 5px; min-width: 15px;
+  margin-left: 4px; vertical-align: middle;
+}
+.badge-aba.hidden { display: none; }
+.alerta-tab.active .badge-aba { background: rgba(255,255,255,0.3); color: #fff; }
+
 /* =========================
    ALERTS MODAL
 ========================= */

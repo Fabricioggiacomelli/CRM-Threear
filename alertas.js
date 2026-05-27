@@ -252,7 +252,13 @@ async function _resolverFollowUpObsoleto(registroId) {
   });
   const existente = await buscarAlertaPorChave(chaveUnica);
   if (!existente) return;
-  if (["resolvido", "ignorado", "arquivado"].includes(existente.status)) return;
+  // Protege alertas já finalizados, em aprovação pendente ou snoozed
+  const STATUS_PROTEGIDOS = [
+    "resolvido", "ignorado", "arquivado",
+    "aguardando_aprovacao_resolucao", "aguardando_aprovacao_ignorar",
+    "adiado"
+  ];
+  if (STATUS_PROTEGIDOS.includes(existente.status)) return;
 
   const agora = agoraISOAlerta();
   await getAlertasRef().doc(existente.id).set(
@@ -430,23 +436,74 @@ function alertaEhObsoleto(payload = {}) {
   );
 }
 
+// Deduplicação one-time: remove alertas legados de prazo_entrega que foram
+// criados com chaveUnica diferente por marco (ex: _15, _10, _5...).
+// Mantém apenas o mais recente por oferta+prazo e apaga os demais.
+// Guarda flag em sessionStorage para rodar só uma vez por sessão.
+async function deduplicarAlertasPrazoEntregaLegados() {
+  if (sessionStorage.getItem("crm_prazo_dedup_ok")) return;
+
+  const STATUS_ATIVOS = ["aberto", "adiado", "aguardando_aprovacao_resolucao", "aguardando_aprovacao_ignorar"];
+
+  const snap = await window.db.collection("alertas")
+    .where("tipo", "in", ["prazo_entrega"])
+    .get();
+
+  if (snap.empty) {
+    sessionStorage.setItem("crm_prazo_dedup_ok", "1");
+    return;
+  }
+
+  // Agrupa por entidadeId + dataReferencia (o prazo contratual)
+  const grupos = {};
+  snap.docs.forEach((doc) => {
+    const d = doc.data();
+    if (!STATUS_ATIVOS.includes(d.status)) return; // ignora finalizados
+    const chave = `${d.entidadeId}_${d.dataReferencia || ""}`;
+    if (!grupos[chave]) grupos[chave] = [];
+    grupos[chave].push({ id: doc.id, ref: doc.ref, atualizadoEm: d.atualizadoEm || "" });
+  });
+
+  const paraApagar = [];
+  Object.values(grupos).forEach((grupo) => {
+    if (grupo.length <= 1) return;
+    // Ordena por atualizadoEm desc — mantém o mais recente, apaga o resto
+    grupo.sort((a, b) => b.atualizadoEm.localeCompare(a.atualizadoEm));
+    paraApagar.push(...grupo.slice(1).map((g) => g.ref));
+  });
+
+  if (!paraApagar.length) {
+    sessionStorage.setItem("crm_prazo_dedup_ok", "1");
+    return;
+  }
+
+  for (let i = 0; i < paraApagar.length; i += 450) {
+    const batch = window.db.batch();
+    paraApagar.slice(i, i + 450).forEach((ref) => batch.delete(ref));
+    await batch.commit();
+  }
+
+  console.log(`[alertas] dedup prazo_entrega: ${paraApagar.length} alerta(s) duplicado(s) removido(s).`);
+  sessionStorage.setItem("crm_prazo_dedup_ok", "1");
+}
+
 async function apagarAlertasObsoletosParaSempre() {
   if (!window.db) return;
 
-  const snap = await window.db.collection("alertas").get();
+  // Filtra apenas o tipo legado "sem_resposta" — evita full-collection scan a cada ciclo
+  const TIPOS_OBSOLETOS = ["sem_resposta"];
+  const snap = await window.db.collection("alertas")
+    .where("tipo", "in", TIPOS_OBSOLETOS)
+    .get();
   if (snap.empty) return;
 
-  const docsParaApagar = snap.docs.filter((doc) => alertaEhObsoleto(doc.data() || {}));
-  if (!docsParaApagar.length) return;
-
-  let apagados = 0;
-  for (let i = 0; i < docsParaApagar.length; i += 450) {
+  for (let i = 0; i < snap.docs.length; i += 450) {
     const batch = window.db.batch();
-    docsParaApagar.slice(i, i + 450).forEach((doc) => batch.delete(doc.ref));
+    snap.docs.slice(i, i + 450).forEach((doc) => batch.delete(doc.ref));
     await batch.commit();
-    apagados += Math.min(450, docsParaApagar.length - i);
   }
 
+  console.log(`[alertas] ${snap.docs.length} alerta(s) obsoleto(s) removido(s).`);
 }
 
 async function criarOuAtualizarAlerta(payload) {
@@ -470,6 +527,9 @@ async function criarOuAtualizarAlerta(payload) {
     existente.status !== "resolvido" &&
     existente.status !== "ignorado"
   ) {
+    // Alerta adiado (snoozed) — nunca sobrescrever campos de snooze pelo loop
+    if (existente.status === "adiado") return existente.id;
+
     await getAlertasRef().doc(existente.id).set(
       {
         ...payload,
@@ -502,25 +562,22 @@ async function criarOuAtualizarAlerta(payload) {
 
 async function adicionarHistoricoAlerta(alertaId, acao, extra = {}) {
   const ref = getAlertasRef().doc(alertaId);
-  const snap = await ref.get();
-  if (!snap.exists) return;
-
-  const atual = snap.data() || {};
-  const historicoAtual = Array.isArray(atual.historico) ? atual.historico : [];
-
-  historicoAtual.push({
-    acao,
-    usuario: getUsuarioAcaoAlertas(),
-    dataHora: agoraISOAlerta(),
-    ...extra
+  // arrayUnion garante append atômico — sem race condition entre abas simultâneas
+  await ref.update({
+    historico: firebase.firestore.FieldValue.arrayUnion({
+      acao,
+      usuario: getUsuarioAcaoAlertas(),
+      dataHora: agoraISOAlerta(),
+      ...extra
+    })
+  }).catch(async (err) => {
+    // Se o documento não existe (raro), cria com o histórico inicial
+    if (err.code === "not-found") {
+      await ref.set({ historico: [{ acao, usuario: getUsuarioAcaoAlertas(), dataHora: agoraISOAlerta(), ...extra }] }, { merge: true });
+    } else {
+      console.error("[alertas] adicionarHistoricoAlerta falhou:", err);
+    }
   });
-
-  await ref.set(
-    {
-      historico: historicoAtual
-    },
-    { merge: true }
-  );
 }
 
 // =========================
@@ -559,11 +616,12 @@ async function verificarAlertasPrazoEntrega() {
         prioridade: dias <= 1 ? "critica" : dias <= 3 ? "alta" : "media",
         atraso: false,
         dataReferencia: prazo,
+        // Chave sem incluir `dias` → um único alerta por prazo, atualizado a cada marco
         chaveUnica: montarChaveAlerta({
           tipo: "prazo_entrega",
           entidade: "oferta",
           entidadeId: reg.id,
-          referencia: `${prazo}_${dias}`
+          referencia: prazo
         })
       });
     }
@@ -643,6 +701,9 @@ async function verificarAlertaFollowUpRegistro(reg) {
     });
     return;
   }
+
+  // Alerta adiado (snoozed) — não atualizar lembretes enquanto snooze ativo
+  if (existente.status === "adiado") return;
 
   const lembreteAtual = Number(existente.lembreteNumero || 1);
 
@@ -729,7 +790,40 @@ async function verificarAlertasPedidoSemNF() {
 // DISPARO GERAL
 // =========================
 
+// Reativa alertas cujo snooze já expirou (lembrarNovamenteEm no passado).
+// Chamada no início de cada ciclo do loop para garantir que nenhum alerta
+// fique preso em "adiado" indefinidamente.
+async function reativarAlertasAdiados() {
+  const agora = new Date().toISOString();
+  const expirados = (window.alertasCache || []).filter(
+    (a) =>
+      a.status === "adiado" &&
+      a.lembrarNovamenteEm &&
+      a.lembrarNovamenteEm <= agora
+  );
+
+  if (!expirados.length) return;
+
+  for (const alerta of expirados) {
+    await getAlertasRef().doc(alerta.id).set(
+      {
+        status: "aberto",
+        lembrarNovamenteEm: null,
+        atualizadoEm: agoraISOAlerta()
+      },
+      { merge: true }
+    );
+    await adicionarHistoricoAlerta(alerta.id, "reativado_snooze_expirado", {
+      usuario: "system"
+    });
+  }
+
+  console.log(`[alertas] ${expirados.length} alerta(s) reativados após snooze expirar.`);
+}
+
 async function verificarAlertasSistema() {
+  await deduplicarAlertasPrazoEntregaLegados(); // one-time por sessão
+  await reativarAlertasAdiados();
   await verificarAlertasPrazoEntrega();
   await verificarAlertasFollowUp();
   await verificarAlertasPedidoSemNF();
@@ -742,20 +836,25 @@ async function verificarAlertasSistema() {
 let unsubscribeAlertas = null;
 
 function usuarioPodeVerAlerta(alerta) {
-  const p = window.permissoesCRM || window.usuarioLogadoCRM;
+  const p = window.permissoesCRM;
   if (!p) return false;
   if (p.role === "admin") return true;
 
   const email = String(alerta?.responsavelEmail || "").toLowerCase().trim();
   const myEmail = String(window.auth?.currentUser?.email || "").toLowerCase().trim();
 
-  // alertasDeUsuarios configurados → filtra pela lista definida no CRM
+  // Usuário comum: vê APENAS os próprios alertas, independente do que estiver em alertasDeUsuarios
+  if (p.role !== "supervisor") {
+    return email === myEmail;
+  }
+
+  // Supervisor: pode ver alertas dos usuários configurados em alertasDeUsuarios
   if (Array.isArray(p.alertasDeUsuarios)) {
     if (p.alertasDeUsuarios.includes("*")) return true;
     return email === myEmail || p.alertasDeUsuarios.includes(email);
   }
 
-  // Sem configuração → mostra apenas alertas do próprio usuário
+  // Supervisor sem alertasDeUsuarios configurado → só os próprios
   return email === myEmail;
 }
 
@@ -773,22 +872,19 @@ function iniciarListenerAlertas() {
     const listaNova = snap.docs
       .map((doc) => ({ id: doc.id, ...doc.data() }))
       .filter((a) => !alertaEhObsoleto(a))
-      .filter((a) => usuarioPodeVerAlerta(a))
-      .filter((a) => {
-        if (a.status === "adiado" && a.lembrarNovamenteEm) {
-          const voltarEm = new Date(a.lembrarNovamenteEm).getTime();
-          return agora >= voltarEm;
-        }
-        return true;
-      });
+      .filter((a) => usuarioPodeVerAlerta(a));
+    // Nota: alertas adiados (snoozed) são mantidos no cache.
+    // A filtragem de snooze ocorre na camada de UI (getAlertasFiltradosUI).
 
     const idsNovos = new Set(listaNova.map((a) => a.id));
 
     if (window.alertasPrimeiraCargaFeita) {
       listaNova.forEach((alerta) => {
+        // Adiados nunca disparam toast (estão silenciados intencionalmente)
+        if (alerta.status === "adiado") return;
+
         const ehAtivo =
           alerta.status === "aberto" ||
-          alerta.status === "adiado" ||
           alerta.status === "aguardando_aprovacao_resolucao" ||
           alerta.status === "aguardando_aprovacao_ignorar";
 
@@ -809,6 +905,9 @@ function iniciarListenerAlertas() {
     else if (!modalAberto) window._alertasRenderPendente = true;
   }, (err) => {
     console.error("[Alertas] Listener falhou:", err.code, err.message);
+    if (typeof showToast === "function") {
+      showToast("Sistema de alertas desconectado. Recarregue a página.", "error");
+    }
   });
 }
 
@@ -894,6 +993,11 @@ function iniciarLoopAlertas() {
     _alertasAssumirLideranca();
   }
 
+  // Remove handler anterior se existir (evita duplicatas em chamadas repetidas)
+  if (window._alertasVisibilityHandler) {
+    document.removeEventListener("visibilitychange", window._alertasVisibilityHandler);
+  }
+
   window._alertasVisibilityHandler = () => {
     if (!document.hidden) {
       // Aba ficou visível: tenta assumir liderança e dispara verificação imediata
@@ -906,6 +1010,15 @@ function iniciarLoopAlertas() {
     }
   };
   document.addEventListener("visibilitychange", window._alertasVisibilityHandler);
+
+  // pagehide: garante release-lead ao fechar a aba (beforeunload não é confiável)
+  // Usa once:true para não acumular listeners em chamadas repetidas
+  if (!window._alertasPageHideRegistrado) {
+    window.addEventListener("pagehide", () => {
+      _alertasLiberarLideranca();
+    }, { once: true });
+    window._alertasPageHideRegistrado = true;
+  }
 }
 
 function limparSistemaAlertas() {
@@ -941,9 +1054,17 @@ async function limparAlertasTipoObsoleto(tipo) {
   console.log(`[alertas] ${snap.docs.length} alertas "${tipo}" removidos do Firestore.`);
 }
 
+function _atualizarVisibilidadeTabAdiados() {
+  const tab = document.getElementById("tabAdiados");
+  if (!tab) return;
+  const podeVer = usuarioEhAdminAlertas() || usuarioEhSupervisorAlertas();
+  tab.classList.toggle("hidden", !podeVer);
+}
+
 function iniciarSistemaAlertas() {
   iniciarListenerAlertas();
   iniciarLoopAlertas();
+  _atualizarVisibilidadeTabAdiados();
   // Verificação inicial apenas se a aba está visível (evita writes redundantes em abas de fundo)
   if (!document.hidden) {
     apagarAlertasObsoletosParaSempre().catch(console.error);
@@ -962,7 +1083,6 @@ function atualizarBadgeAlertas() {
 
   const total = (window.alertasCache || []).filter((a) =>
     a.status === "aberto" ||
-    a.status === "adiado" ||
     a.status === "aguardando_aprovacao_resolucao" ||
     a.status === "aguardando_aprovacao_ignorar"
   ).length;
@@ -1008,10 +1128,11 @@ function trocarAbaAlertas(aba) {
 function renderBadgesAbas() {
   const cache = window.alertasCache || [];
   const defs = [
-    { id: "badge-todos", fn: a => a.status === "aberto" || a.status === "adiado" || a.status === "aguardando_aprovacao_resolucao" || a.status === "aguardando_aprovacao_ignorar" },
-    { id: "badge-nao_lidos", fn: a => !a.lido && a.status !== "resolvido" && a.status !== "ignorado" && a.status !== "arquivado" },
+    // "todos" exclui adiados (ficam na aba "Adiados")
+    { id: "badge-todos", fn: a => a.status === "aberto" || a.status === "aguardando_aprovacao_resolucao" || a.status === "aguardando_aprovacao_ignorar" },
+    { id: "badge-nao_lidos", fn: a => !a.lido && a.status !== "adiado" && a.status !== "resolvido" && a.status !== "ignorado" && a.status !== "arquivado" },
     { id: "badge-pendentes_aprovacao", fn: a => a.status === "aguardando_aprovacao_resolucao" || a.status === "aguardando_aprovacao_ignorar" },
-    { id: "badge-atrasados", fn: a => !!a.atraso && a.status !== "resolvido" && a.status !== "ignorado" },
+    { id: "badge-atrasados", fn: a => !!a.atraso && a.status !== "adiado" && a.status !== "resolvido" && a.status !== "ignorado" && a.status !== "arquivado" },
     { id: "badge-ignorados", fn: a => a.status === "ignorado" },
     { id: "badge-resolvidos", fn: a => a.status === "resolvido" },
     { id: "badge-arquivados", fn: a => a.status === "arquivado" },
@@ -1073,15 +1194,21 @@ function getAlertasFiltradosUI() {
   if (aba === "nao_lidos") {
     lista = lista.filter((a) =>
       !a.lido &&
+      a.status !== "adiado" &&
       a.status !== "resolvido" &&
       a.status !== "ignorado"
     );
   } else if (aba === "atrasados") {
     lista = lista.filter((a) =>
       !!a.atraso &&
+      a.status !== "adiado" &&
       a.status !== "resolvido" &&
-      a.status !== "ignorado"
+      a.status !== "ignorado" &&
+      a.status !== "arquivado"
     );
+  } else if (aba === "adiados") {
+    // Aba exclusiva para supervisores/admins — todos com status "adiado", independente da data
+    lista = lista.filter((a) => a.status === "adiado");
   } else if (aba === "resolvidos") {
     lista = lista.filter((a) => a.status === "resolvido");
   } else if (aba === "pendentes_aprovacao") {
@@ -1094,10 +1221,9 @@ function getAlertasFiltradosUI() {
   } else if (aba === "arquivados") {
     lista = lista.filter((a) => a.status === "arquivado");
   } else {
-    // aba "todos" — exclui arquivados (itens de entidades deletadas) e resolvidos/ignorados
+    // aba "todos" — exclui arquivados, resolvidos, ignorados e TODOS os adiados (ficam na aba "Adiados")
     lista = lista.filter((a) =>
       a.status === "aberto" ||
-      a.status === "adiado" ||
       a.status === "aguardando_aprovacao_resolucao" ||
       a.status === "aguardando_aprovacao_ignorar"
     );
@@ -1144,7 +1270,7 @@ function getAlertasFiltradosUI() {
   if (urgencia) {
     const diasMin = parseInt(urgencia, 10);
     const agora = Date.now();
-    const statusAbertos = ["aberto", "adiado", "aguardando_aprovacao_resolucao", "aguardando_aprovacao_ignorar"];
+    const statusAbertos = ["aberto", "aguardando_aprovacao_resolucao", "aguardando_aprovacao_ignorar"];
     lista = lista.filter((a) => {
       if (!statusAbertos.includes(String(a.status || "").toLowerCase())) return false;
       const criado = new Date(a.dataCriacao || 0).getTime();
@@ -1213,7 +1339,7 @@ function renderListaAlertas() {
       <div class="alerta-card ${classePrioridade} ${classeStatus}">
         <div class="alerta-topo">
           <div class="alerta-titulo-wrap">
-            <div class="alerta-titulo">${a.titulo || "Alerta"}</div>
+            <div class="alerta-titulo">${escapeHtml(a.titulo || "Alerta")}</div>
             <span class="alerta-badge-status ${classeStatus}">${getStatusLabel(status)}</span>
           </div>
 
@@ -1223,21 +1349,22 @@ function renderListaAlertas() {
         </div>
 
         <div class="alerta-meta">
-          ${a.descricao || ""}<br>
+          ${escapeHtml(a.descricao || "")}<br>
+          ${status === "adiado" && a.lembrarNovamenteEm ? `<strong>🔔 Volta em:</strong> ${formatarDataAlertaBR(a.lembrarNovamenteEm)} (${textoTempoRelativoAlerta(a.lembrarNovamenteEm)})<br>` : ""}
           <strong>Tipo:</strong> ${labelTipoAlerta(a.tipo)}<br>
-          ${a.tipo === "followup" && a.tipoOferta ? `<strong>Tipo de oferta:</strong> ${a.tipoOferta.charAt(0).toUpperCase() + a.tipoOferta.slice(1)}<br>` : ""}
+          ${a.tipo === "followup" && a.tipoOferta ? `<strong>Tipo de oferta:</strong> ${escapeHtml(a.tipoOferta.charAt(0).toUpperCase() + a.tipoOferta.slice(1))}<br>` : ""}
           <strong>Entidade:</strong> ${labelEntidadeAlerta(a.entidade)}<br>
-          <strong>Responsável:</strong> ${a.responsavelEmail || "-"}<br>
+          <strong>Responsável:</strong> ${escapeHtml(a.responsavelEmail || "-")}<br>
           <strong>Lido:</strong> ${a.lido ? "Sim" : "Não"}<br>
           <strong>Alerta Criado em:</strong> ${formatarDataAlertaBR(a.dataCriacao)} (${textoTempoRelativoAlerta(a.dataCriacao)})<br>
           <strong>Referência:</strong> ${textoReferenciaAlerta(a)}<br>
-          ${a.lembreteNumero ? `<strong>Lembrete:</strong> ${a.lembreteNumero}<br>` : ""}
-          ${a.resolvidoPor ? `<strong>Resolvido por:</strong> ${a.resolvidoPor}<br>` : ""}
+          ${a.lembreteNumero ? `<strong>Lembrete:</strong> ${Number(a.lembreteNumero)}<br>` : ""}
+          ${a.resolvidoPor ? `<strong>Resolvido por:</strong> ${escapeHtml(a.resolvidoPor)}<br>` : ""}
           ${a.resolvidoEm ? `<strong>Resolvido em:</strong> ${formatarDataAlertaBR(a.resolvidoEm)}<br>` : ""}
           ${a.resolvidoEm ? `<strong>Tempo para resolver:</strong> ${tempoParaResolverAlerta(a)}<br>` : ""}
-          ${a.aprovadoPor ? `<strong>Aprovado por:</strong> ${a.aprovadoPor}<br>` : ""}
+          ${a.aprovadoPor ? `<strong>Aprovado por:</strong> ${escapeHtml(a.aprovadoPor)}<br>` : ""}
           ${a.aprovadoEm ? `<strong>Aprovado em:</strong> ${formatarDataAlertaBR(a.aprovadoEm)}<br>` : ""}
-          ${a.ignoradoPor ? `<strong>Ignorado por:</strong> ${a.ignoradoPor}<br>` : ""}
+          ${a.ignoradoPor ? `<strong>Ignorado por:</strong> ${escapeHtml(a.ignoradoPor)}<br>` : ""}
           ${a.ignoradoEm ? `<strong>Ignorado em:</strong> ${formatarDataAlertaBR(a.ignoradoEm)}<br>` : ""}
         </div>
 
@@ -1555,27 +1682,45 @@ async function lembrarDepoisAlerta(id, dias) {
   });
 }
 
-async function lembrarDepoisDataAlerta(id) {
-  const valor = prompt("Lembrar novamente em qual data? Use YYYY-MM-DD");
-  if (!valor) return;
+function lembrarDepoisDataAlerta(id) {
+  // Modal leve com input type=date — sem prompt() nativo
+  const hoje = new Date().toISOString().slice(0, 10);
 
-  const data = new Date(`${valor}T09:00:00`);
-  if (isNaN(data.getTime())) {
-    showToast("Data inválida.", "error");
-    return;
-  }
+  const overlay = document.createElement("div");
+  overlay.style.cssText = "position:fixed;inset:0;background:rgba(0,0,0,.45);z-index:2147483647;display:flex;align-items:center;justify-content:center;";
 
-  await getAlertasRef().doc(id).set(
-    {
-      status: "adiado",
-      lembrarNovamenteEm: data.toISOString(),
-      atualizadoEm: agoraISOAlerta()
-    },
-    { merge: true }
-  );
+  overlay.innerHTML = `
+    <div style="background:var(--bg-container);border:1px solid var(--border-soft);border-radius:14px;padding:24px 28px;min-width:280px;box-shadow:0 8px 32px rgba(0,0,0,.25);">
+      <div style="font-size:15px;font-weight:700;margin-bottom:14px;color:var(--text-main);">Lembrar novamente em</div>
+      <input type="date" id="_adiarDataInput" min="${hoje}" value="${hoje}"
+        style="width:100%;padding:8px 10px;border-radius:8px;border:1.5px solid var(--border-soft);background:var(--bg-body);color:var(--text-main);font-size:14px;margin-bottom:16px;">
+      <div style="display:flex;gap:8px;justify-content:flex-end;">
+        <button id="_adiarCancelar" class="secondary" style="padding:7px 16px;">Cancelar</button>
+        <button id="_adiarConfirmar" style="padding:7px 16px;">Confirmar</button>
+      </div>
+    </div>
+  `;
 
-  await adicionarHistoricoAlerta(id, "adiado_data", {
-    dataEscolhida: data.toISOString()
+  document.body.appendChild(overlay);
+  const input = overlay.querySelector("#_adiarDataInput");
+  input.focus();
+
+  const fechar = () => overlay.remove();
+
+  overlay.querySelector("#_adiarCancelar").addEventListener("click", fechar);
+  overlay.addEventListener("click", (e) => { if (e.target === overlay) fechar(); });
+
+  overlay.querySelector("#_adiarConfirmar").addEventListener("click", async () => {
+    const valor = input.value;
+    if (!valor) return;
+    const data = new Date(`${valor}T09:00:00`);
+    if (isNaN(data.getTime())) { showToast("Data inválida.", "error"); return; }
+    fechar();
+    await getAlertasRef().doc(id).set(
+      { status: "adiado", lembrarNovamenteEm: data.toISOString(), atualizadoEm: agoraISOAlerta() },
+      { merge: true }
+    );
+    await adicionarHistoricoAlerta(id, "adiado_data", { dataEscolhida: data.toISOString() });
   });
 }
 
@@ -1629,9 +1774,16 @@ async function abrirItemDoAlerta(alertaId) {
 // HISTÓRICO
 // =========================
 
-function verHistoricoAlerta(id) {
-  const alerta = (window.alertasCache || []).find((a) => a.id === id);
-  if (!alerta) return;
+async function verHistoricoAlerta(id) {
+  let alerta = (window.alertasCache || []).find((a) => a.id === id);
+  if (!alerta) {
+    const snap = await getAlertasRef().doc(id).get().catch(() => null);
+    if (!snap?.exists) {
+      if (typeof showToast === "function") showToast("Alerta não encontrado.", "error");
+      return;
+    }
+    alerta = { id: snap.id, ...snap.data() };
+  }
 
   const historico = Array.isArray(alerta.historico) ? alerta.historico : [];
 
@@ -1639,11 +1791,11 @@ function verHistoricoAlerta(id) {
     ? historico.map((h) => `
         <div class="historico-item">
           <div class="historico-topo">
-            <span class="historico-usuario">${h.usuario || "-"}</span>
+            <span class="historico-usuario">${escapeHtml(h.usuario || "-")}</span>
             <span class="historico-data">${formatarDataAlertaBR(h.dataHora)}</span>
           </div>
           <div class="historico-texto">
-            ${h.acao || "-"}
+            ${escapeHtml(h.acao || "-")}
           </div>
         </div>
       `).join("")
@@ -1747,19 +1899,19 @@ async function arquivarAlertasDeEntidade(entidadeId) {
     const data = doc.data();
     if (statusFinalizado.includes(data.status)) continue;
 
+    // Um único write: status + histórico via arrayUnion
     await doc.ref.set(
-      { status: "arquivado", atualizadoEm: agora },
+      {
+        status: "arquivado",
+        atualizadoEm: agora,
+        historico: firebase.firestore.FieldValue.arrayUnion({
+          acao: "arquivado_lixeira",
+          usuario: "system",
+          dataHora: agora
+        })
+      },
       { merge: true }
     );
-
-    // Registra no histórico sem operação extra de read
-    const historicoAtual = Array.isArray(data.historico) ? data.historico : [];
-    historicoAtual.push({
-      acao: "arquivado_lixeira",
-      usuario: "system",
-      dataHora: agora
-    });
-    await doc.ref.set({ historico: historicoAtual }, { merge: true });
   }
 }
 
