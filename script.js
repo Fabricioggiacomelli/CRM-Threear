@@ -40,6 +40,71 @@ function getPaginatedData(list, page, pageSize) {
 /** Alias curto para escapeHtml — use em template literals com dados do usuário */
 const esc = (s) => String(s || "").replaceAll("&","&amp;").replaceAll("<","&lt;").replaceAll(">","&gt;").replaceAll('"',"&quot;").replaceAll("'","&#039;");
 
+// ─── Classificação ABC ───────────────────────────────────────
+function _abcParseMoneyBR(v) {
+  if (typeof v === "number") return v;
+  const n = parseFloat(String(v || "").replace(/[^\d,.-]/g, "").replace(/\./g, "").replace(",", "."));
+  return isNaN(n) ? 0 : n;
+}
+
+function calcularAbcClientes() {
+  const limite = new Date();
+  limite.setFullYear(limite.getFullYear() - 1);
+  const map = {};
+  for (const r of registros) {
+    if (r.deletado) continue;
+    if (r.possuiPedido !== true && r.possuiPedido !== "sim") continue;
+    const dt = r.data_entrada ? new Date(r.data_entrada) : null;
+    if (!dt || isNaN(dt) || dt < limite) continue;
+    const cnpj = (r.cnpj_cliente || "").replace(/\D/g, "");
+    if (!cnpj) continue;
+    const val = _abcParseMoneyBR(r.pedido?.valor_pedido || r.valor_total || 0);
+    if (!map[cnpj]) map[cnpj] = { totalPedido: 0, qtdPedidos: 0 };
+    map[cnpj].totalPedido += val;
+    map[cnpj].qtdPedidos++;
+  }
+  for (const k in map) {
+    const v = map[k].totalPedido;
+    map[k].classe = v >= 1_000_000 ? "A" : v >= 200_000 ? "B" : "C";
+  }
+  return map;
+}
+
+function calcularAbcRepresentadas() {
+  const limite = new Date();
+  limite.setFullYear(limite.getFullYear() - 1);
+  const map = {};
+  for (const r of registros) {
+    if (r.deletado) continue;
+    if (r.possuiPedido !== true && r.possuiPedido !== "sim") continue;
+    const dt = r.data_entrada ? new Date(r.data_entrada) : null;
+    if (!dt || isNaN(dt) || dt < limite) continue;
+    const repId = r.representadaId || "";
+    if (!repId) continue;
+    const val = _abcParseMoneyBR(r.pedido?.valor_pedido || r.valor_total || 0);
+    if (!map[repId]) map[repId] = { totalPedido: 0, qtdPedidos: 0 };
+    map[repId].totalPedido += val;
+    map[repId].qtdPedidos++;
+  }
+  for (const k in map) {
+    const v = map[k].totalPedido;
+    map[k].classe = v >= 25_000_000 ? "A" : v >= 1_000_000 ? "B" : "C";
+  }
+  return map;
+}
+
+function abcBadgeHtml(classe, totalPedido, qtdPedidos) {
+  if (!classe) return "";
+  const cls = { A: "badge-abc-a", B: "badge-abc-b", C: "badge-abc-c" }[classe] || "";
+  const money = typeof totalPedido === "number" && totalPedido > 0
+    ? totalPedido.toLocaleString("pt-BR", { style: "currency", currency: "BRL" })
+    : null;
+  const tooltip = money
+    ? `Classe ${classe} — ${money} no último ano (${qtdPedidos} pedido${qtdPedidos !== 1 ? "s" : ""})`
+    : `Classe ${classe}`;
+  return `<span class="badge-abc ${cls}" title="${esc(tooltip)}">${classe}</span>`;
+}
+
 // ─────────────────────────────────────────────────────────
 // CACHE DE ELEMENTOS DOM FIXOS
 // Populado em mostrarApp() após #appContainer ficar visível.
@@ -171,7 +236,7 @@ window.STATUS_OPTIONS = [
   "Liberação Prysmian",
   "Perdido",
   "Proposta enviada",
-  "Revisão Prysmian",
+  "Revisão",
 ];
 
 window.SEGMENTO_OPTIONS = [
@@ -415,6 +480,7 @@ window.addEventListener("load", async () => {
 
   initAprovacaoUsuariosUI();
   initUsuariosExistentesUI();
+  initAuditoriaAdmin();
   initTecladoAtalhos();
 
   await esperarFirebase();
@@ -1068,10 +1134,33 @@ function abrirModal(titulo, html, editFn = null) {
 function fecharModalDetalhes() {
   const modal = document.getElementById("modalDetalhes");
   if (modal) modal.classList.add("hidden");
+  const corpo = document.getElementById("modalCorpo");
+  if (corpo) corpo.classList.remove("modal-corpo--tabs");
   if (window._voltarParaAlertas) {
     window._voltarParaAlertas = false;
     if (typeof abrirModalAlertas === "function") abrirModalAlertas();
   }
+}
+
+function trocarAbaOferta(aba) {
+  const corpo = document.getElementById("modalCorpo");
+  if (!corpo) return;
+  corpo.querySelectorAll(".od-tab-btn").forEach(function(btn) {
+    btn.classList.toggle("active", btn.dataset.tab === aba);
+  });
+  corpo.querySelectorAll(".od-tab-panel").forEach(function(panel) {
+    panel.classList.toggle("active", panel.dataset.tab === aba);
+  });
+}
+
+function verHistoricoContato(idx, clienteId) {
+  const cli = clientes.find(function(c) { return c.id === clienteId; });
+  if (!cli) return;
+  const ct = (cli.contatos || [])[idx];
+  if (!ct) return;
+
+  historicoAtualModal = ct.historico || [];
+  abrirHistoricoAtual("Histórico do Contato — " + (ct.nome || "-"));
 }
 
 function applyTheme(theme) {
@@ -1598,6 +1687,7 @@ function initForm() {
       };
       await db.collection("ofertas").doc(id).set(registro);
       registros.push(registro);
+      registrarLog("oferta_criada", `${registro.oferta || id} — ${registro.razao || ""}`, id);
       showToast("Registro adicionado!", "success");
     } else {
       const idx = registros.findIndex((r) => r.id === editId);
@@ -1657,6 +1747,7 @@ function initForm() {
         };
         await db.collection("ofertas").doc(editId).set(registro);
         registros[idx] = registro;
+        registrarLog("oferta_editada", `${registro.oferta || editId} — ${registro.razao || ""}`, editId);
         // Resolve/solicita aprovação dos alertas de follow-up
         if (typeof onRegistroSalvoReset === "function") {
           onRegistroSalvoReset(editId).catch(console.error);
@@ -1845,27 +1936,13 @@ function openActionsMenu(ev, type, id, extra = null) {
   };
 
   if (btnVerContatos) {
-    const mostrarContatos = type === "cliente" || type === "projeto";
-    btnVerContatos.style.display = mostrarContatos ? "block" : "none";
-
-    btnVerContatos.onclick = () => {
-      closeActionsMenu();
-      if (type === "cliente") verContatosCliente(id);
-      if (type === "projeto") verContatosProjeto(id);
-    };
+    // Clientes e Projetos: contatos estão na aba do modal "Ver" — botão desnecessário
+    btnVerContatos.style.display = "none";
   }
 
   if (btnVerOfertas) {
-    const mostrarOfertas =
-      type === "cliente" || type === "projeto" || type === "rep";
-    btnVerOfertas.style.display = mostrarOfertas ? "block" : "none";
-
-    btnVerOfertas.onclick = () => {
-      closeActionsMenu();
-      if (type === "cliente") verOfertasCliente(id);
-      if (type === "projeto") verOfertasProjeto(id);
-      if (type === "rep") verOfertasRepresentada(id);
-    };
+    // Clientes, Projetos e Representadas: ofertas estão na aba do modal "Ver" — botão desnecessário
+    btnVerOfertas.style.display = "none";
   }
 
   if (btnExportar) {
@@ -2371,6 +2448,7 @@ async function excluirRegistro(id) {
       nomeExibicao,
     });
 
+    registrarLog("oferta_lixeira", nomeExibicao, id, { razao: registro.razao, oferta: registro.oferta, status: registro.status });
     registros = registros.filter((r) => r.id !== id);
     renderTabela();
 
@@ -2378,6 +2456,7 @@ async function excluirRegistro(id) {
       mensagem: "Registro movido para a lixeira.",
       onUndo: async () => {
         await restaurarDaLixeira("ofertas", id);
+        registrarLog("item_restaurado", `ofertas: ${nomeExibicao}`, id);
         await recarregarDadosPrincipais();
       },
     });
@@ -4291,6 +4370,7 @@ function initClientesUI() {
         };
         await db.collection("clientes").doc(id).set(cliente);
         clientes.push(cliente);
+        registrarLog("cliente_criado", clienteBase.razao || id, id);
         showToast("Cliente salvo!", "success");
       } else {
         const idx = clientes.findIndex((c) => c.id === editClienteId);
@@ -4317,6 +4397,7 @@ function initClientesUI() {
           };
           await db.collection("clientes").doc(editClienteId).set(cliente);
           clientes[idx] = cliente;
+          registrarLog("cliente_editado", clienteBase.razao || editClienteId, editClienteId);
           atualizarSugestoesCnpj();
         }
 
@@ -4371,6 +4452,11 @@ function initClientesUI() {
   if (!document.querySelector("#filtersClientes .filter-item")) {
     addFiltroClienteRow();
   }
+
+  document.getElementById("filtroClasseClientes")?.addEventListener("change", () => {
+    clientesCurrentPage = 1;
+    renderTabelaClientes();
+  });
 
   renderTabelaClientes();
 
@@ -4475,7 +4561,16 @@ function renderTabelaClientes() {
 
   tbody.innerHTML = "";
 
-  const filtrados = getClientesFiltrados();
+  let filtrados = getClientesFiltrados();
+  const abcMapClientes = calcularAbcClientes();
+  const filtroClasseCli = document.getElementById("filtroClasseClientes")?.value || "";
+  if (filtroClasseCli) {
+    filtrados = filtrados.filter(cli => {
+      const cnpj = (cli.cnpj || "").replace(/\D/g, "");
+      return (abcMapClientes[cnpj]?.classe || "C") === filtroClasseCli;
+    });
+  }
+
   const listaOrdenada =
     ordemClientes === "asc" ? [...filtrados] : [...filtrados].reverse();
   const countEl = DOM.clientesCount || document.getElementById("clientesCount");
@@ -4507,13 +4602,15 @@ function renderTabelaClientes() {
 
       const cnpjClean = (cli.cnpj || "").replace(/\D/g, "");
       const qtdOfertas = ofertasPorCnpj[cnpjClean] || 0;
+      const abcInfo = abcMapClientes[cnpjClean];
+      const badgeCli = abcInfo ? abcBadgeHtml(abcInfo.classe, abcInfo.totalPedido, abcInfo.qtdPedidos) : "";
 
       tr.innerHTML = `
 <td>${ordemClientes === "asc"
           ? start + index + 1
           : listaOrdenada.length - (start + index)
         }</td>
-        <td>${esc(cli.razao)}</td>
+        <td>${esc(cli.razao)} ${badgeCli}</td>
         <td>${esc(cli.cnpj)}</td>
         <td>${esc(cli.segmento)}</td>
         <td>${esc(cli.sap)}</td>
@@ -4620,6 +4717,7 @@ async function excluirCliente(id) {
       nomeExibicao,
     });
 
+    registrarLog("cliente_lixeira", nomeExibicao, id, { razao: cliente.razao, cnpj: cliente.cnpj });
     clientes = clientes.filter((c) => c.id !== id);
     salvarClientes?.();
     renderTabelaClientes?.();
@@ -4628,6 +4726,7 @@ async function excluirCliente(id) {
       mensagem: "Cliente movido para a lixeira.",
       onUndo: async () => {
         await restaurarDaLixeira("clientes", id);
+        registrarLog("item_restaurado", `clientes: ${nomeExibicao}`, id);
         await recarregarDadosPrincipais();
       },
     });
@@ -4780,6 +4879,7 @@ function initRepresentadasUI() {
       };
       await db.collection("representadas").doc(id).set(rep);
       representadas.push(rep);
+      registrarLog("representada_criada", nome || id, id);
       showToast("Representada salva!", "success");
     } else {
       const idx = representadas.findIndex((r) => r.id === editRepresentadaId);
@@ -4813,6 +4913,7 @@ function initRepresentadasUI() {
         };
         await db.collection("representadas").doc(editRepresentadaId).set(rep);
         representadas[idx] = rep;
+        registrarLog("representada_editada", rep.nome || editRepresentadaId, editRepresentadaId);
       }
 
       registros.forEach((reg) => {
@@ -4888,6 +4989,11 @@ function initRepresentadasUI() {
         renderTabelaRepresentadas();
       }
     });
+
+  document.getElementById("filtroClasseRepresentadas")?.addEventListener("change", () => {
+    representadasCurrentPage = 1;
+    renderTabelaRepresentadas();
+  });
 }
 
 function renderTabelaRepresentadas() {
@@ -4902,7 +5008,13 @@ function renderTabelaRepresentadas() {
 
   tbody.innerHTML = "";
 
-  const filtrados = getRepresentadasFiltradas();
+  let filtrados = getRepresentadasFiltradas();
+  const abcMapReps = calcularAbcRepresentadas();
+  const filtroClasseRep = document.getElementById("filtroClasseRepresentadas")?.value || "";
+  if (filtroClasseRep) {
+    filtrados = filtrados.filter(rep => (abcMapReps[rep.id]?.classe || "C") === filtroClasseRep);
+  }
+
   const listaOrdenada =
     ordemRepresentadas === "asc" ? [...filtrados] : [...filtrados].reverse();
 
@@ -4926,6 +5038,8 @@ function renderTabelaRepresentadas() {
     const qtdOfertas = filtrarPorPermissao(registros).filter(
       (r) => r.representadaId === rep.id,
     ).length;
+    const abcRepInfo = abcMapReps[rep.id];
+    const badgeRep = abcRepInfo ? abcBadgeHtml(abcRepInfo.classe, abcRepInfo.totalPedido, abcRepInfo.qtdPedidos) : "";
 
     const tr = document.createElement("tr");
     tr.innerHTML = `
@@ -4933,7 +5047,7 @@ function renderTabelaRepresentadas() {
         ? start + index + 1
         : listaOrdenada.length - (start + index)
       }</td>
-      <td>${esc(rep.nome)}</td>
+      <td>${esc(rep.nome)} ${badgeRep}</td>
       <td class="col-center">${qtdOfertas}</td>
       <td>${esc(usuario)}</td>
       <td style="text-align:center;">
@@ -5019,6 +5133,7 @@ async function excluirRepresentada(id) {
       nomeExibicao,
     });
 
+    registrarLog("representada_lixeira", nomeExibicao, id, { nome: representada.nome });
     representadas = representadas.filter((r) => r.id !== id);
     salvarRepresentadas?.();
     renderTabelaRepresentadas?.();
@@ -5028,6 +5143,7 @@ async function excluirRepresentada(id) {
       mensagem: "Representada movida para a lixeira.",
       onUndo: async () => {
         await restaurarDaLixeira("representadas", id);
+        registrarLog("item_restaurado", `representadas: ${nomeExibicao}`, id);
         await recarregarDadosPrincipais();
       },
     });
@@ -5083,38 +5199,43 @@ function verOferta(id) {
       '</div>';
   }
 
-  let html = section("Identificação",
-    field("N° Oferta", esc(reg.oferta) || "-") +
-    field("Tipo", esc(tipoTexto)) +
-    field("Atendimento Spot?", reg.atendimentoSpot === "sim" ? "Sim" : "Não") +
-    field("Data Entrada", formatDateBR(reg.data_entrada) || "-") +
-    field("Data Envio", formatDateBR(reg.data_envio) || "") +
-    field("B.U.", esc(reg.bu) || "") +
-    field("Segmento", esc(reg.segmento) || "")
-  );
+  const temPedido = reg.possuiPedido === "sim";
+  const temRevisao = reg.possuiRevisao === "sim";
 
-  html += section("Cliente",
-    field("Razão Social", esc(reg.razao) || "-") +
-    field("CNPJ", esc(reg.cnpj_cliente) || "-") +
-    field("Solicitante", esc(reg.solicitante) || "") +
-    field("Telefone", esc(reg.telefone) || "") +
-    field("E-mail", esc(reg.email) || "") +
-    field("Ref. do Cliente", esc(reg.ref_cliente) || "")
-  );
+  // ─── Aba: Proposta ─────────────────────────────────────────────
+  const htmlProposta =
+    section("Identificação",
+      field("N° Oferta", esc(reg.oferta) || "-") +
+      field("Tipo", esc(tipoTexto)) +
+      field("Atendimento Spot?", reg.atendimentoSpot === "sim" ? "Sim" : "Não") +
+      field("Data Entrada", formatDateBR(reg.data_entrada) || "-") +
+      field("Data Envio", formatDateBR(reg.data_envio) || "") +
+      field("B.U.", esc(reg.bu) || "") +
+      field("Segmento", esc(reg.segmento) || "")
+    ) +
+    section("Cliente",
+      field("Razão Social", esc(reg.razao) || "-") +
+      field("CNPJ", esc(reg.cnpj_cliente) || "-") +
+      field("Solicitante", esc(reg.solicitante) || "") +
+      field("Telefone", esc(reg.telefone) || "") +
+      field("E-mail", esc(reg.email) || "") +
+      field("Ref. do Cliente", esc(reg.ref_cliente) || "")
+    ) +
+    section("Proposta",
+      field("Representada", esc(reg.representadaNome) || "-") +
+      field("Valor Total", esc(reg.valor_total) || "-") +
+      field("Status", esc(reg.status) || "-") +
+      (reg.status === "Perdido" && reg.motivo_perda ? field("Motivo da Perda", esc(reg.motivo_perda), true) : "") +
+      field("Projeto", esc(reg.nome_projeto) || "") +
+      (String(reg.representadaNome || "").toLowerCase().includes("mantex") && reg.unidade ? field("Unidade", esc(reg.unidade)) : "") +
+      (reg.obs_geral && String(reg.obs_geral).trim() ? field("Observações Gerais", esc(reg.obs_geral).replace(/\n/g, "<br>"), true) : "")
+    );
 
-  html += section("Proposta",
-    field("Representada", esc(reg.representadaNome) || "-") +
-    field("Valor Total", esc(reg.valor_total) || "-") +
-    field("Status", esc(reg.status) || "-") +
-    (reg.status === "Perdido" && reg.motivo_perda ? field("Motivo da Perda", esc(reg.motivo_perda), true) : "") +
-    field("Projeto", esc(reg.nome_projeto) || "") +
-    (String(reg.representadaNome || "").toLowerCase().includes("mantex") && reg.unidade ? field("Unidade", esc(reg.unidade)) : "") +
-    (reg.obs_geral && String(reg.obs_geral).trim() ? field("Observações Gerais", esc(reg.obs_geral).replace(/\n/g, "<br>"), true) : "")
-  );
-
-  if (reg.possuiPedido === "sim") {
+  // ─── Aba: Pedido ───────────────────────────────────────────────
+  let htmlPedido = "";
+  if (temPedido) {
     const nfHtml = formatarNotasFiscaisHtml(pedido);
-    html += section("Pedido",
+    htmlPedido = section("Pedido",
       field("N° Pedido", pedido.numero_pedido || "") +
       field("Data P.O.", formatDateBR(pedido.data_po) || "") +
       field("Valor Pedido", pedido.valor_pedido || "") +
@@ -5129,27 +5250,333 @@ function verOferta(id) {
       (pedido.obs ? field("Obs. Pedido", esc(pedido.obs).replace(/\n/g, "<br>"), true) : "") +
       (nfHtml ? '<div class="md-detail-field md-detail-field--full"><div class="md-detail-field-label">Notas Fiscais</div><div class="md-detail-field-value">' + nfHtml + '</div></div>' : "")
     );
+  } else {
+    htmlPedido = '<p class="od-empty">Nenhum pedido registrado para esta oferta.</p>';
   }
 
-  if (reg.possuiRevisao === "sim") {
-    html += section("Revisão",
+  // ─── Aba: Revisão ──────────────────────────────────────────────
+  let htmlRevisao = "";
+  if (temRevisao) {
+    htmlRevisao = section("Revisão",
       field("N° Oferta Anterior", revisao.numero_oferta_anterior || "") +
       field("O que mudou", (revisao.mudou || "-").toString().replace(/\n/g, "<br>"), true)
     );
+  } else {
+    htmlRevisao = '<p class="od-empty">Esta oferta não possui revisão.</p>';
   }
 
-  html += section("Histórico",
-    field("Criado em", formatDateTimeBR(reg.criadoEm)) +
-    field("Criado por", criadoPor) +
-    field("Atualizado em", formatDateTimeBR(reg.atualizadoEm)) +
-    field("Atualizado por", atualizadoPor)
-  );
-
+  // ─── Aba: Histórico ────────────────────────────────────────────
   const _ofertaLabel = escapeHtml(reg.oferta || "");
-  html += '<div class="md-history-section"><button type="button" class="secondary" onclick="abrirHistoricoAtual(\'' + 'Histórico da Oferta ' + _ofertaLabel + '\')">' +
+  const htmlHistorico =
+    section("Histórico",
+      field("Criado em", formatDateTimeBR(reg.criadoEm)) +
+      field("Criado por", criadoPor) +
+      field("Atualizado em", formatDateTimeBR(reg.atualizadoEm)) +
+      field("Atualizado por", atualizadoPor)
+    ) +
+    '<div class="md-history-section"><button type="button" class="secondary" onclick="abrirHistoricoAtual(\'' + 'Histórico da Oferta ' + _ofertaLabel + '\')">' +
     'Visualizar histórico de atividades</button></div>';
+
+  // ─── Montar modal com abas (sempre 4) ─────────────────────────
+  const html =
+    '<div class="od-tabs">' +
+      '<div class="od-tab-nav">' +
+        '<button class="od-tab-btn active" data-tab="proposta" onclick="trocarAbaOferta(\'proposta\')">Proposta</button>' +
+        '<button class="od-tab-btn" data-tab="pedido" onclick="trocarAbaOferta(\'pedido\')">Pedido</button>' +
+        '<button class="od-tab-btn" data-tab="revisao" onclick="trocarAbaOferta(\'revisao\')">Revisão</button>' +
+        '<button class="od-tab-btn" data-tab="historico" onclick="trocarAbaOferta(\'historico\')">Histórico</button>' +
+      '</div>' +
+      '<div class="od-tab-panel active" data-tab="proposta">' + htmlProposta + '</div>' +
+      '<div class="od-tab-panel" data-tab="pedido">' + htmlPedido + '</div>' +
+      '<div class="od-tab-panel" data-tab="revisao">' + htmlRevisao + '</div>' +
+      '<div class="od-tab-panel" data-tab="historico">' + htmlHistorico + '</div>' +
+    '</div>';
+
   abrirModal(`Oferta ${reg.oferta || ""}`, html, () => editarRegistro(id));
+  // Remove o padding do modal-body para que o tab-nav ocupe a largura total
+  const _corpo = document.getElementById("modalCorpo");
+  if (_corpo) _corpo.classList.add("modal-corpo--tabs");
 }
+
+// ═══════════════════════════════════════════════════════════════
+//  CRUD DE CONTATOS — Modal flutuante (Clientes e Projetos)
+// ═══════════════════════════════════════════════════════════════
+
+function buildContatosTabHtml(contatos, entidadeId, tipo) {
+  const idEsc = escapeHtml(entidadeId);
+  let html =
+    '<div class="ct-tab-header">' +
+      '<button type="button" class="ct-add-btn" onclick="abrirModalContatoCrud(null,\'' + idEsc + '\',\'' + tipo + '\')">+ Adicionar contato</button>' +
+    '</div>';
+
+  if (!contatos.length) {
+    html += '<p class="od-empty">Nenhum contato cadastrado.</p>';
+    return html;
+  }
+
+  html += '<div class="md-detail-section"><div class="md-detail-grid">';
+  contatos.forEach(function(ct, idx) {
+    html += buildContatoCardHtml(ct, idx, entidadeId, tipo);
+  });
+  html += '</div></div>';
+  return html;
+}
+
+function buildContatoCardHtml(ct, idx, entidadeId, tipo) {
+  const idEsc = escapeHtml(entidadeId);
+  const cardId = 'ct-card-' + idEsc + '-' + idx;
+  return '<div class="md-contact-card" id="' + cardId + '">' +
+    '<div class="md-contact-name">' + (esc(ct.nome) || '-') +
+      (ct.principal ? '<span class="modal-badge">Principal</span>' : '') +
+    '</div>' +
+    '<div class="md-contact-detail">' +
+      (ct.funcao        ? 'Função: '       + esc(ct.funcao)                             + '<br>' : '') +
+      (ct.telefone      ? 'Tel: '          + esc(ct.telefone)                            + '<br>' : '') +
+      (ct.email         ? 'E-mail: '       + esc(ct.email)                               + '<br>' : '') +
+      (ct.responsavelNome ? 'Responsável: ' + esc(primeiroNome(ct.responsavelNome))              : '') +
+    '</div>' +
+    ((ct.criadoEm || ct.atualizadoEm) ?
+      '<div class="md-contact-timestamps">' +
+        (ct.criadoEm     ? '<span>Criado em: '     + formatDateTimeBR(ct.criadoEm)     + '</span>' : '') +
+        (ct.atualizadoEm ? '<span>Atualizado em: ' + formatDateTimeBR(ct.atualizadoEm) + '</span>' : '') +
+      '</div>' : '') +
+    '<div class="md-contact-actions" id="' + cardId + '-actions">' +
+      buildContatoActionsHtml(idx, idEsc, tipo, false) +
+    '</div>' +
+  '</div>';
+}
+
+function buildContatoActionsHtml(idx, idEsc, tipo, pendingDel) {
+  if (pendingDel) {
+    return '<span class="ct-del-label">Remover este contato?</span>' +
+      '<button type="button" class="ct-btn-restore" onclick="restaurarContatoModal(' + idx + ',\'' + idEsc + '\',\'' + tipo + '\')">Restaurar</button>' +
+      '<button type="button" class="ct-btn-confirm-del" onclick="confirmarExclusaoContatoModal(' + idx + ',\'' + idEsc + '\',\'' + tipo + '\')">Excluir de vez</button>';
+  }
+  return '<button type="button" class="od-ver-btn" onclick="verHistoricoContatoModal(' + idx + ',\'' + idEsc + '\',\'' + tipo + '\')">Ver histórico</button>' +
+    '<button type="button" class="ct-btn-edit" onclick="abrirModalContatoCrud(' + idx + ',\'' + idEsc + '\',\'' + tipo + '\')">Editar</button>' +
+    '<button type="button" class="ct-btn-del" onclick="excluirContatoModal(' + idx + ',\'' + idEsc + '\',\'' + tipo + '\')">Remover</button>';
+}
+
+function abrirModalContatoCrud(idx, entidadeId, tipo) {
+  const lista = tipo === "cliente" ? clientes : projetos;
+  const entidade = lista.find(function(e) { return e.id === entidadeId; });
+  if (!entidade) return;
+
+  const ct = idx !== null ? (entidade.contatos || [])[idx] : null;
+  const isNovo = ct === null;
+  const nomeEntidade = tipo === "cliente"
+    ? (entidade.razao || entidade.nome || "Cliente")
+    : (entidade.nome || "Projeto");
+
+  // Montar opções do select de responsável
+  var respOptions = '<option value="">Selecione</option>';
+  RESPONSAVEIS_FIXOS.forEach(function(nome) {
+    var sel = ct && ct.responsavelNome === nome ? ' selected' : '';
+    respOptions += '<option value="' + escapeHtml(nome) + '"' + sel + '>' + escapeHtml(nome) + '</option>';
+  });
+
+  document.getElementById('modalContatoCrud')?.remove();
+  var overlay = document.createElement('div');
+  overlay.id = 'modalContatoCrud';
+  overlay.className = 'mct-overlay';
+  overlay.innerHTML =
+    '<div class="mct-card" role="dialog" aria-modal="true" aria-label="' + (isNovo ? 'Novo contato' : 'Editar contato') + '">' +
+      '<div class="mct-header">' +
+        '<div>' +
+          '<div class="mct-title">' + (isNovo ? 'Novo contato' : 'Editar contato') + '</div>' +
+          '<div class="mct-subtitle">' + escapeHtml(nomeEntidade) + '</div>' +
+        '</div>' +
+        '<button type="button" class="mct-close" onclick="fecharModalContatoCrud()" aria-label="Fechar">' +
+          '<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>' +
+        '</button>' +
+      '</div>' +
+      '<div class="mct-body">' +
+        '<div class="mct-field mct-field--full">' +
+          '<label class="mct-label" for="mct-nome">Nome <span class="mct-required">*</span></label>' +
+          '<input class="mct-input" id="mct-nome" type="text" value="' + esc(ct?.nome || '') + '" placeholder="Nome completo" autocomplete="name">' +
+        '</div>' +
+        '<div class="mct-row">' +
+          '<div class="mct-field">' +
+            '<label class="mct-label" for="mct-tel">Telefone <span class="mct-required">*</span></label>' +
+            '<input class="mct-input" id="mct-tel" type="tel" value="' + esc(ct?.telefone || '') + '" placeholder="(11) 98888-7777" autocomplete="tel">' +
+          '</div>' +
+          '<div class="mct-field">' +
+            '<label class="mct-label" for="mct-email">E-mail</label>' +
+            '<input class="mct-input" id="mct-email" type="email" value="' + esc(ct?.email || '') + '" placeholder="email@empresa.com" autocomplete="email">' +
+          '</div>' +
+        '</div>' +
+        '<div class="mct-row">' +
+          '<div class="mct-field">' +
+            '<label class="mct-label" for="mct-funcao">Função / Cargo</label>' +
+            '<input class="mct-input" id="mct-funcao" type="text" value="' + esc(ct?.funcao || '') + '" placeholder="Ex: Gerente Comercial">' +
+          '</div>' +
+          '<div class="mct-field">' +
+            '<label class="mct-label" for="mct-responsavel">Responsável pelo contato</label>' +
+            '<select class="mct-input mct-select" id="mct-responsavel">' + respOptions + '</select>' +
+          '</div>' +
+        '</div>' +
+        '<label class="mct-check-label">' +
+          '<input type="checkbox" id="mct-principal"' + (ct?.principal ? ' checked' : '') + '>' +
+          '<span>Definir como contato principal</span>' +
+        '</label>' +
+      '</div>' +
+      '<div class="mct-footer">' +
+        '<button type="button" class="mct-btn-cancel" onclick="fecharModalContatoCrud()">Cancelar</button>' +
+        '<button type="button" class="mct-btn-save" id="mct-btn-salvar" onclick="salvarContatoModal(\'' + escapeHtml(entidadeId) + '\',\'' + tipo + '\',' + (isNovo ? 'null' : idx) + ')">' +
+          (isNovo ? 'Adicionar contato' : 'Salvar alterações') +
+        '</button>' +
+      '</div>' +
+    '</div>';
+
+  overlay.addEventListener('click', function(e) {
+    if (e.target === overlay) fecharModalContatoCrud();
+  });
+  document.body.appendChild(overlay);
+  requestAnimationFrame(function() { overlay.classList.add('mct-visible'); });
+  setTimeout(function() { document.getElementById('mct-nome')?.focus(); }, 50);
+}
+
+function fecharModalContatoCrud() {
+  var overlay = document.getElementById('modalContatoCrud');
+  if (!overlay) return;
+  overlay.classList.remove('mct-visible');
+  setTimeout(function() { overlay.remove(); }, 200);
+}
+
+async function salvarContatoModal(entidadeId, tipo, idx) {
+  var nome      = (document.getElementById('mct-nome')?.value || '').trim();
+  var telefone  = (document.getElementById('mct-tel')?.value || '').trim();
+  var email     = (document.getElementById('mct-email')?.value || '').trim();
+  var funcao    = (document.getElementById('mct-funcao')?.value || '').trim();
+  var responsavel = (document.getElementById('mct-responsavel')?.value || '').trim();
+  var principal = document.getElementById('mct-principal')?.checked || false;
+
+  if (!nome) {
+    document.getElementById('mct-nome')?.focus();
+    showToast('Informe o nome do contato.', 'error');
+    return;
+  }
+
+  var btnSalvar = document.getElementById('mct-btn-salvar');
+  if (btnSalvar) { btnSalvar.disabled = true; btnSalvar.textContent = 'Salvando…'; }
+
+  var lista = tipo === "cliente" ? clientes : projetos;
+  var colecao = tipo === "cliente" ? "clientes" : "projetos";
+  var entidade = lista.find(function(e) { return e.id === entidadeId; });
+  if (!entidade) return;
+
+  var nowIso = new Date().toISOString();
+  var usuario = getCurrentUserName();
+  var contatos = JSON.parse(JSON.stringify(entidade.contatos || []));
+  var isNovo = idx === null;
+
+  if (isNovo) {
+    contatos.push({
+      nome, funcao, telefone, email, principal,
+      responsavelNome: responsavel,
+      criadoEm: nowIso, atualizadoEm: nowIso,
+      historico: [criarEventoHistorico({ usuario, acao: 'Criou', campo: 'contato', de: '', para: nome })],
+    });
+  } else {
+    var antigo = contatos[idx] || {};
+    var novoObj = { nome, funcao, telefone, email, principal, responsavelNome: responsavel };
+    var eventos = montarHistoricoAlteracoesContato(antigo, novoObj, usuario);
+    contatos[idx] = { ...antigo, ...novoObj, atualizadoEm: nowIso, historico: [...(antigo.historico || []), ...eventos] };
+  }
+
+  if (principal) {
+    var thisIdx = isNovo ? contatos.length - 1 : idx;
+    contatos.forEach(function(c, i) { if (i !== thisIdx) c.principal = false; });
+  }
+
+  try {
+    var atualizado = { ...entidade, contatos, atualizadoEm: nowIso, atualizadoPor: usuario };
+    await db.collection(colecao).doc(entidadeId).set(atualizado);
+    var listaIdx = lista.findIndex(function(e) { return e.id === entidadeId; });
+    if (listaIdx !== -1) lista[listaIdx] = atualizado;
+    fecharModalContatoCrud();
+    showToast(isNovo ? 'Contato adicionado!' : 'Contato atualizado!', 'success');
+    reRenderContatosTab(entidadeId, tipo);
+  } catch(e) {
+    showToast('Erro ao salvar contato.', 'error');
+    if (btnSalvar) { btnSalvar.disabled = false; btnSalvar.textContent = isNovo ? 'Adicionar contato' : 'Salvar alterações'; }
+  }
+}
+
+function excluirContatoModal(idx, entidadeId, tipo) {
+  // Apenas marca o card visualmente — sem Firestore ainda
+  const idEsc = escapeHtml(entidadeId);
+  const card = document.getElementById('ct-card-' + idEsc + '-' + idx);
+  if (!card) return;
+  card.classList.add('ct-card-pending-del');
+  const actionsEl = document.getElementById('ct-card-' + idEsc + '-' + idx + '-actions');
+  if (actionsEl) actionsEl.innerHTML = buildContatoActionsHtml(idx, idEsc, tipo, true);
+}
+
+function restaurarContatoModal(idx, entidadeId, tipo) {
+  const idEsc = escapeHtml(entidadeId);
+  const card = document.getElementById('ct-card-' + idEsc + '-' + idx);
+  if (!card) return;
+  card.classList.remove('ct-card-pending-del');
+  const actionsEl = document.getElementById('ct-card-' + idEsc + '-' + idx + '-actions');
+  if (actionsEl) actionsEl.innerHTML = buildContatoActionsHtml(idx, idEsc, tipo, false);
+}
+
+async function confirmarExclusaoContatoModal(idx, entidadeId, tipo) {
+  var lista = tipo === "cliente" ? clientes : projetos;
+  var colecao = tipo === "cliente" ? "clientes" : "projetos";
+  var entidade = lista.find(function(e) { return e.id === entidadeId; });
+  if (!entidade) return;
+
+  var nowIso = new Date().toISOString();
+  var usuario = getCurrentUserName();
+  var contatos = JSON.parse(JSON.stringify(entidade.contatos || []));
+  contatos.splice(idx, 1);
+
+  // Feedback imediato: anima o card para fora
+  const idEsc = escapeHtml(entidadeId);
+  const card = document.getElementById('ct-card-' + idEsc + '-' + idx);
+  if (card) {
+    card.style.transition = 'opacity 0.2s, transform 0.2s';
+    card.style.opacity = '0';
+    card.style.transform = 'translateX(12px)';
+  }
+
+  try {
+    var atualizado = { ...entidade, contatos, atualizadoEm: nowIso, atualizadoPor: usuario };
+    await db.collection(colecao).doc(entidadeId).set(atualizado);
+    var listaIdx = lista.findIndex(function(e) { return e.id === entidadeId; });
+    if (listaIdx !== -1) lista[listaIdx] = atualizado;
+    showToast('Contato removido.', 'success');
+    setTimeout(function() { reRenderContatosTab(entidadeId, tipo); }, 220);
+  } catch(e) {
+    showToast('Erro ao remover contato.', 'error');
+    if (card) { card.style.opacity = '1'; card.style.transform = ''; }
+  }
+}
+
+function reRenderContatosTab(entidadeId, tipo) {
+  var lista = tipo === "cliente" ? clientes : projetos;
+  var entidade = lista.find(function(e) { return e.id === entidadeId; });
+  if (!entidade) return;
+  var painel = document.querySelector('#modalCorpo .od-tab-panel[data-tab="contatos"]');
+  if (!painel) return;
+  var identity = painel.querySelector('.od-cli-identity');
+  var identityHtml = identity ? identity.outerHTML : '';
+  painel.innerHTML = identityHtml + buildContatosTabHtml(entidade.contatos || [], entidadeId, tipo);
+}
+
+function verHistoricoContatoModal(idx, entidadeId, tipo) {
+  var lista = tipo === "cliente" ? clientes : projetos;
+  var entidade = lista.find(function(e) { return e.id === entidadeId; });
+  if (!entidade) return;
+  var ct = (entidade.contatos || [])[idx];
+  if (!ct) return;
+  historicoAtualModal = ct.historico || [];
+  abrirHistoricoAtual('Histórico do Contato — ' + (ct.nome || '-'));
+}
+
+// ═══════════════════════════════════════════════════════════════
 
 function verCliente(id) {
   const cli = clientes.find((c) => c.id === id);
@@ -5157,14 +5584,11 @@ function verCliente(id) {
 
   historicoAtualModal = cli.historico || [];
 
-  const totalOfertas = registros.filter(
-    (r) =>
+  const ofertasCliente = registros.filter(
+    (r) => !r.deletado && (
       (r.clienteId && r.clienteId === cli.id) ||
-      (!r.clienteId && r.cnpj_cliente === cli.cnpj),
-  ).length;
-
-  const usuario = formatarNomeUsuario(
-    cli.atualizadoPor || cli.criadoPor || "-",
+      (!r.clienteId && r.cnpj_cliente === cli.cnpj)
+    )
   );
 
   function field(label, value, full) {
@@ -5182,45 +5606,105 @@ function verCliente(id) {
       '</div>';
   }
 
-  let html = section("Cadastro",
+  // ─── Aba: Dados ───────────────────────────────────────────────
+  const htmlDados = section("Cadastro",
     field("Razão Social", esc(cli.razao) || "-") +
     field("CNPJ", esc(cli.cnpj) || "-") +
     field("Inscrição Estadual", esc(cli.ie) || "") +
     field("Segmento", esc(cli.segmento) || "") +
-    field("Endereço", esc(cli.endereco) || "") +
-    field("Código SAP", esc(cli.codigo_sap || cli.sap) || "") +
-    field("Ofertas Cadastradas", String(totalOfertas))
+    field("Endereço", esc(cli.endereco) || "", true) +
+    field("Código SAP", esc(cli.codigo_sap || cli.sap) || "")
   );
 
-  if (cli.contatos && cli.contatos.length) {
-    html += '<div class="md-detail-section"><div class="md-detail-section-title">Contatos</div>';
-    cli.contatos.forEach((ct) => {
-      html += '<div class="md-contact-card">' +
-        '<div class="md-contact-name">' + (esc(ct.nome) || "-") +
-          (ct.principal ? '<span class="modal-badge">Principal</span>' : "") +
-        '</div>' +
-        '<div class="md-contact-detail">' +
-          (ct.funcao ? 'Função: ' + esc(ct.funcao) + '<br>' : "") +
-          (ct.telefone ? 'Tel: ' + esc(ct.telefone) + '<br>' : "") +
-          (ct.email ? 'E-mail: ' + esc(ct.email) + '<br>' : "") +
-          (ct.responsavelNome ? 'Responsável: ' + esc(primeiroNome(ct.responsavelNome)) : "") +
-        '</div></div>';
+  // ─── Aba: Contatos ────────────────────────────────────────────
+  const htmlContatos = buildContatosTabHtml(cli.contatos || [], cli.id, "cliente");
+
+  // ─── Aba: Ofertas ─────────────────────────────────────────────
+  let htmlOfertas = "";
+  if (ofertasCliente.length) {
+    htmlOfertas = '<div class="od-ofertas-list">';
+    ofertasCliente.forEach(function(r) {
+      const temPedido  = r.possuiPedido  === "sim";
+      const temRevisao = r.possuiRevisao === "sim";
+      const isSpot     = r.atendimentoSpot === "sim";
+      const tipoRaw    = String(r.tipo_oferta || "").toLowerCase().normalize("NFD").replace(/[̀-ͯ]/g, "");
+      const tipoLabel  = tipoRaw === "compra" ? "Compra" : tipoRaw === "orcamento" ? "Orçamento" : esc(r.tipo_oferta || "");
+
+      function oField(label, value) {
+        if (!value) return "";
+        return '<div class="od-oferta-field">' +
+          '<span class="od-oferta-field-label">' + label + '</span>' +
+          '<span class="od-oferta-field-value">' + value + '</span>' +
+        '</div>';
+      }
+
+      htmlOfertas +=
+        '<div class="od-oferta-row">' +
+          '<div class="od-oferta-row-header">' +
+            '<span class="od-oferta-num">Oferta ' + esc(r.oferta || r.id) + '</span>' +
+            '<div class="od-oferta-tags">' +
+              (tipoLabel ? '<span class="od-oferta-tag od-tag-tipo">' + tipoLabel + '</span>' : '') +
+              (temPedido  ? '<span class="od-oferta-tag od-tag-pedido">Pedido</span>' : '') +
+              (temRevisao ? '<span class="od-oferta-tag od-tag-revisao">Revisão</span>' : '') +
+              (isSpot     ? '<span class="od-oferta-tag od-tag-spot">Spot</span>' : '') +
+            '</div>' +
+            '<button type="button" class="od-ver-btn" onclick="verOferta(\'' + r.id + '\')">Ver →</button>' +
+          '</div>' +
+          '<div class="od-oferta-fields">' +
+            oField("Representada", esc(r.representadaNome || "")) +
+            oField("Projeto",      esc(r.nome_projeto || "")) +
+            oField("B.U.",         esc(r.bu || "")) +
+            oField("Status",       esc(r.status || "")) +
+            oField("Valor Total",  esc(r.valor_total || "")) +
+            oField("Tipo",         tipoLabel) +
+            oField("Entrada",      formatDateBR(r.data_entrada) || "") +
+            oField("Criado em",    formatDateTimeBR(r.criadoEm) || "") +
+            oField("Usuário",      formatarNomeUsuario(r.criadoPor || "")) +
+          '</div>' +
+        '</div>';
     });
-    html += '</div>';
+    htmlOfertas += '</div>';
   } else {
-    html += section("Contatos", field("Status", "Nenhum contato cadastrado.", true));
+    htmlOfertas = '<p class="od-empty">Nenhuma oferta cadastrada para este cliente.</p>';
   }
 
-  html += section("Histórico",
-    field("Responsável", formatarNomeUsuario(cli.atualizadoPor || cli.criadoPor || "-")) +
-    field("Criado em", formatDateTimeBR(cli.criadoEm)) +
-    field("Atualizado em", formatDateTimeBR(cli.atualizadoEm))
-  );
-
+  // ─── Aba: Histórico ───────────────────────────────────────────
   const _cliLabel = escapeHtml(cli.razao || "");
-  html += '<div class="md-history-section"><button type="button" class="secondary" onclick="abrirHistoricoAtual(\'' + 'Histórico do Cliente ' + _cliLabel + '\')">' +
+  const htmlHistorico =
+    section("Histórico",
+      field("Responsável", formatarNomeUsuario(cli.atualizadoPor || cli.criadoPor || "-")) +
+      field("Criado em", formatDateTimeBR(cli.criadoEm)) +
+      field("Atualizado em", formatDateTimeBR(cli.atualizadoEm))
+    ) +
+    '<div class="md-history-section"><button type="button" class="secondary" onclick="abrirHistoricoAtual(\'' + 'Histórico do Cliente ' + _cliLabel + '\')">' +
     'Visualizar histórico de atividades</button></div>';
+
+  // ─── Header de identidade (aparece nas abas Contatos, Ofertas e Histórico) ──
+  const htmlIdentity =
+    '<div class="od-cli-identity">' +
+      '<span class="od-cli-razao">' + esc(cli.razao || "-") + '</span>' +
+      (cli.cnpj ? '<span class="od-cli-cnpj">' + esc(cli.cnpj) + '</span>' : '') +
+    '</div>';
+
+  // ─── Montar modal com abas ────────────────────────────────────
+  const qtdContatos = (cli.contatos || []).length;
+  const html =
+    '<div class="od-tabs">' +
+      '<div class="od-tab-nav">' +
+        '<button class="od-tab-btn active" data-tab="dados"     onclick="trocarAbaOferta(\'dados\')">Dados</button>' +
+        '<button class="od-tab-btn"        data-tab="contatos"  onclick="trocarAbaOferta(\'contatos\')">Contatos' + (qtdContatos ? ' (' + qtdContatos + ')' : '') + '</button>' +
+        '<button class="od-tab-btn"        data-tab="ofertas"   onclick="trocarAbaOferta(\'ofertas\')">Ofertas' + (ofertasCliente.length ? ' (' + ofertasCliente.length + ')' : '') + '</button>' +
+        '<button class="od-tab-btn"        data-tab="historico" onclick="trocarAbaOferta(\'historico\')">Histórico</button>' +
+      '</div>' +
+      '<div class="od-tab-panel active" data-tab="dados">'     + htmlDados                        + '</div>' +
+      '<div class="od-tab-panel"        data-tab="contatos">'  + htmlIdentity + htmlContatos  + '</div>' +
+      '<div class="od-tab-panel"        data-tab="ofertas">'   + htmlIdentity + htmlOfertas   + '</div>' +
+      '<div class="od-tab-panel"        data-tab="historico">' + htmlIdentity + htmlHistorico + '</div>' +
+    '</div>';
+
   abrirModal(`Cliente - ${cli.razao || ""}`, html, () => editarCliente(id));
+  const _corpo = document.getElementById("modalCorpo");
+  if (_corpo) _corpo.classList.add("modal-corpo--tabs");
 }
 
 function verRepresentada(id) {
@@ -5229,10 +5713,8 @@ function verRepresentada(id) {
 
   historicoAtualModal = rep.historico || [];
 
-  const usuario = formatarNomeUsuario(
-    rep.atualizadoPor || rep.criadoPor || "-",
-  );
-  const qtdOfertas = registros.filter((r) => r.representadaId === id).length;
+  const usuario = formatarNomeUsuario(rep.atualizadoPor || rep.criadoPor || "-");
+  const ofertasRep = registros.filter(function(r) { return r.representadaId === id && !r.deletado; });
 
   function field(label, value, full) {
     if (!value && value !== 0) return "";
@@ -5241,24 +5723,107 @@ function verRepresentada(id) {
       '<div class="md-detail-field-value">' + value + '</div>' +
       '</div>';
   }
-  function section(title, fieldsHtml) {
-    if (!fieldsHtml.trim()) return "";
-    return '<div class="md-detail-section">' +
-      '<div class="md-detail-section-title">' + title + '</div>' +
-      '<div class="md-detail-grid">' + fieldsHtml + '</div>' +
-      '</div>';
-  }
 
-  const html = section("Cadastro",
-    field("Nome da Representada", esc(rep.nome) || "-") +
-    field("Ofertas Vinculadas", String(qtdOfertas)) +
-    field("Responsável", esc(usuario)) +
-    field("Criado em", formatDateTimeBR(rep.criadoEm)) +
-    field("Atualizado em", formatDateTimeBR(rep.atualizadoEm))
-  ) +
-  '<div class="md-history-section"><button type="button" class="secondary" onclick="abrirHistoricoAtual(\'' + 'Histórico da Representada ' + escapeHtml(rep.nome || '') + '\')">' +
-  'Visualizar histórico de atividades</button></div>';
-  abrirModal(`Representada - ${rep.nome || ""}`, html, () => editarRepresentada(id));
+  // ── Identity header (Ofertas e Histórico) ──
+  var htmlIdentity = '<div class="od-cli-identity">' +
+    '<span class="od-cli-razao">' + esc(rep.nome || '-') + '</span>' +
+    '</div>';
+
+  // ── Aba Dados ──
+  var htmlDados = '<div class="od-tab-panel active" data-tab="dados">' +
+    '<div class="md-detail-section">' +
+      '<div class="md-detail-section-title">Cadastro</div>' +
+      '<div class="md-detail-grid">' +
+        field("Nome da Representada", esc(rep.nome) || "-") +
+        field("Criado em", formatDateTimeBR(rep.criadoEm)) +
+        field("Atualizado em", formatDateTimeBR(rep.atualizadoEm)) +
+        field("Responsável", esc(usuario)) +
+      '</div>' +
+    '</div>' +
+  '</div>';
+
+  // ── Aba Ofertas ──
+  var htmlOfertasContent = '';
+  if (!ofertasRep.length) {
+    htmlOfertasContent = '<p class="od-empty">Nenhuma oferta vinculada a esta representada.</p>';
+  } else {
+    htmlOfertasContent = '<div class="od-ofertas-list">';
+    ofertasRep.forEach(function(r) {
+      var temPedido  = r.possuiPedido  === "sim";
+      var temRevisao = r.possuiRevisao === "sim";
+      var isSpot     = r.atendimentoSpot === "sim";
+      var tipoRaw    = String(r.tipo_oferta || "").toLowerCase().normalize("NFD").replace(/[̀-ͯ]/g, "");
+      var tipoLabel  = tipoRaw === "compra" ? "Compra" : tipoRaw === "orcamento" ? "Orçamento" : esc(r.tipo_oferta || "");
+
+      function oField(label, value) {
+        if (!value) return "";
+        return '<div class="od-oferta-field">' +
+          '<span class="od-oferta-field-label">' + label + '</span>' +
+          '<span class="od-oferta-field-value">' + value + '</span>' +
+        '</div>';
+      }
+
+      htmlOfertasContent +=
+        '<div class="od-oferta-row">' +
+          '<div class="od-oferta-row-header">' +
+            '<span class="od-oferta-num">Oferta ' + esc(r.oferta || r.id) + '</span>' +
+            '<div class="od-oferta-tags">' +
+              (tipoLabel ? '<span class="od-oferta-tag od-tag-tipo">' + tipoLabel + '</span>' : '') +
+              (temPedido  ? '<span class="od-oferta-tag od-tag-pedido">Pedido</span>'  : '') +
+              (temRevisao ? '<span class="od-oferta-tag od-tag-revisao">Revisão</span>' : '') +
+              (isSpot     ? '<span class="od-oferta-tag od-tag-spot">Spot</span>'      : '') +
+            '</div>' +
+            '<button type="button" class="od-ver-btn" onclick="verOferta(\'' + r.id + '\')">Ver →</button>' +
+          '</div>' +
+          '<div class="od-oferta-fields">' +
+            oField("Cliente",     esc(r.clienteNome || r.razao_cliente || "")) +
+            oField("Projeto",     esc(r.nome_projeto || "")) +
+            oField("B.U.",        esc(r.bu || "")) +
+            oField("Status",      esc(r.status || "")) +
+            oField("Valor Total", esc(r.valor_total || "")) +
+            oField("Tipo",        tipoLabel) +
+            oField("Entrada",     formatDateBR(r.data_entrada) || "") +
+            oField("Criado em",   formatDateTimeBR(r.criadoEm) || "") +
+            oField("Usuário",     formatarNomeUsuario(r.criadoPor || "")) +
+          '</div>' +
+        '</div>';
+    });
+    htmlOfertasContent += '</div>';
+  }
+  var htmlOfertas = '<div class="od-tab-panel" data-tab="ofertas">' + htmlIdentity + htmlOfertasContent + '</div>';
+
+  // ── Aba Histórico ──
+  var repNomeEsc = escapeHtml(rep.nome || '');
+  var htmlHistorico = '<div class="od-tab-panel" data-tab="historico">' +
+    htmlIdentity +
+    '<div class="md-detail-section">' +
+      '<div class="md-detail-section-title">Atividade</div>' +
+      '<div class="md-detail-grid">' +
+        field("Criado em", formatDateTimeBR(rep.criadoEm)) +
+        field("Criado por", esc(formatarNomeUsuario(rep.criadoPor || '-'))) +
+        field("Atualizado em", formatDateTimeBR(rep.atualizadoEm)) +
+        field("Atualizado por", esc(formatarNomeUsuario(rep.atualizadoPor || '-'))) +
+      '</div>' +
+    '</div>' +
+    '<div class="md-history-section">' +
+      '<button type="button" class="secondary" onclick="abrirHistoricoAtual(\'Histórico da Representada ' + repNomeEsc + '\')">Visualizar histórico de atividades</button>' +
+    '</div>' +
+  '</div>';
+
+  // ── Montar tabs ──
+  var html = '<div class="od-tabs">' +
+    '<div class="od-tab-nav">' +
+      '<button type="button" class="od-tab-btn active" data-tab="dados" onclick="trocarAbaOferta(\'dados\')">Dados</button>' +
+      '<button type="button" class="od-tab-btn" data-tab="ofertas" onclick="trocarAbaOferta(\'ofertas\')">Ofertas (' + ofertasRep.length + ')</button>' +
+      '<button type="button" class="od-tab-btn" data-tab="historico" onclick="trocarAbaOferta(\'historico\')">Histórico</button>' +
+    '</div>' +
+    htmlDados +
+    htmlOfertas +
+    htmlHistorico +
+  '</div>';
+
+  abrirModal('Representada — ' + esc(rep.nome || ''), html, function() { editarRepresentada(id); });
+  document.getElementById("modalCorpo").classList.add("modal-corpo--tabs");
 }
 
 function formatCnpjMask(digits) {
@@ -5528,6 +6093,16 @@ function irPara(tela) {
 
   if (tela === "aprovacao") {
     document.getElementById("secAprovacaoUsuarios")?.scrollIntoView({ behavior: "smooth" });
+    return;
+  }
+
+  if (tela === "auditoria") {
+    const sec = document.getElementById("secAuditoria");
+    if (sec) {
+      sec.classList.remove("hidden");
+      sec.scrollIntoView({ behavior: "smooth" });
+      carregarAuditoria();
+    }
   }
 }
 
@@ -5949,6 +6524,7 @@ async function verUsuario(uid) {
   }
   if (!uDoc.exists) return;
   const u = { id: uid, ...uDoc.data() };
+
   const _todosMap = {};
   todosSnap.docs.forEach(d => {
     const em = (d.data().email || "").toLowerCase().trim();
@@ -5962,76 +6538,108 @@ async function verUsuario(uid) {
       '<div class="md-detail-field-value">' + value + '</div>' +
       '</div>';
   }
-  function section(title, fieldsHtml) {
-    if (!fieldsHtml.trim()) return "";
-    return '<div class="md-detail-section">' +
-      '<div class="md-detail-section-title">' + title + '</div>' +
-      '<div class="md-detail-grid">' + fieldsHtml + '</div>' +
-      '</div>';
-  }
 
   const roleMeta = ROLE_LABELS[u.role] || { label: "Sem cargo", cls: "badge-role-none" };
-  const roleBadge = `<span class="badge-role ${roleMeta.cls}">${escapeHtml(roleMeta.label)}</span>`;
+  const roleBadge = '<span class="badge-role ' + roleMeta.cls + '">' + escapeHtml(roleMeta.label) + '</span>';
   const statusBadge = u.ativo !== false
     ? '<span style="color:#16a34a;font-weight:600;">● Ativo</span>'
     : '<span style="color:#dc2626;font-weight:600;">● Inativo</span>';
 
-  // Representadas visíveis
+  // ── Aba Dados ──
+  const htmlDados =
+    '<div class="md-detail-section">' +
+      '<div class="md-detail-section-title">Identificação</div>' +
+      '<div class="md-detail-grid">' +
+        field("Nome",   escapeHtml(u.nome  || "-")) +
+        field("Email",  escapeHtml(u.email || "-")) +
+        field("Cargo",  roleBadge) +
+        field("Status", statusBadge) +
+        (u.aprovado !== undefined ? field("Aprovado", u.aprovado ? '<span style="color:#16a34a;font-weight:600;">Sim</span>' : '<span style="color:#dc2626;font-weight:600;">Não</span>') : "") +
+      '</div>' +
+    '</div>';
+
+  // ── Aba Permissões ──
   let repsHtml;
   if (u.role === "admin" || (Array.isArray(u.representadasPermitidas) && u.representadasPermitidas.includes("*"))) {
-    repsHtml = "Acesso total — todas as representadas";
+    repsHtml = '<span class="perm-badge perm-badge-full">Acesso total — todas as representadas</span>';
   } else if (Array.isArray(u.representadasPermitidas) && u.representadasPermitidas.length) {
-    repsHtml = u.representadasPermitidas
-      .map(id => {
-        const rep = representadas.find(r => r.id === id);
-        return '<span class="perm-badge">' + escapeHtml(rep?.nome || id) + '</span>';
-      })
-      .join(" ");
+    repsHtml = u.representadasPermitidas.map(id => {
+      const rep = representadas.find(r => r.id === id);
+      return '<span class="perm-badge">' + escapeHtml(rep?.nome || id) + '</span>';
+    }).join(" ");
   } else {
     repsHtml = '<span style="color:var(--text-muted);font-style:italic;">Nenhuma configurada</span>';
   }
 
-  // Alertas monitorados
   let alertasHtml;
   if (u.role === "admin" || (Array.isArray(u.alertasDeUsuarios) && u.alertasDeUsuarios.includes("*"))) {
-    alertasHtml = "Acesso total — todos os usuários";
+    alertasHtml = '<span class="perm-badge perm-badge-full">Acesso total — todos os usuários</span>';
   } else if (Array.isArray(u.alertasDeUsuarios) && u.alertasDeUsuarios.length) {
-    alertasHtml = u.alertasDeUsuarios
-      .map(email => {
-        const emailNorm = (email || "").toLowerCase().trim();
-        const nome = _todosMap[emailNorm]
-          || (usuarios.find(x => (x.email || "").toLowerCase().trim() === emailNorm) || {}).nome
-          || email;
-        return '<span class="perm-badge">' + escapeHtml(nome) + '</span>';
-      })
-      .join(" ");
+    alertasHtml = u.alertasDeUsuarios.map(email => {
+      const emailNorm = (email || "").toLowerCase().trim();
+      const nome = _todosMap[emailNorm]
+        || (usuarios.find(x => (x.email || "").toLowerCase().trim() === emailNorm) || {}).nome
+        || email;
+      return '<span class="perm-badge">' + escapeHtml(nome) + '</span>';
+    }).join(" ");
   } else {
     alertasHtml = '<span style="color:var(--text-muted);font-style:italic;">Apenas os próprios alertas</span>';
   }
 
-  let html = section("Dados do Usuário",
-    field("Nome", escapeHtml(u.nome || "-")) +
-    field("Email", escapeHtml(u.email || "-")) +
-    field("Cargo", roleBadge) +
-    field("Status", statusBadge)
-  );
+  let equipeHtml;
+  if (u.role === "admin" || (Array.isArray(u.podeVerDe) && u.podeVerDe.includes("*"))) {
+    equipeHtml = '<span class="perm-badge perm-badge-full">Acesso total — todos os usuários</span>';
+  } else if (Array.isArray(u.podeVerDe) && u.podeVerDe.length) {
+    equipeHtml = u.podeVerDe.map(email => {
+      const emailNorm = (email || "").toLowerCase().trim();
+      const nome = _todosMap[emailNorm] || email;
+      return '<span class="perm-badge">' + escapeHtml(nome) + '</span>';
+    }).join(" ");
+  } else {
+    equipeHtml = '<span style="color:var(--text-muted);font-style:italic;">Apenas o próprio usuário</span>';
+  }
 
-  html += section("Permissões",
-    field("Representadas visíveis", repsHtml, true) +
-    field("Alertas monitorados", alertasHtml, true)
-  );
+  const htmlPermissoes =
+    '<div class="md-detail-section">' +
+      '<div class="md-detail-section-title">Acesso</div>' +
+      '<div class="md-detail-grid">' +
+        field("Representadas visíveis", repsHtml, true) +
+        field("Alertas monitorados",    alertasHtml, true) +
+        field("Pode ver dados de",      equipeHtml, true) +
+      '</div>' +
+    '</div>';
 
-  html += section("Histórico",
-    field("Criado em", formatDateTimeBR(u.criadoEm) || "-") +
-    field("Atualizado em", formatDateTimeBR(u.atualizadoEm) || "-") +
-    (u.atualizadoPorAdmin ? field("Editado por", escapeHtml(u.atualizadoPorAdmin)) : "")
-  );
+  // ── Aba Histórico ──
+  const htmlHistorico =
+    '<div class="md-detail-section">' +
+      '<div class="md-detail-section-title">Atividade</div>' +
+      '<div class="md-detail-grid">' +
+        field("Criado em",    formatDateTimeBR(u.criadoEm)    || "-") +
+        field("Atualizado em", formatDateTimeBR(u.atualizadoEm) || "-") +
+        (u.atualizadoPorAdmin ? field("Editado por", escapeHtml(u.atualizadoPorAdmin)) : "") +
+      '</div>' +
+    '</div>';
+
+  // ── Montar modal com abas ──
+  const html =
+    '<div class="od-tabs">' +
+      '<div class="od-tab-nav">' +
+        '<button type="button" class="od-tab-btn active" data-tab="dados"       onclick="trocarAbaOferta(\'dados\')">Dados</button>' +
+        '<button type="button" class="od-tab-btn"        data-tab="permissoes"  onclick="trocarAbaOferta(\'permissoes\')">Permissões</button>' +
+        '<button type="button" class="od-tab-btn"        data-tab="historico"   onclick="trocarAbaOferta(\'historico\')">Histórico</button>' +
+      '</div>' +
+      '<div class="od-tab-panel active" data-tab="dados">'       + htmlDados      + '</div>' +
+      '<div class="od-tab-panel"        data-tab="permissoes">'  + htmlPermissoes + '</div>' +
+      '<div class="od-tab-panel"        data-tab="historico">'   + htmlHistorico  + '</div>' +
+    '</div>';
 
   abrirModal(
-    `Usuário — ${escapeHtml(u.nome || u.email || "")}`,
+    'Usuário — ' + escapeHtml(u.nome || u.email || ""),
     html,
     isAdmin() ? () => verPermissoesUsuario(uid) : null
   );
+  const _corpo = document.getElementById("modalCorpo");
+  if (_corpo) _corpo.classList.add("modal-corpo--tabs");
 }
 
 async function verPermissoesUsuario(uid) {
@@ -6265,6 +6873,7 @@ async function salvarPermissoesUsuario(uid, email, novoRole, repIds, alertaEmail
     atualizadoPorAdmin: auth.currentUser?.email || "",
   }, { merge: true });
 
+  registrarLog("permissoes_alteradas", `${email} → role: ${novoRole || "sem cargo"}`, uid, { email, novoRole, repIds });
   showToast({ title: "Permissões atualizadas", description: `${email} salvo com sucesso.` }, "success");
   await Promise.all([
     carregarTabelaPermissoes(),
@@ -6474,6 +7083,8 @@ async function aprovarUsuario(uid) {
     return;
   }
 
+  const snapUser = await db.collection("usuarios").doc(uid).get();
+  const userEmail = snapUser.data()?.email || uid;
   await db.collection("usuarios").doc(uid).set(
     {
       aprovado: true,
@@ -6484,6 +7095,7 @@ async function aprovarUsuario(uid) {
     { merge: true },
   );
 
+  registrarLog("usuario_aprovado", userEmail, uid);
   await carregarUsuariosPendentes();
   await carregarUsuariosExistentes(
     document.getElementById("searchUsuariosExistentes")?.value || "",
@@ -6499,6 +7111,8 @@ async function bloquearUsuario(uid) {
 
   if (!await showConfirm("Tem certeza que deseja bloquear este usuário?", { title: "Bloquear Usuário", confirmText: "Bloquear" })) return;
 
+  const snapBloq = await db.collection("usuarios").doc(uid).get();
+  const bloqEmail = snapBloq.data()?.email || uid;
   await db.collection("usuarios").doc(uid).set(
     {
       aprovado: false,
@@ -6509,6 +7123,7 @@ async function bloquearUsuario(uid) {
     { merge: true },
   );
 
+  registrarLog("usuario_bloqueado", bloqEmail, uid);
   await carregarUsuariosPendentes();
 }
 
@@ -8499,6 +9114,7 @@ function initSalvarProjetoUI() {
 
         await db.collection("projetos").doc(id).set(projeto);
         projetos.push(projeto);
+        registrarLog("projeto_criado", projetoBase.nome || id, id);
         showToast("Projeto salvo!", "success");
       } else {
         const idx = projetos.findIndex((p) => p.id === editProjetoId);
@@ -8535,7 +9151,7 @@ function initSalvarProjetoUI() {
 
         await db.collection("projetos").doc(editProjetoId).set(projeto);
         projetos[idx] = projeto;
-
+        registrarLog("projeto_editado", projeto.nome || editProjetoId, editProjetoId);
         showToast("Projeto atualizado!", "success");
       }
 
@@ -8860,10 +9476,8 @@ function verProjeto(id) {
 
   historicoAtualModal = proj.historico || [];
 
-  const usuario = formatarNomeUsuario(proj.atualizadoPor || proj.criadoPor || "-");
-  const ofertasDoProjeto = registros.filter((r) => r.projetoId === proj.id);
-  const qtdOfertas = ofertasDoProjeto.length;
-  const contatos = proj.contatos || [];
+  const ofertasDoProjeto = registros.filter((r) => !r.deletado && r.projetoId === proj.id);
+  const contatos    = proj.contatos    || [];
   const atualizacoes = proj.atualizacoes || [];
 
   function field(label, value, full) {
@@ -8881,110 +9495,136 @@ function verProjeto(id) {
       '</div>';
   }
 
-  // --- Tab Ver (Projeto) ---
-  let tabVer = section("Dados do Projeto",
-    field("Nome do Projeto", esc(proj.nome) || "-") +
-    field("Tipo", esc(proj.tipo) || "") +
-    field("Status", esc(proj.status) || "-") +
-    field("N° Referência", esc(proj.numero_referencia) || "") +
-    field("Prazo Final", formatDateBR(proj.prazo_final) || "") +
+  // ─── Header de identidade (Contatos / Ofertas / Histórico) ────
+  const htmlIdentity =
+    '<div class="od-cli-identity">' +
+      '<span class="od-cli-razao">' + esc(proj.nome || "-") + '</span>' +
+      (proj.tipo ? '<span class="od-cli-cnpj">' + esc(proj.tipo) + '</span>' : '') +
+    '</div>';
+
+  // ─── Aba: Dados ───────────────────────────────────────────────
+  let htmlDados = section("Dados do Projeto",
+    field("Nome do Projeto",      esc(proj.nome) || "-") +
+    field("Tipo",                 esc(proj.tipo) || "") +
+    field("Status",               esc(proj.status) || "-") +
+    field("N° Referência",        esc(proj.numero_referencia) || "") +
+    field("Prazo Final",          formatDateBR(proj.prazo_final) || "") +
     field("Valor do Investimento", esc(proj.valor_investimento) || "") +
-    field("Prev. Fechamento", formatDateBR(proj.prev_fechamento) || "") +
-    field("Início das Entregas", formatDateBR(proj.inicio_entregas) || "") +
-    field("Fim das Entregas", formatDateBR(proj.fim_entregas) || "") +
-    field("Qtd. Ofertas", String(qtdOfertas)) +
+    field("Prev. Fechamento",     formatDateBR(proj.prev_fechamento) || "") +
+    field("Início das Entregas",  formatDateBR(proj.inicio_entregas) || "") +
+    field("Fim das Entregas",     formatDateBR(proj.fim_entregas) || "") +
     (proj.obs ? field("Observações", esc(proj.obs), true) : "")
   );
 
   if (atualizacoes.length) {
-    tabVer += '<div class="md-detail-section"><div class="md-detail-section-title">Atualizações do Projeto</div>';
-    atualizacoes.forEach((up) => {
-      tabVer += '<div class="md-contact-card">' +
+    htmlDados += '<div class="md-detail-section"><div class="md-detail-section-title">Atualizações</div>';
+    atualizacoes.forEach(function(up) {
+      htmlDados += '<div class="md-contact-card">' +
         '<div class="md-contact-name">' + esc(primeiroNome(up.atualizadoPor || up.criadoPor || "-")) +
           ' <span style="font-weight:400;font-size:11px;opacity:.5">— ' + formatDateTimeBR(up.atualizadoEm || up.criadoEm) + '</span>' +
         '</div>' +
         '<div class="md-contact-detail">' + esc(up.texto || "-").replace(/\n/g, "<br>") + '</div>' +
         '</div>';
     });
-    tabVer += '</div>';
+    htmlDados += '</div>';
   }
 
-  tabVer += section("Histórico",
-    field("Responsável", esc(usuario)) +
-    field("Criado em", formatDateTimeBR(proj.criadoEm)) +
-    field("Atualizado em", formatDateTimeBR(proj.atualizadoEm))
-  );
+  // ─── Aba: Contatos ────────────────────────────────────────────
+  const htmlContatos = buildContatosTabHtml(contatos, proj.id, "projeto");
 
+  // ─── Aba: Ofertas ─────────────────────────────────────────────
+  let htmlOfertas = "";
+  if (ofertasDoProjeto.length) {
+    htmlOfertas = '<div class="od-ofertas-list">';
+    ofertasDoProjeto.forEach(function(r) {
+      const temPedido  = r.possuiPedido  === "sim";
+      const temRevisao = r.possuiRevisao === "sim";
+      const isSpot     = r.atendimentoSpot === "sim";
+      const tipoRaw    = String(r.tipo_oferta || "").toLowerCase().normalize("NFD").replace(/[̀-ͯ]/g, "");
+      const tipoLabel  = tipoRaw === "compra" ? "Compra" : tipoRaw === "orcamento" ? "Orçamento" : esc(r.tipo_oferta || "");
+
+      function oField(label, value) {
+        if (!value) return "";
+        return '<div class="od-oferta-field">' +
+          '<span class="od-oferta-field-label">' + label + '</span>' +
+          '<span class="od-oferta-field-value">' + value + '</span>' +
+        '</div>';
+      }
+
+      htmlOfertas +=
+        '<div class="od-oferta-row">' +
+          '<div class="od-oferta-row-header">' +
+            '<span class="od-oferta-num">Oferta ' + esc(r.oferta || r.id) + '</span>' +
+            '<div class="od-oferta-tags">' +
+              (tipoLabel  ? '<span class="od-oferta-tag od-tag-tipo">'   + tipoLabel + '</span>' : '') +
+              (temPedido  ? '<span class="od-oferta-tag od-tag-pedido">Pedido</span>'   : '') +
+              (temRevisao ? '<span class="od-oferta-tag od-tag-revisao">Revisão</span>' : '') +
+              (isSpot     ? '<span class="od-oferta-tag od-tag-spot">Spot</span>'       : '') +
+            '</div>' +
+            '<button type="button" class="od-ver-btn" onclick="verOferta(\'' + r.id + '\')">Ver →</button>' +
+          '</div>' +
+          '<div class="od-oferta-fields">' +
+            oField("Razão Social",  esc(r.razao || "")) +
+            oField("Representada",  esc(r.representadaNome || "")) +
+            oField("B.U.",          esc(r.bu || "")) +
+            oField("Status",        esc(r.status || "")) +
+            oField("Valor Total",   esc(r.valor_total || "")) +
+            oField("Tipo",          tipoLabel) +
+            oField("Entrada",       formatDateBR(r.data_entrada) || "") +
+            oField("Criado em",     formatDateTimeBR(r.criadoEm) || "") +
+            oField("Usuário",       formatarNomeUsuario(r.criadoPor || "")) +
+          '</div>' +
+        '</div>';
+    });
+    htmlOfertas += '</div>';
+  } else {
+    htmlOfertas = '<p class="od-empty">Nenhuma oferta vinculada a este projeto.</p>';
+  }
+
+  // ─── Aba: Histórico ───────────────────────────────────────────
   const _projLabel = escapeHtml(proj.nome || "");
-  tabVer += '<div class="md-history-section"><button type="button" class="secondary" onclick="abrirHistoricoAtual(\'Histórico do Projeto ' + _projLabel + '\')">' +
+  const htmlHistorico =
+    section("Histórico",
+      field("Responsável",   formatarNomeUsuario(proj.atualizadoPor || proj.criadoPor || "-")) +
+      field("Criado em",     formatDateTimeBR(proj.criadoEm)) +
+      field("Atualizado em", formatDateTimeBR(proj.atualizadoEm))
+    ) +
+    '<div class="md-history-section"><button type="button" class="secondary" onclick="abrirHistoricoAtual(\'Histórico do Projeto ' + _projLabel + '\')">' +
     'Visualizar histórico de atividades</button></div>';
 
-  // --- Tab Contatos ---
-  let tabContatos = "";
-  if (!contatos.length) {
-    tabContatos = '<div class="proj-tab-empty">Nenhum contato cadastrado.</div>';
-  } else {
-    contatos.forEach((ct) => {
-      tabContatos += '<div class="md-contact-card">' +
-        '<div class="md-contact-name">' + (esc(ct.nome) || "-") +
-          (ct.principal ? '<span class="modal-badge">Principal</span>' : "") +
-        '</div>' +
-        '<div class="md-contact-detail">' +
-          (ct.funcao ? 'Função: ' + esc(ct.funcao) + '<br>' : "") +
-          (ct.telefone ? 'Tel: ' + esc(ct.telefone) + '<br>' : "") +
-          (ct.email ? 'E-mail: ' + esc(ct.email) + '<br>' : "") +
-          (ct.responsavelNome ? 'Responsável: ' + esc(primeiroNome(ct.responsavelNome)) : "") +
-        '</div></div>';
-    });
-  }
-
-  // --- Tab Ofertas ---
-  let tabOfertas = "";
-  if (!ofertasDoProjeto.length) {
-    tabOfertas = '<div class="proj-tab-empty">Nenhuma oferta vinculada a este projeto.</div>';
-  } else {
-    ofertasDoProjeto.forEach((reg) => {
-      const usuarioOferta = formatarNomeUsuario(reg.atualizadoPor || reg.criadoPor || "-");
-      const temPedido = reg.possuiPedido === "sim" ? "Sim" : "Não";
-      const criadoEm = reg.criadoEm ? new Date(reg.criadoEm).toLocaleDateString("pt-BR") : "-";
-      tabOfertas += '<div class="md-contact-card">' +
-        '<div class="md-contact-name">' + escapeHtml(reg.oferta || "-") + '</div>' +
-        '<div class="md-contact-detail">' +
-          '<strong>Razão Social:</strong> ' + escapeHtml(reg.razao || "-") + '<br>' +
-          '<strong>Representada:</strong> ' + escapeHtml(reg.representadaNome || "-") + '<br>' +
-          '<strong>Status:</strong> ' + escapeHtml(reg.status || "-") + '<br>' +
-          '<strong>Tipo:</strong> ' + escapeHtml(reg.tipo_oferta || "-") + '<br>' +
-          '<strong>Tem pedido:</strong> ' + temPedido + '<br>' +
-          '<strong>Valor total:</strong> ' + escapeHtml(reg.valor_total || "-") + '<br>' +
-          '<strong>Criado em:</strong> ' + criadoEm + '<br>' +
-          '<strong>Usuário:</strong> ' + escapeHtml(usuarioOferta) +
-          '<div style="margin-top:10px"><button type="button" class="btn-ver-oferta" onclick="verOferta(\'' + escapeHtml(reg.id) + '\')">Ver oferta completa →</button></div>' +
-        '</div></div>';
-    });
-  }
-
-  const html = `
-    <div class="proj-tabs-bar">
-      <button type="button" class="proj-tab active" data-tab="ver" onclick="trocarAbaProjeto('ver')">Projeto</button>
-      <button type="button" class="proj-tab" data-tab="contatos" onclick="trocarAbaProjeto('contatos')">Contatos${contatos.length ? ' (' + contatos.length + ')' : ''}</button>
-      <button type="button" class="proj-tab" data-tab="ofertas" onclick="trocarAbaProjeto('ofertas')">Ofertas${qtdOfertas ? ' (' + qtdOfertas + ')' : ''}</button>
-    </div>
-    <div id="projTabVer" class="proj-tab-content">${tabVer}</div>
-    <div id="projTabContatos" class="proj-tab-content hidden">${tabContatos}</div>
-    <div id="projTabOfertas" class="proj-tab-content hidden">${tabOfertas}</div>
-  `;
+  // ─── Montar modal com abas ────────────────────────────────────
+  const html =
+    '<div class="od-tabs">' +
+      '<div class="od-tab-nav">' +
+        '<button class="od-tab-btn active" data-tab="dados"     onclick="trocarAbaOferta(\'dados\')">Dados</button>' +
+        '<button class="od-tab-btn"        data-tab="contatos"  onclick="trocarAbaOferta(\'contatos\')">Contatos' + (contatos.length ? ' (' + contatos.length + ')' : '') + '</button>' +
+        '<button class="od-tab-btn"        data-tab="ofertas"   onclick="trocarAbaOferta(\'ofertas\')">Ofertas' + (ofertasDoProjeto.length ? ' (' + ofertasDoProjeto.length + ')' : '') + '</button>' +
+        '<button class="od-tab-btn"        data-tab="historico" onclick="trocarAbaOferta(\'historico\')">Histórico</button>' +
+      '</div>' +
+      '<div class="od-tab-panel active" data-tab="dados">'     + htmlDados                        + '</div>' +
+      '<div class="od-tab-panel"        data-tab="contatos">'  + htmlIdentity + htmlContatos  + '</div>' +
+      '<div class="od-tab-panel"        data-tab="ofertas">'   + htmlIdentity + htmlOfertas   + '</div>' +
+      '<div class="od-tab-panel"        data-tab="historico">' + htmlIdentity + htmlHistorico + '</div>' +
+    '</div>';
 
   abrirModal(`Projeto - ${proj.nome || ""}`, html, () => editarProjeto(id));
+  const _corpo = document.getElementById("modalCorpo");
+  if (_corpo) _corpo.classList.add("modal-corpo--tabs");
+}
+
+function verHistoricoContatoProjeto(idx, projetoId) {
+  const proj = projetos.find(function(p) { return p.id === projetoId; });
+  if (!proj) return;
+  const ct = (proj.contatos || [])[idx];
+  if (!ct) return;
+
+  historicoAtualModal = ct.historico || [];
+  abrirHistoricoAtual("Histórico do Contato — " + (ct.nome || "-"));
 }
 
 function trocarAbaProjeto(aba) {
-  document.querySelectorAll(".proj-tab").forEach((btn) => {
-    btn.classList.toggle("active", btn.dataset.tab === aba);
-  });
-  ["ver", "contatos", "ofertas"].forEach((a) => {
-    const el = document.getElementById("projTab" + a.charAt(0).toUpperCase() + a.slice(1));
-    if (el) el.classList.toggle("hidden", a !== aba);
-  });
+  // Mantido por compatibilidade; verProjeto agora usa trocarAbaOferta
+  trocarAbaOferta(aba);
 }
 
 async function excluirProjeto(id) {
@@ -9003,6 +9643,7 @@ async function excluirProjeto(id) {
       nomeExibicao,
     });
 
+    registrarLog("projeto_lixeira", nomeExibicao, id, { nome: projeto.nome, status: projeto.status });
     projetos = projetos.filter((p) => p.id !== id);
     renderTabelaProjetos?.();
     atualizarSugestoesProjetosOferta?.();
@@ -9011,6 +9652,7 @@ async function excluirProjeto(id) {
       mensagem: "Projeto movido para a lixeira.",
       onUndo: async () => {
         await restaurarDaLixeira("projetos", id);
+        registrarLog("item_restaurado", `projetos: ${nomeExibicao}`, id);
         await recarregarDadosPrincipais();
       },
     });
@@ -10722,7 +11364,11 @@ function trocarPaginaLixeira(pagina) {
 
 async function restaurarItemLixeira(colecao, id) {
   try {
+    const itemSnap = await db.collection(colecao).doc(id).get();
+    const itemData = itemSnap.data() || {};
+    const itemLabel = itemData.nomeLixeira || itemData.razao || itemData.nome || id;
     await restaurarDaLixeira(colecao, id);
+    registrarLog("item_restaurado", `${colecao}: ${itemLabel}`, id);
     await carregarLixeira();
 
     await carregarClientesFirebase?.();
@@ -10750,6 +11396,10 @@ async function excluirItemDefinitivo(colecao, id) {
   if (!await showConfirm("Esta ação não pode ser desfeita. O item será removido permanentemente.", { title: "Excluir Definitivamente", confirmText: "Excluir" })) return;
 
   try {
+    const itemSnap = await db.collection(colecao).doc(id).get();
+    const itemData = itemSnap.data() || {};
+    const itemLabel = itemData.nomeLixeira || itemData.razao || itemData.nome || id;
+
     const alertasSnap = await db.collection("alertas")
       .where("entidadeId", "==", id).get();
 
@@ -10758,6 +11408,7 @@ async function excluirItemDefinitivo(colecao, id) {
     batch.delete(db.collection(colecao).doc(id));
     await batch.commit();
 
+    registrarLog("item_excluido_definitivo", `${colecao}: ${itemLabel}`, id, { colecao, razao: itemData.razao, nome: itemData.nome, oferta: itemData.oferta });
     await carregarLixeira();
   } catch (e) {
     console.error(e);
@@ -11423,5 +12074,195 @@ window._restaurarFiltrosPorSecao = {
   projetos:      _restaurarFiltrosProjetos,
   representadas: _restaurarFiltrosRepresentadas,
 };
+
+// =============================================================
+// AUDITORIA — Logging estruturado de ações críticas
+// =============================================================
+
+const AUDIT_TIPO_LABELS = {
+  oferta_criada:             "Oferta criada",
+  oferta_editada:            "Oferta editada",
+  oferta_lixeira:            "Oferta → lixeira",
+  cliente_criado:            "Cliente criado",
+  cliente_editado:           "Cliente editado",
+  cliente_lixeira:           "Cliente → lixeira",
+  representada_criada:       "Representada criada",
+  representada_editada:      "Representada editada",
+  representada_lixeira:      "Representada → lixeira",
+  projeto_criado:            "Projeto criado",
+  projeto_editado:           "Projeto editado",
+  projeto_lixeira:           "Projeto → lixeira",
+  item_restaurado:           "Item restaurado",
+  item_excluido_definitivo:  "Excluído definitivamente",
+  usuario_aprovado:          "Usuário aprovado",
+  usuario_bloqueado:         "Usuário bloqueado",
+  permissoes_alteradas:      "Permissões alteradas",
+};
+
+function registrarLog(tipo, label, entidadeId, snapshot) {
+  try {
+    const u = window.usuarioLogadoCRM || {};
+    const email = auth?.currentUser?.email || u.email || "desconhecido";
+    const doc = {
+      tipo,
+      tipoLabel: AUDIT_TIPO_LABELS[tipo] || tipo,
+      label: label || "",
+      entidadeId: entidadeId || "",
+      usuario: email,
+      usuarioNome: u.nome || email,
+      role: u.role || "desconhecido",
+      timestamp: new Date().toISOString(),
+    };
+    if (snapshot) doc.snapshot = snapshot;
+    db.collection("logs").add(doc).catch(e => console.error("[Auditoria] Falha ao gravar log:", e));
+  } catch (e) {
+    console.error("[Auditoria] Erro inesperado em registrarLog:", e);
+  }
+}
+
+function initAuditoriaUI() {
+  document.getElementById("btnReloadAuditoria")?.addEventListener("click", carregarAuditoria);
+  document.getElementById("auditFiltroTipo")?.addEventListener("change", carregarAuditoria);
+  document.getElementById("auditFiltroUsuario")?.addEventListener("change", carregarAuditoria);
+}
+
+function popularSelectUsuariosAuditoria(logs) {
+  const sel = document.getElementById("auditFiltroUsuario");
+  if (!sel) return;
+  const atual = sel.value;
+  const emails = [...new Set((logs || []).map(l => l.usuario).filter(Boolean))].sort();
+  sel.innerHTML = '<option value="">Todos</option>';
+  emails.forEach(email => {
+    const opt = document.createElement("option");
+    opt.value = email;
+    opt.textContent = email;
+    sel.appendChild(opt);
+  });
+  if (atual && emails.includes(atual)) sel.value = atual;
+}
+
+async function _popularSelectUsuariosAuditoria_unused() {
+  const sel = document.getElementById("auditFiltroUsuario");
+  if (!sel) return;
+  try {
+    const snap = await db.collection("usuarios").where("aprovado", "==", true).get();
+    const emails = snap.docs
+      .map(d => d.data().email || "")
+      .filter(Boolean)
+      .sort((a, b) => a.localeCompare(b));
+    emails.forEach(email => {
+      const opt = document.createElement("option");
+      opt.value = email;
+      opt.textContent = email;
+      sel.appendChild(opt);
+    });
+  } catch (_) {}
+}
+
+async function carregarAuditoria() {
+  const tbody = document.getElementById("tbodyAuditoria");
+  if (!tbody) return;
+  tbody.innerHTML = `<tr><td colspan="6" style="text-align:center;opacity:.6">Carregando...</td></tr>`;
+
+  try {
+    const snap = await db.collection("logs").orderBy("timestamp", "desc").limit(300).get();
+    const todosLogs = snap.docs.map(d => ({ id: d.id, ...d.data() }));
+
+    popularSelectUsuariosAuditoria(todosLogs);
+
+    const filtroTipo    = document.getElementById("auditFiltroTipo")?.value || "";
+    const filtroUsuario = document.getElementById("auditFiltroUsuario")?.value || "";
+
+    const logs = todosLogs
+      .filter(l => !filtroTipo    || l.tipo    === filtroTipo)
+      .filter(l => !filtroUsuario || l.usuario === filtroUsuario);
+
+    renderAuditoria(logs);
+  } catch (e) {
+    console.error(e);
+    const tbody2 = document.getElementById("tbodyAuditoria");
+    if (tbody2) tbody2.innerHTML = `<tr><td colspan="6" style="color:#ef4444">Erro ao carregar logs: ${escapeHtml(e.message)}</td></tr>`;
+  }
+}
+
+let _auditLogsCache = [];
+
+function renderAuditoria(logs) {
+  const tbody = document.getElementById("tbodyAuditoria");
+  if (!tbody) return;
+
+  _auditLogsCache = logs;
+
+  if (!logs.length) {
+    tbody.innerHTML = `<tr><td colspan="6" style="text-align:center;opacity:.5">Nenhum registro encontrado.</td></tr>`;
+    return;
+  }
+
+  const ROLE_BADGE = { admin: "badge-role-admin", supervisor: "badge-role-supervisor", user: "badge-role-user" };
+  const TIPO_CLS = {
+    oferta_criada: "audit-tipo-create", cliente_criado: "audit-tipo-create",
+    representada_criada: "audit-tipo-create", projeto_criado: "audit-tipo-create",
+    oferta_editada: "audit-tipo-edit", cliente_editado: "audit-tipo-edit",
+    representada_editada: "audit-tipo-edit", projeto_editado: "audit-tipo-edit",
+    permissoes_alteradas: "audit-tipo-edit",
+    oferta_lixeira: "audit-tipo-delete", cliente_lixeira: "audit-tipo-delete",
+    representada_lixeira: "audit-tipo-delete", projeto_lixeira: "audit-tipo-delete",
+    item_excluido_definitivo: "audit-tipo-delete",
+    item_restaurado: "audit-tipo-restore",
+    usuario_aprovado: "audit-tipo-user", usuario_bloqueado: "audit-tipo-user",
+  };
+
+  tbody.innerHTML = logs.map((l, i) => {
+    const dt = l.timestamp ? new Date(l.timestamp) : null;
+    const dtStr = dt ? dt.toLocaleString("pt-BR", { day:"2-digit", month:"2-digit", year:"numeric", hour:"2-digit", minute:"2-digit" }) : "—";
+    const roleCls = ROLE_BADGE[l.role] || "";
+    const tipoCls = TIPO_CLS[l.tipo] || "";
+    const temSnapshot = l.snapshot && Object.keys(l.snapshot).length > 0;
+    return `<tr>
+      <td class="audit-col-dt">${escapeHtml(dtStr)}</td>
+      <td class="audit-col-user">${escapeHtml(l.usuario || "—")}</td>
+      <td><span class="badge-role ${roleCls}">${escapeHtml(l.role || "—")}</span></td>
+      <td><span class="audit-tipo-badge ${tipoCls}">${escapeHtml(l.tipoLabel || l.tipo || "—")}</span></td>
+      <td class="audit-col-label">${escapeHtml(l.label || "—")}</td>
+      <td style="text-align:center">${temSnapshot ? `<button class="audit-btn-snap btn-sm secondary" data-audit-idx="${i}">Ver</button>` : "<span style='opacity:.3'>—</span>"}</td>
+    </tr>`;
+  }).join("");
+
+  tbody.querySelectorAll(".audit-btn-snap").forEach(btn => {
+    btn.addEventListener("click", () => {
+      const idx = parseInt(btn.dataset.auditIdx);
+      const log = _auditLogsCache[idx];
+      if (log) verSnapshotLog(log.snapshot, log.tipoLabel || log.tipo || "");
+    });
+  });
+}
+
+function verSnapshotLog(snapshot, titulo) {
+  const campos = Object.entries(snapshot || {})
+    .filter(([k]) => !["historico", "id"].includes(k))
+    .map(([k, v]) => `<tr><td class="snap-key">${escapeHtml(k)}</td><td class="snap-val">${escapeHtml(typeof v === "object" ? JSON.stringify(v) : String(v ?? ""))}</td></tr>`)
+    .join("");
+
+  const html = `
+    <p style="font-size:13px;opacity:.65;margin-bottom:12px">${escapeHtml(titulo)} — estado no momento da ação</p>
+    <div style="overflow:auto;max-height:60vh">
+      <table class="snap-table"><tbody>${campos || "<tr><td colspan='2' style='opacity:.4'>Sem dados</td></tr>"}</tbody></table>
+    </div>`;
+
+  abrirModal("Detalhes do Log", html, null);
+}
+
+function initAuditoriaAdmin() {
+  const menuAuditoria = document.getElementById("menuAuditoria");
+  const secAuditoria  = document.getElementById("secAuditoria");
+
+  auth.onAuthStateChanged(user => {
+    const admin = !!user && isAdminEmail(user.email);
+    if (menuAuditoria) menuAuditoria.classList.toggle("hidden", !admin);
+    if (secAuditoria)  secAuditoria.classList.toggle("hidden", !admin);
+    if (admin) initAuditoriaUI();
+  });
+}
+
 
 

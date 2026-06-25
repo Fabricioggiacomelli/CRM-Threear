@@ -113,6 +113,16 @@ service cloud.firestore {
       allow delete: if isAuthed() && isAdmin();
     }
 
+    // ─── logs de auditoria ──────────────────────────────────────
+    // Qualquer usuário aprovado pode gravar (write = create apenas).
+    // Leitura e delete: apenas admin.
+    match /logs/{id} {
+      allow create: if isAuthed() && isApproved();
+      allow read:   if isAuthed() && isAdmin();
+      allow update: if false;
+      allow delete: if isAuthed() && isAdmin();
+    }
+
     // ─── backups (apenas admin) ──────────────────────────────────
     match /backups/{id} {
       allow read, write: if isAuthed() && isAdmin();

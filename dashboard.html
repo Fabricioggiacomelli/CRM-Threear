@@ -140,6 +140,10 @@
         <div class="d-filter-actions">
           <button class="d-btn-apply" id="btnAplicarFiltros">Aplicar</button>
           <button class="d-btn-clear" id="btnLimparFiltros">Limpar</button>
+          <button class="d-btn-refresh" id="btnAtualizarDados" title="Recarregar dados do servidor agora">
+            <svg width="12" height="12" viewBox="0 0 16 16" fill="none"><path d="M13.5 8A5.5 5.5 0 1 1 8 2.5a5.48 5.48 0 0 1 3.89 1.61M14 2v4h-4" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/></svg>
+            Atualizar
+          </button>
         </div>
       </div>
 
@@ -291,6 +295,46 @@
             <div class="d-table-wrap" id="clientesRiscoBox"></div>
           </div>
         </div>
+
+        <!-- Churn: clientes inativos -->
+        <div class="d-grid-1" style="margin-top:12px;">
+          <div class="d-card">
+            <div class="churn-header">
+              <div class="churn-header-left">
+                <div class="d-card-label">Clientes em Risco de Churn</div>
+                <div class="churn-header-sub">sem atividade recente com histórico de compras</div>
+              </div>
+              <div class="churn-controls">
+                <label class="churn-label-inline" for="churnDias">Inativo há mais de</label>
+                <select id="churnDias" class="churn-select">
+                  <option value="60">60 dias</option>
+                  <option value="90" selected>90 dias</option>
+                  <option value="120">120 dias</option>
+                  <option value="180">180 dias</option>
+                  <option value="365">1 ano</option>
+                </select>
+                <span class="churn-label-inline">com mín.</span>
+                <select id="churnMinPedidos" class="churn-select">
+                  <option value="1" selected>1 pedido</option>
+                  <option value="2">2 pedidos</option>
+                  <option value="3">3 pedidos</option>
+                </select>
+              </div>
+            </div>
+            <div class="d-table-wrap" id="churnBox"></div>
+          </div>
+        </div>
+
+        <!-- ABC: Clientes Estratégicos -->
+        <div class="d-grid-1" style="margin-top:12px;">
+          <div class="d-card">
+            <div class="d-card-label">Classificação ABC de Clientes</div>
+            <div class="abc-sub">Baseado em R$ pedido nos últimos 12 meses (A ≥ R$1M · B ≥ R$200k · C &lt; R$200k)</div>
+            <div id="abcClientesKpi" class="abc-kpi-row"></div>
+            <div class="d-card-label" style="font-size:11px;margin:14px 0 6px">Top 10 — Clientes Estratégicos (Classe A)</div>
+            <div class="d-table-wrap" id="abcClientesBox"></div>
+          </div>
+        </div>
       </section>
 
       <!-- ── 03: Representadas ──────────────────────────────── -->
@@ -321,6 +365,17 @@
           <div class="d-card" id="cardWinRateRepsTable">
             <div class="d-card-label">Ranking win rate — detalhes</div>
             <div class="d-table-wrap" id="winRateRepsBox"></div>
+          </div>
+        </div>
+
+        <!-- ABC: Representadas Estratégicas -->
+        <div class="d-grid-1" style="margin-top:12px;">
+          <div class="d-card">
+            <div class="d-card-label">Classificação ABC de Representadas</div>
+            <div class="abc-sub">Baseado em R$ pedido nos últimos 12 meses (A ≥ R$25M · B ≥ R$1M · C &lt; R$1M)</div>
+            <div id="abcRepsKpi" class="abc-kpi-row"></div>
+            <div class="d-card-label" style="font-size:11px;margin:14px 0 6px">Ranking completo</div>
+            <div class="d-table-wrap" id="abcRepsBox"></div>
           </div>
         </div>
       </section>

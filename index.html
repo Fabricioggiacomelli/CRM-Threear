@@ -286,6 +286,11 @@
         <span class="label">Aprovar Usuários</span>
       </button>
 
+      <button type="button" class="menu-item hidden" id="menuAuditoria" onclick="irPara('auditoria')">
+        <span class="icon">🔍</span>
+        <span class="label">Auditoria</span>
+      </button>
+
       <button type="button" class="menu-item" id="btnDashboard">
         <span class="icon">📊</span>
         <span class="label">Dashboard</span>
@@ -756,6 +761,15 @@
         <div class="actions-row">
           <button type="button" id="btnAddFiltroCliente" class="secondary">+ Adicionar filtro</button>
           <button type="button" id="btnLimparFiltrosClientes" class="secondary">Limpar filtros</button>
+          <div style="display:flex;align-items:center;gap:6px;margin-left:auto">
+            <label for="filtroClasseClientes" style="font-size:12px;opacity:.8;white-space:nowrap">Classe ABC:</label>
+            <select id="filtroClasseClientes" class="input-campo" style="width:110px;padding:4px 8px">
+              <option value="">Todas</option>
+              <option value="A">A — Estratégico</option>
+              <option value="B">B — Relevante</option>
+              <option value="C">C — Padrão</option>
+            </select>
+          </div>
         </div>
 
 
@@ -948,6 +962,15 @@
           <div class="field">
             <label for="searchRepresentadas">Buscar:</label>
             <input id="searchRepresentadas" type="text" placeholder="Nome da representada..." />
+          </div>
+          <div class="field">
+            <label for="filtroClasseRepresentadas">Classe ABC:</label>
+            <select id="filtroClasseRepresentadas" class="input-campo" style="width:130px">
+              <option value="">Todas</option>
+              <option value="A">A — Estratégica</option>
+              <option value="B">B — Relevante</option>
+              <option value="C">C — Padrão</option>
+            </select>
           </div>
         </div>
 
@@ -1170,6 +1193,61 @@
           </table>
         </div>
 
+      </section>
+
+      <!-- ── AUDITORIA (admin only) ───────────────────────────── -->
+      <section id="secAuditoria" class="hidden">
+        <h3>Auditoria de Ações</h3>
+        <p style="opacity:.85">Registro de todas as ações críticas realizadas no sistema.</p>
+
+        <div class="filters-row" style="margin-bottom:14px">
+          <div class="field">
+            <label for="auditFiltroTipo">Tipo de ação:</label>
+            <select id="auditFiltroTipo" class="input-campo" style="width:200px">
+              <option value="">Todos</option>
+              <option value="oferta_criada">Oferta criada</option>
+              <option value="oferta_editada">Oferta editada</option>
+              <option value="oferta_lixeira">Oferta → lixeira</option>
+              <option value="cliente_criado">Cliente criado</option>
+              <option value="cliente_editado">Cliente editado</option>
+              <option value="cliente_lixeira">Cliente → lixeira</option>
+              <option value="representada_criada">Representada criada</option>
+              <option value="representada_editada">Representada editada</option>
+              <option value="representada_lixeira">Representada → lixeira</option>
+              <option value="projeto_criado">Projeto criado</option>
+              <option value="projeto_editado">Projeto editado</option>
+              <option value="projeto_lixeira">Projeto → lixeira</option>
+              <option value="item_restaurado">Item restaurado</option>
+              <option value="item_excluido_definitivo">Excluído definitivamente</option>
+              <option value="usuario_aprovado">Usuário aprovado</option>
+              <option value="usuario_bloqueado">Usuário bloqueado</option>
+              <option value="permissoes_alteradas">Permissões alteradas</option>
+            </select>
+          </div>
+          <div class="field">
+            <label for="auditFiltroUsuario">Usuário:</label>
+            <select id="auditFiltroUsuario" class="input-campo" style="width:240px">
+              <option value="">Todos</option>
+            </select>
+          </div>
+          <button id="btnReloadAuditoria" class="secondary btn-sm" style="flex:none">Atualizar</button>
+        </div>
+
+        <div class="table-scroll" id="auditTabelaWrap">
+          <table id="tabelaAuditoria">
+            <thead>
+              <tr>
+                <th>Data/Hora</th>
+                <th>Usuário</th>
+                <th>Cargo</th>
+                <th>Ação</th>
+                <th>Entidade</th>
+                <th style="text-align:center">Detalhes</th>
+              </tr>
+            </thead>
+            <tbody id="tbodyAuditoria"></tbody>
+          </table>
+        </div>
       </section>
 
     </div>

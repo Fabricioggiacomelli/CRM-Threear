@@ -161,6 +161,38 @@ function classificarStatusFunil(o) {
 }
 
 // =============================================================
+// CACHE LOCAL (sessionStorage, TTL 5 min)
+// =============================================================
+
+const DASH_CACHE_KEY = "dash_cache_v1";
+const DASH_CACHE_TTL = 5 * 60 * 1000; // 5 minutos
+
+function dashCacheSave(ofertas, clientes, reps, projetos) {
+  try {
+    sessionStorage.setItem(DASH_CACHE_KEY, JSON.stringify({
+      ts: Date.now(),
+      ofertas, clientes, reps, projetos
+    }));
+  } catch (_) { /* QuotaExceededError — ignora silenciosamente */ }
+}
+
+function dashCacheLoad() {
+  try {
+    const raw = sessionStorage.getItem(DASH_CACHE_KEY);
+    if (!raw) return null;
+    const parsed = JSON.parse(raw);
+    const age = Date.now() - parsed.ts;
+    if (age > DASH_CACHE_TTL) { sessionStorage.removeItem(DASH_CACHE_KEY); return null; }
+    return { ...parsed, ageMs: age };
+  } catch (_) { return null; }
+}
+
+function dashCacheClear() {
+  sessionStorage.removeItem(DASH_CACHE_KEY);
+}
+
+
+// =============================================================
 // FIREBASE
 // =============================================================
 
@@ -1227,6 +1259,29 @@ function openKpiModal(type) {
   requestAnimationFrame(() => searchEl.focus());
 }
 
+// Abre o modal KPI com uma lista de ofertas pré-filtrada
+function openDrillModal(title, subtitle, ofertas) {
+  const modal = $("kpiModal");
+  if (!modal) return;
+  _kpiNavStack = [];
+  $("kpiModalBack").style.display = "none";
+  _kpiShowSearch(true);
+  _kpiShowFilters(true);
+  _kpiResetFilterValues();
+  _kpiPopulateFilters(ofertas);
+  $("kpiModalTitle").textContent = title;
+  $("kpiModalSub").textContent = subtitle || "";
+  const searchEl = $("kpiModalSearch");
+  searchEl.value = "";
+  const render = q => renderOfertasModal($("kpiModalBody"), $("kpiModalSub"), ofertas, q);
+  searchEl.oninput = ev => render(ev.target.value);
+  render("");
+  modal.style.display = "flex";
+  requestAnimationFrame(() => searchEl.focus());
+}
+
+const _drillHover = (event, elements) => { event.native.target.style.cursor = elements.length ? "pointer" : "default"; };
+
 // =============================================================
 // SEÇÃO: PERFORMANCE COMERCIAL
 // =============================================================
@@ -1329,11 +1384,11 @@ function buildFunilChart(ofertasFiltradas) {
       },
       onClick: (_, elements) => {
         if (!elements.length) return;
-        drillDown({ searchTerm: labels[elements[0].index] });
+        const status = labels[elements[0].index];
+        const filtradas = ofertasFiltradas.filter(o => getStatusText(o) === status);
+        openDrillModal(`Status — ${status}`, `${filtradas.length} oferta(s)`, filtradas);
       },
-      onHover: (event, elements) => {
-        event.native.target.style.cursor = elements.length ? "pointer" : "default";
-      }
+      onHover: _drillHover
     }
   });
 }
@@ -1361,7 +1416,24 @@ function buildEvolucaoChart(ofertasFiltradas) {
         { label: "Pedidos", data: months.map(m => byMonth[m].ped), borderColor: "#10B981", backgroundColor: paletteAlpha("#10B981", 0.12), fill: true, tension: 0.3, pointRadius: 4 }
       ]
     },
-    options: { responsive: true, maintainAspectRatio: false, plugins: { legend: { position: "top" } } }
+    options: {
+      responsive: true, maintainAspectRatio: false,
+      plugins: { legend: { position: "top" } },
+      onClick: (_, elements) => {
+        if (!elements.length) return;
+        const { datasetIndex, index } = elements[0];
+        const monthKey = months[index];
+        const [y, mm] = monthKey.split("-");
+        const label = `${mm}/${y}`;
+        const inMonth = o => { const dt = getOfertaDate(o); return dt && dt.getFullYear() === +y && dt.getMonth() + 1 === +mm; };
+        const filtradas = datasetIndex === 1
+          ? ofertasFiltradas.filter(o => inMonth(o) && isPedidoSim(o))
+          : ofertasFiltradas.filter(inMonth);
+        const tipo = datasetIndex === 1 ? "Pedidos" : "Propostas";
+        openDrillModal(`${tipo} — ${label}`, `${filtradas.length} oferta(s)`, filtradas);
+      },
+      onHover: _drillHover
+    }
   });
 }
 
@@ -1400,6 +1472,16 @@ function buildComparativoChart(ofertasFiltradas, ofertasAnteriores, semComparaca
     }
   };
 
+  const comparativoClick = (_, elements) => {
+    if (!elements.length) return;
+    const { datasetIndex, index } = elements[0];
+    const base = datasetIndex === 0 ? ofertasFiltradas : ofertasAnteriores;
+    const filtradas = index === 1 ? base.filter(isPedidoSim) : base;
+    const tipo = index === 1 ? "Pedidos" : "Propostas";
+    const periodo = datasetIndex === 0 ? "período atual" : "período anterior";
+    openDrillModal(`${tipo} — ${periodo}`, `${filtradas.length} oferta(s)`, filtradas);
+  };
+
   charts.comparativo = safeChart("chartComparativo", {
     type: "bar",
     data: {
@@ -1411,7 +1493,8 @@ function buildComparativoChart(ofertasFiltradas, ofertasAnteriores, semComparaca
     },
     options: {
       ...baseOpts,
-      plugins: { ...baseOpts.plugins, tooltip: { callbacks: { label: ctx => `  ${ctx.parsed.y}` } } }
+      plugins: { ...baseOpts.plugins, tooltip: { callbacks: { label: ctx => `  ${ctx.parsed.y}` } } },
+      onClick: comparativoClick, onHover: _drillHover
     }
   });
 
@@ -1427,10 +1510,8 @@ function buildComparativoChart(ofertasFiltradas, ofertasAnteriores, semComparaca
     options: {
       ...baseOpts,
       plugins: { ...baseOpts.plugins, tooltip: { callbacks: { label: ctx => `  R$ ${(ctx.parsed.y * 1000).toLocaleString("pt-BR", { maximumFractionDigits: 0 })}` } } },
-      scales: {
-        ...baseOpts.scales,
-        y: { ...baseOpts.scales.y, ticks: { ...baseOpts.scales.y.ticks, callback: v => `${v}k` } }
-      }
+      scales: { ...baseOpts.scales, y: { ...baseOpts.scales.y, ticks: { ...baseOpts.scales.y.ticks, callback: v => `${v}k` } } },
+      onClick: comparativoClick, onHover: _drillHover
     }
   });
 }
@@ -1465,9 +1546,11 @@ function buildTopClientesPedidoChart(ofertasFiltradas) {
       scales: { x: { ticks: { maxRotation: 40, minRotation: 40, font: { size: 10 } }, grid: { display: false } }, y: { ticks: { callback: v => moneyBRShort(v) } } },
       onClick: (_, elements) => {
         if (!elements.length) return;
-        drillDown({ searchTerm: fullLabels[elements[0].index] });
+        const cliente = fullLabels[elements[0].index];
+        const filtradas = ofertasFiltradas.filter(o => isPedidoSim(o) && getClienteLabel(o) === cliente);
+        openDrillModal(`Pedidos — ${cliente}`, `${filtradas.length} pedido(s)`, filtradas);
       },
-      onHover: (event, elements) => { event.native.target.style.cursor = elements.length ? "pointer" : "default"; }
+      onHover: _drillHover
     }
   });
 }
@@ -1496,9 +1579,11 @@ function buildTopClientesPropostaChart(ofertasFiltradas) {
       scales: { x: { ticks: { maxRotation: 40, minRotation: 40, font: { size: 10 } }, grid: { display: false } }, y: { ticks: { callback: v => moneyBRShort(v) } } },
       onClick: (_, elements) => {
         if (!elements.length) return;
-        drillDown({ searchTerm: fullLabels[elements[0].index] });
+        const cliente = fullLabels[elements[0].index];
+        const filtradas = ofertasFiltradas.filter(o => getClienteLabel(o) === cliente);
+        openDrillModal(`Propostas — ${cliente}`, `${filtradas.length} oferta(s)`, filtradas);
       },
-      onHover: (event, elements) => { event.native.target.style.cursor = elements.length ? "pointer" : "default"; }
+      onHover: _drillHover
     }
   });
 }
@@ -1548,7 +1633,114 @@ function buildClientesRiscoTable(ofertasFiltradas) {
       </tbody>
     </table>`;
   box.querySelectorAll(".dash-row-clickable[data-search]").forEach(row => {
-    row.addEventListener("click", () => drillDown({ searchTerm: row.dataset.search }));
+    const cliente = row.dataset.search;
+    row.addEventListener("click", () => {
+      const filtradas = ofertasFiltradas.filter(o => getClienteLabel(o) === cliente);
+      openDrillModal(`Baixa conversão — ${cliente}`, `${filtradas.length} oferta(s)`, filtradas);
+    });
+  });
+}
+
+// =============================================================
+// CHURN — Clientes inativos com histórico de pedidos
+// =============================================================
+
+let churnSortAsc = false;
+
+function buildChurnTable() {
+  const box = $("churnBox");
+  if (!box) return;
+
+  const diasInativo = parseInt($("churnDias")?.value || "90", 10);
+  const minPedidos  = parseInt($("churnMinPedidos")?.value || "1", 10);
+  const hoje = new Date();
+  const limiteInatividade = new Date(hoje.getTime() - diasInativo * 864e5);
+
+  const map = {};
+  ofertasDB.forEach(o => {
+    const c = getClienteLabel(o);
+    if (c === "Sem cliente") return;
+    if (!map[c]) map[c] = { pedidos: 0, ultimaAtividade: null, valorPedido: 0 };
+    if (isPedidoSim(o)) {
+      map[c].pedidos++;
+      map[c].valorPedido += getValorPedidoReal(o);
+    }
+    const dt = getOfertaDate(o) || parseDateAny(o.criadoEm) || parseDateAny(o.atualizadoEm);
+    // Ignora datas com ano inválido (erros de digitação como "10/11/1111")
+    if (dt && dt.getFullYear() >= 2000 && (!map[c].ultimaAtividade || dt > map[c].ultimaAtividade)) {
+      map[c].ultimaAtividade = dt;
+    }
+  });
+
+  const churn = Object.entries(map)
+    .filter(([, v]) =>
+      v.pedidos >= minPedidos &&
+      v.ultimaAtividade !== null &&
+      v.ultimaAtividade < limiteInatividade
+    )
+    .map(([nome, v]) => ({
+      nome,
+      pedidos: v.pedidos,
+      valorPedido: v.valorPedido,
+      ultimaAtividade: v.ultimaAtividade,
+      diasInativo: Math.floor((hoje - v.ultimaAtividade) / 864e5),
+    }))
+    .sort((a, b) => churnSortAsc ? a.diasInativo - b.diasInativo : b.diasInativo - a.diasInativo);
+
+  if (!churn.length) {
+    box.innerHTML = `<div class="dash-empty">Nenhum cliente inativo encontrado com esses critérios.</div>`;
+    return;
+  }
+
+  const rows = churn.map(c => {
+    const nomeCurto = c.nome.length > 28 ? c.nome.slice(0, 26) + "…" : c.nome;
+    let urgClass = "churn-dias-low";
+    if (c.diasInativo >= 180) urgClass = "churn-dias-critical";
+    else if (c.diasInativo >= 90) urgClass = "churn-dias-high";
+
+    const dtFmt = c.ultimaAtividade
+      ? c.ultimaAtividade.toLocaleDateString("pt-BR", { day:"2-digit", month:"2-digit", year:"numeric" })
+      : "—";
+
+    return `<tr class="dash-row-clickable" data-search="${escapeHtml(c.nome)}" title="${escapeHtml(c.nome)}">
+      <td><span class="churn-dias-badge ${urgClass}">${c.diasInativo}d</span></td>
+      <td>${escapeHtml(nomeCurto)}</td>
+      <td style="text-align:right">${c.pedidos}</td>
+      <td style="text-align:right">${moneyBRShort(c.valorPedido)}</td>
+      <td style="text-align:right;color:var(--d-muted);font-size:11px">${dtFmt}</td>
+    </tr>`;
+  }).join("");
+
+  const sortIcon = churnSortAsc ? "↑" : "↓";
+
+  box.innerHTML = `
+    <div class="churn-summary">
+      <span class="churn-count">${churn.length} cliente${churn.length !== 1 ? "s" : ""} inativo${churn.length !== 1 ? "s" : ""}</span>
+      <span class="churn-desc">sem oferta nos últimos ${diasInativo} dias, com ${minPedidos}+ pedido${minPedidos !== 1 ? "s" : ""} no histórico</span>
+    </div>
+    <table class="dash-inner-table">
+      <thead><tr>
+        <th class="churn-th-sort" id="btnChurnSort">Inativo há <span class="churn-sort-icon">${sortIcon}</span></th>
+        <th>Cliente</th>
+        <th style="text-align:right">Pedidos</th>
+        <th style="text-align:right">R$ pedido</th>
+        <th style="text-align:right">Última ativ.</th>
+      </tr></thead>
+      <tbody>${rows}</tbody>
+    </table>`;
+
+  box.querySelector("#btnChurnSort").addEventListener("click", e => {
+    e.stopPropagation();
+    churnSortAsc = !churnSortAsc;
+    buildChurnTable();
+  });
+
+  box.querySelectorAll(".dash-row-clickable[data-search]").forEach(row => {
+    const cliente = row.dataset.search;
+    row.addEventListener("click", () => {
+      const filtradas = ofertasDB.filter(o => getClienteLabel(o) === cliente);
+      openDrillModal(`Histórico — ${cliente}`, `${filtradas.length} oferta(s)`, filtradas);
+    });
   });
 }
 
@@ -1587,9 +1779,11 @@ function buildRepsPropPedChart(ofertasFiltradas) {
       scales: { x: { ticks: { maxRotation: 40, minRotation: 40, font: { size: 10 } }, grid: { display: false } }, y: { ticks: { callback: v => moneyBRShort(v) } } },
       onClick: (_, elements) => {
         if (!elements.length) return;
-        drillDown({ searchTerm: fullLabels[elements[0].dataIndex] });
+        const rep = fullLabels[elements[0].dataIndex];
+        const filtradas = ofertasFiltradas.filter(o => getRepNameFromOferta(o) === rep);
+        openDrillModal(`Proposta × Pedido — ${rep}`, `${filtradas.length} oferta(s)`, filtradas);
       },
-      onHover: (event, elements) => { event.native.target.style.cursor = elements.length ? "pointer" : "default"; }
+      onHover: _drillHover
     }
   });
 }
@@ -1607,6 +1801,7 @@ function buildConversaoChart(ofertasFiltradas) {
     .map(([rep, v]) => ({ rep, conv: v.vProp > 0 ? (v.vPed / v.vProp) * 100 : 0 }))
     .sort((a, b) => b.conv - a.conv)
     .slice(0, 12);
+  const convFullLabels = arr.map(x => x.rep);
 
   charts.conv = safeChart("chartConversao", {
     type: "bar",
@@ -1617,7 +1812,14 @@ function buildConversaoChart(ofertasFiltradas) {
     options: {
       responsive: true, maintainAspectRatio: false,
       plugins: { legend: { display: false }, tooltip: { callbacks: { label: ctx => ` ${ctx.parsed.y.toFixed(1)}%` } } },
-      scales: { x: { ticks: { maxRotation: 40, minRotation: 40, font: { size: 10 } }, grid: { display: false } }, y: { ticks: { callback: v => v + "%" } } }
+      scales: { x: { ticks: { maxRotation: 40, minRotation: 40, font: { size: 10 } }, grid: { display: false } }, y: { ticks: { callback: v => v + "%" } } },
+      onClick: (_, elements) => {
+        if (!elements.length) return;
+        const rep = convFullLabels[elements[0].index];
+        const filtradas = ofertasFiltradas.filter(o => getRepNameFromOferta(o) === rep);
+        openDrillModal(`Conversão — ${rep}`, `${filtradas.length} oferta(s)`, filtradas);
+      },
+      onHover: _drillHover
     }
   });
 }
@@ -1650,6 +1852,8 @@ function buildWinRateRepsChart(ofertasFiltradas) {
                    paletteAlpha("#EF4444", 0.8)
   );
 
+  const winRateFullLabels = arr.map(x => x.rep);
+
   charts.winRateReps = safeChart("chartWinRateReps", {
     type: "bar",
     data: {
@@ -1678,7 +1882,14 @@ function buildWinRateRepsChart(ofertasFiltradas) {
       scales: {
         x: { ticks: { maxRotation: 40, minRotation: 40, font: { size: 10 } }, grid: { display: false } },
         y: { min: 0, max: 100, ticks: { callback: v => v + "%" } }
-      }
+      },
+      onClick: (_, elements) => {
+        if (!elements.length) return;
+        const rep = winRateFullLabels[elements[0].index];
+        const filtradas = ofertasFiltradas.filter(o => getRepNameFromOferta(o) === rep);
+        openDrillModal(`Win Rate — ${rep}`, `${filtradas.length} oferta(s)`, filtradas);
+      },
+      onHover: _drillHover
     }
   });
 
@@ -1742,7 +1953,11 @@ function buildTopRepsTable(ofertasFiltradas) {
       </tbody>
     </table>`;
   box.querySelectorAll(".dash-row-clickable[data-search]").forEach(row => {
-    row.addEventListener("click", () => drillDown({ searchTerm: row.dataset.search }));
+    const rep = row.dataset.search;
+    row.addEventListener("click", () => {
+      const filtradas = ofertasFiltradas.filter(o => getRepNameFromOferta(o) === rep);
+      openDrillModal(`Top Representada — ${rep}`, `${filtradas.length} oferta(s)`, filtradas);
+    });
   });
 }
 
@@ -1764,6 +1979,7 @@ function buildProjetosVolumeChart(ofertasFiltradas) {
   if (!top.length) { if (card) card.insertAdjacentHTML("beforeend", '<div class="dash-empty">Nenhum projeto vinculado às ofertas do período.</div>'); return; }
 
   const labels = top.map(x => x[0].length > 20 ? x[0].slice(0, 18) + "…" : x[0]);
+  const projFullLabels = top.map(x => x[0]);
 
   charts.projetosVolume = safeChart("chartProjetosVolume", {
     type: "bar",
@@ -1774,7 +1990,14 @@ function buildProjetosVolumeChart(ofertasFiltradas) {
         legend: { display: false },
         tooltip: { callbacks: { label: ctx => ` ${moneyBR(ctx.parsed.y)}` } }
       },
-      scales: { x: { ticks: { maxRotation: 40, minRotation: 40, font: { size: 10 } }, grid: { display: false } }, y: { ticks: { callback: v => moneyBRShort(v) } } }
+      scales: { x: { ticks: { maxRotation: 40, minRotation: 40, font: { size: 10 } }, grid: { display: false } }, y: { ticks: { callback: v => moneyBRShort(v) } } },
+      onClick: (_, elements) => {
+        if (!elements.length) return;
+        const proj = projFullLabels[elements[0].index];
+        const filtradas = ofertasFiltradas.filter(o => getProjetoLabel(o) === proj);
+        openDrillModal(`Projeto — ${proj}`, `${filtradas.length} oferta(s)`, filtradas);
+      },
+      onHover: _drillHover
     }
   });
 }
@@ -1906,6 +2129,8 @@ function buildCicloRepChart(ofertasFiltradas) {
                      paletteAlpha("#EF4444", 0.8)
   );
 
+  const cicloRepFullLabels = arr.map(x => x.rep);
+
   charts.cicloRep = safeChart("chartCicloRep", {
     type: "bar",
     data: {
@@ -1933,7 +2158,14 @@ function buildCicloRepChart(ofertasFiltradas) {
       scales: {
         x: { ticks: { color: tickColor, font: { size: 10 }, maxRotation: 40, minRotation: 40 }, grid: { display: false }, border: { display: false } },
         y: { ticks: { color: tickColor, stepSize: 5, font: { size: 11 }, callback: v => v + "d" }, grid: { color: gridColor }, border: { display: false } }
-      }
+      },
+      onClick: (_, elements) => {
+        if (!elements.length) return;
+        const rep = cicloRepFullLabels[elements[0].index];
+        const filtradas = ofertasFiltradas.filter(o => isPedidoSim(o) && getRepNameFromOferta(o) === rep && getDiasCiclo(o) !== null);
+        openDrillModal(`Ciclo — ${rep}`, `${filtradas.length} pedido(s) com data P.O.`, filtradas);
+      },
+      onHover: _drillHover
     }
   });
 }
@@ -1969,6 +2201,8 @@ function buildCicloVendedorChart(ofertasFiltradas) {
 
   const colors = arr.map((_, i) => paletteAlpha(PALETTE[i % PALETTE.length], 0.75));
 
+  const cicloVendFullLabels = arr.map(x => x.vendedor);
+
   charts.cicloVendedor = safeChart("chartCicloVendedor", {
     type: "bar",
     data: {
@@ -1996,7 +2230,14 @@ function buildCicloVendedorChart(ofertasFiltradas) {
       scales: {
         x: { ticks: { color: tickColor, font: { size: 10 }, maxRotation: 40, minRotation: 40 }, grid: { display: false }, border: { display: false } },
         y: { ticks: { color: tickColor, stepSize: 5, font: { size: 11 }, callback: v => v + "d" }, grid: { color: gridColor }, border: { display: false } }
-      }
+      },
+      onClick: (_, elements) => {
+        if (!elements.length) return;
+        const vendedor = cicloVendFullLabels[elements[0].index];
+        const filtradas = ofertasFiltradas.filter(o => isPedidoSim(o) && getUserNameFromOferta(o) === vendedor && getDiasCiclo(o) !== null);
+        openDrillModal(`Ciclo — ${vendedor}`, `${filtradas.length} pedido(s) com data P.O.`, filtradas);
+      },
+      onHover: _drillHover
     }
   });
 }
@@ -2080,6 +2321,13 @@ function buildPerdasEvolucaoChart(ofertasFiltradas) {
 
   const labels = months.map(m => { const [y, mm] = m.split("-"); return `${mm}/${y}`; });
 
+  const perdasDsFilters = [
+    o => isPedidoSim(o),
+    o => isPerdida(o),
+    o => isCancelada(o),
+  ];
+  const perdasDsLabels = ["Ganhas", "Perdidas", "Canceladas"];
+
   charts.perdasEvolucao = safeChart("chartPerdasEvolucao", {
     type: "line",
     data: {
@@ -2093,9 +2341,20 @@ function buildPerdasEvolucaoChart(ofertasFiltradas) {
     options: {
       responsive: true, maintainAspectRatio: false,
       plugins: { legend: { position: "top", labels: { font: { size: 11 }, boxWidth: 12 } } },
-      scales: {
-        y: { ticks: { stepSize: 1, precision: 0 } }
-      }
+      scales: { y: { ticks: { stepSize: 1, precision: 0 } } },
+      onClick: (_, elements) => {
+        if (!elements.length) return;
+        const { datasetIndex, index } = elements[0];
+        const monthKey = months[index];
+        const [y, mm] = monthKey.split("-");
+        const label = `${mm}/${y}`;
+        const inMonth = o => { const dt = getOfertaDate(o); return dt && dt.getFullYear() === +y && dt.getMonth() + 1 === +mm; };
+        const dsFilter = perdasDsFilters[datasetIndex] || (() => true);
+        const tipo = perdasDsLabels[datasetIndex] || "Ofertas";
+        const filtradas = ofertasFiltradas.filter(o => inMonth(o) && dsFilter(o));
+        openDrillModal(`${tipo} — ${label}`, `${filtradas.length} oferta(s)`, filtradas);
+      },
+      onHover: _drillHover
     }
   });
 }
@@ -2155,7 +2414,14 @@ function buildMotivosPerdaChart(ofertasFiltradas) {
       scales: {
         x: { ticks: { stepSize: 1, precision: 0, color: tickColor }, grid: { color: gridColor }, border: { display: false } },
         y: { ticks: { color: tickColor, font: { size: 10 } }, grid: { display: false }, border: { display: false } }
-      }
+      },
+      onClick: (_, elements) => {
+        if (!elements.length) return;
+        const motivo = fullLabels[elements[0].index];
+        const filtradas = ofertasFiltradas.filter(o => isPerdida(o) && (String(o.motivo_perda || "").trim() || "Não informado") === motivo);
+        openDrillModal(`Motivo: ${motivo}`, `${filtradas.length} oferta(s) perdida(s)`, filtradas);
+      },
+      onHover: _drillHover
     }
   });
 }
@@ -2207,8 +2473,160 @@ function buildClientesPerdasTable(ofertasFiltradas) {
     </table>`;
 
   box.querySelectorAll(".dash-row-clickable[data-search]").forEach(row => {
-    row.addEventListener("click", () => drillDown({ searchTerm: row.dataset.search }));
+    const cliente = row.dataset.search;
+    row.addEventListener("click", () => {
+      const filtradas = ofertasFiltradas.filter(o => getClienteLabel(o) === cliente && (isPerdida(o) || isCancelada(o)));
+      openDrillModal(`Perdas — ${cliente}`, `${filtradas.length} oferta(s) perdida(s)/cancelada(s)`, filtradas);
+    });
   });
+}
+
+// =============================================================
+// ABC — Classificação Estratégica de Clientes e Representadas
+// =============================================================
+
+function buildAbcClientes(ofertasAll) {
+  const kpiBox = $("abcClientesKpi");
+  const listBox = $("abcClientesBox");
+  if (!kpiBox && !listBox) return;
+
+  const limite12m = new Date();
+  limite12m.setFullYear(limite12m.getFullYear() - 1);
+  const limite90d = new Date();
+  limite90d.setDate(limite90d.getDate() - 90);
+
+  // Compute per-client totals (last 12m pedidos)
+  const map = {};
+  for (const o of ofertasAll) {
+    if (!isPedidoSim(o)) continue;
+    const dt = getOfertaDate(o);
+    if (!dt || dt.getFullYear() < 2000) continue;
+    if (dt < limite12m) continue;
+    const nome = getClienteLabel(o);
+    if (nome === "Sem cliente") continue;
+    if (!map[nome]) map[nome] = { nome, totalPedido: 0, qtdPedidos: 0, ultimaAtividade: null };
+    map[nome].totalPedido += getValorPedidoReal(o);
+    map[nome].qtdPedidos++;
+    if (!map[nome].ultimaAtividade || dt > map[nome].ultimaAtividade) map[nome].ultimaAtividade = dt;
+  }
+
+  const todos = Object.values(map).map(v => ({
+    ...v,
+    classe: v.totalPedido >= 1_000_000 ? "A" : v.totalPedido >= 200_000 ? "B" : "C"
+  })).sort((a, b) => b.totalPedido - a.totalPedido);
+
+  const classeA = todos.filter(v => v.classe === "A");
+  const classeB = todos.filter(v => v.classe === "B").length;
+  const classeC = todos.filter(v => v.classe === "C").length;
+  const emRisco = classeA.filter(v => !v.ultimaAtividade || v.ultimaAtividade < limite90d);
+
+  // Mapa nome → classe para filtrar ao clicar
+  const nomesPorClasse = { A: new Set(), B: new Set(), C: new Set() };
+  todos.forEach(v => nomesPorClasse[v.classe].add(v.nome));
+  const emRiscoNomes = new Set(emRisco.map(v => v.nome));
+
+  if (kpiBox) {
+    kpiBox.innerHTML = `
+      <div class="abc-kpi-item abc-kpi-a abc-kpi-clickable" data-classe="A"><div class="abc-kpi-num">${classeA.length}</div><div class="abc-kpi-label">Classe A</div><div class="abc-kpi-sub">≥ R$ 1M / ano</div></div>
+      <div class="abc-kpi-item abc-kpi-b abc-kpi-clickable" data-classe="B"><div class="abc-kpi-num">${classeB}</div><div class="abc-kpi-label">Classe B</div><div class="abc-kpi-sub">R$ 200k – R$ 1M</div></div>
+      <div class="abc-kpi-item abc-kpi-c abc-kpi-clickable" data-classe="C"><div class="abc-kpi-num">${classeC}</div><div class="abc-kpi-label">Classe C</div><div class="abc-kpi-sub">< R$ 200k</div></div>
+      ${emRisco.length ? `<div class="abc-kpi-item abc-kpi-risco abc-kpi-clickable" data-classe="risco"><div class="abc-kpi-num">${emRisco.length}</div><div class="abc-kpi-label">Em risco</div><div class="abc-kpi-sub">Classe A sem pedido 90d+</div></div>` : ""}
+    `;
+    kpiBox.querySelectorAll(".abc-kpi-clickable[data-classe]").forEach(el => {
+      const classe = el.dataset.classe;
+      el.addEventListener("click", () => {
+        const nomes = classe === "risco" ? emRiscoNomes : nomesPorClasse[classe];
+        const filtradas = ofertasAll.filter(o => nomes.has(getClienteLabel(o)));
+        const label = classe === "risco" ? "Em risco (Classe A, 90d+)" : `Classe ${classe}`;
+        openDrillModal(`Clientes ABC — ${label}`, `${filtradas.length} oferta(s)`, filtradas);
+      });
+    });
+  }
+
+  if (listBox) {
+    if (!classeA.length) {
+      listBox.innerHTML = `<p style="opacity:.6;font-size:13px;padding:8px 0">Nenhum cliente Classe A no período.</p>`;
+    } else {
+      const rows = classeA.slice(0, 10).map((c, i) => {
+        const emR = !c.ultimaAtividade || c.ultimaAtividade < limite90d;
+        const dtFmt = c.ultimaAtividade ? c.ultimaAtividade.toLocaleDateString("pt-BR") : "—";
+        return `<tr>
+          <td style="color:var(--d-muted)">${i + 1}</td>
+          <td>${escapeHtml(c.nome)}</td>
+          <td style="text-align:right;font-weight:600">${moneyBR(c.totalPedido)}</td>
+          <td style="text-align:center">${c.qtdPedidos}</td>
+          <td style="text-align:center;font-size:11px;color:var(--d-muted)">${dtFmt}</td>
+          <td style="text-align:center">${emR ? `<span class="abc-risco-badge">Em risco</span>` : ""}</td>
+        </tr>`;
+      }).join("");
+      listBox.innerHTML = `<table class="abc-table"><thead><tr><th>#</th><th>Cliente</th><th style="text-align:right">R$ Pedido (12m)</th><th style="text-align:center">Pedidos</th><th style="text-align:center">Última atividade</th><th></th></tr></thead><tbody>${rows}</tbody></table>`;
+    }
+  }
+}
+
+function buildAbcRepresentadas(ofertasAll) {
+  const kpiBox = $("abcRepsKpi");
+  const listBox = $("abcRepsBox");
+  if (!kpiBox && !listBox) return;
+
+  const limite12m = new Date();
+  limite12m.setFullYear(limite12m.getFullYear() - 1);
+
+  const map = {};
+  for (const o of ofertasAll) {
+    if (!isPedidoSim(o)) continue;
+    const dt = getOfertaDate(o);
+    if (!dt || dt.getFullYear() < 2000 || dt < limite12m) continue;
+    const repNome = getRepNameFromOferta(o) || "Sem representada";
+    if (repNome === "Sem representada") continue;
+    if (!map[repNome]) map[repNome] = { nome: repNome, totalPedido: 0, qtdPedidos: 0 };
+    map[repNome].totalPedido += getValorPedidoReal(o);
+    map[repNome].qtdPedidos++;
+  }
+
+  const todos = Object.values(map).map(v => ({
+    ...v,
+    classe: v.totalPedido >= 25_000_000 ? "A" : v.totalPedido >= 1_000_000 ? "B" : "C"
+  })).sort((a, b) => b.totalPedido - a.totalPedido);
+
+  const classeA = todos.filter(v => v.classe === "A").length;
+  const classeB = todos.filter(v => v.classe === "B").length;
+  const classeC = todos.filter(v => v.classe === "C").length;
+
+  const repNomesPorClasse = { A: new Set(), B: new Set(), C: new Set() };
+  todos.forEach(v => repNomesPorClasse[v.classe].add(v.nome));
+
+  if (kpiBox) {
+    kpiBox.innerHTML = `
+      <div class="abc-kpi-item abc-kpi-a abc-kpi-clickable" data-classe="A"><div class="abc-kpi-num">${classeA}</div><div class="abc-kpi-label">Classe A</div><div class="abc-kpi-sub">≥ R$ 25M / ano</div></div>
+      <div class="abc-kpi-item abc-kpi-b abc-kpi-clickable" data-classe="B"><div class="abc-kpi-num">${classeB}</div><div class="abc-kpi-label">Classe B</div><div class="abc-kpi-sub">R$ 1M – R$ 25M</div></div>
+      <div class="abc-kpi-item abc-kpi-c abc-kpi-clickable" data-classe="C"><div class="abc-kpi-num">${classeC}</div><div class="abc-kpi-label">Classe C</div><div class="abc-kpi-sub">< R$ 1M</div></div>
+    `;
+    kpiBox.querySelectorAll(".abc-kpi-clickable[data-classe]").forEach(el => {
+      const classe = el.dataset.classe;
+      el.addEventListener("click", () => {
+        const nomes = repNomesPorClasse[classe];
+        const filtradas = ofertasAll.filter(o => nomes.has(getRepNameFromOferta(o)));
+        openDrillModal(`Representadas ABC — Classe ${classe}`, `${filtradas.length} oferta(s)`, filtradas);
+      });
+    });
+  }
+
+  if (listBox) {
+    if (!todos.length) {
+      listBox.innerHTML = `<p style="opacity:.6;font-size:13px;padding:8px 0">Nenhuma representada com pedidos no período.</p>`;
+    } else {
+      const BADGE = { A: "abc-kpi-a", B: "abc-kpi-b", C: "abc-kpi-c" };
+      const rows = todos.map((r, i) => `<tr>
+        <td style="color:var(--d-muted)">${i + 1}</td>
+        <td>${escapeHtml(r.nome)}</td>
+        <td style="text-align:center"><span class="abc-rank-badge ${BADGE[r.classe] || ""}">${r.classe}</span></td>
+        <td style="text-align:right;font-weight:600">${moneyBR(r.totalPedido)}</td>
+        <td style="text-align:center">${r.qtdPedidos}</td>
+      </tr>`).join("");
+      listBox.innerHTML = `<table class="abc-table"><thead><tr><th>#</th><th>Representada</th><th style="text-align:center">Classe</th><th style="text-align:right">R$ Pedido (12m)</th><th style="text-align:center">Pedidos</th></tr></thead><tbody>${rows}</tbody></table>`;
+    }
+  }
 }
 
 // =============================================================
@@ -2228,12 +2646,15 @@ function buildDashboardVisuals(ofertasFiltradas, ofertasAnteriores, semComparaca
   buildTopClientesPedidoChart(ofertasFiltradas);
   buildTopClientesPropostaChart(ofertasFiltradas);
   buildClientesRiscoTable(ofertasFiltradas);
+  buildChurnTable();
+  buildAbcClientes(ofertasDB);
 
   // Representadas
   buildRepsPropPedChart(ofertasFiltradas);
   buildConversaoChart(ofertasFiltradas);
   buildWinRateRepsChart(ofertasFiltradas);
   buildTopRepsTable(ofertasFiltradas);
+  buildAbcRepresentadas(ofertasDB);
 
   // Projetos
   buildProjetosVolumeChart(ofertasFiltradas);
@@ -2255,17 +2676,27 @@ function buildDashboardVisuals(ofertasFiltradas, ofertasAnteriores, semComparaca
 // INIT
 // =============================================================
 
+function dashShowSkeleton() {
+  document.body.classList.add("d-loading");
+}
+
+function dashHideSkeleton() {
+  document.body.classList.remove("d-loading");
+}
+
 async function initDashboard() {
   initTheme();
   bindSidebar();
   bindKpiModal();
   bindExportBtn();
 
+  dashShowSkeleton();
   setStatus("Carregando Firebase...");
   await esperarFirebase();
 
   auth.onAuthStateChanged(async (user) => {
     if (!user) {
+      dashHideSkeleton();
       setStatus("Você precisa fazer login. Redirecionando...");
       window.location.href = "index.html";
       return;
@@ -2293,28 +2724,54 @@ async function initDashboard() {
       (typeof getCurrentUserName === "function" && getCurrentUserName()) ||
       user.displayName || user.email || "Usuário";
 
-    setStatus("Carregando dados...");
+    // ── Carregamento com cache ──────────────────────────────
+    async function carregarDados(forcarAtualizacao = false) {
+      dashShowSkeleton();
+    
+      if (!forcarAtualizacao) {
+        const cached = dashCacheLoad();
+        if (cached) {
+          ofertasDB   = cached.ofertas;
+          clientesDB  = cached.clientes;
+          repsDB      = cached.reps;
+          projetosDB  = cached.projetos;
+          buildFilterOptions();
+          setPresetDates($("dashPeriodo")?.value || "30");
+          dashHideSkeleton();
+          setStatus(`OK — ${cached.ofertas.length} oferta(s) no filtro`);
+          run();
+          return;
+        }
+      }
 
-    let ofertas, clientes, reps, projetos;
-    try {
-      [ofertas, clientes, reps, projetos] = await Promise.all([
-        carregarColecao("ofertas"),
-        carregarColecao("clientes"),
-        carregarColecao("representadas"),
-        carregarColecao("projetos"),
-      ]);
-    } catch (err) {
-      console.error("Erro ao carregar dados do Firestore:", err);
-      setStatus("Erro ao carregar dados. Recarregue a página.");
-      return;
+      setStatus("Carregando dados do servidor...");
+      let ofertas, clientes, reps, projetos;
+      try {
+        [ofertas, clientes, reps, projetos] = await Promise.all([
+          carregarColecao("ofertas"),
+          carregarColecao("clientes"),
+          carregarColecao("representadas"),
+          carregarColecao("projetos"),
+        ]);
+      } catch (err) {
+        console.error("Erro ao carregar dados do Firestore:", err);
+        setStatus("Erro ao carregar dados. Recarregue a página.");
+        dashHideSkeleton();
+        return;
+      }
+
+      ofertasDB  = ofertas;
+      clientesDB = clientes;
+      repsDB     = reps;
+      projetosDB = projetos;
+
+      dashCacheSave(ofertas, clientes, reps, projetos);
+      buildFilterOptions();
+      if (forcarAtualizacao) setPresetDates($("dashPeriodo")?.value || "30");
+      else setPresetDates($("dashPeriodo")?.value || "30");
+      dashHideSkeleton();
+          run();
     }
-
-    ofertasDB = ofertas;
-    clientesDB = clientes;
-    repsDB = reps;
-    projetosDB = projetos;
-
-    buildFilterOptions();
 
     const run = () => {
       const filtered = applyDashboardFilters();
@@ -2346,6 +2803,8 @@ async function initDashboard() {
     $("dashBU")?.addEventListener("change", run);
     $("dashCliente")?.addEventListener("change", run);
     $("dashProjeto")?.addEventListener("change", run);
+    $("churnDias")?.addEventListener("change", buildChurnTable);
+    $("churnMinPedidos")?.addEventListener("change", buildChurnTable);
     $("btnLimparFiltros")?.addEventListener("click", () => {
       $("dashPeriodo").value = "30";
       setPresetDates("30");
@@ -2357,9 +2816,12 @@ async function initDashboard() {
       if ($("dashProjeto")) $("dashProjeto").value = "all";
       run();
     });
+    $("btnAtualizarDados")?.addEventListener("click", () => {
+      dashCacheClear();
+      carregarDados(true);
+    });
 
-    setPresetDates($("dashPeriodo")?.value || "30");
-    run();
+    carregarDados(false);
   });
 }
 
