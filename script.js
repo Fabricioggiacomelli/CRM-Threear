@@ -6103,7 +6103,9 @@ function irPara(tela) {
       sec.scrollIntoView({ behavior: "smooth" });
       carregarAuditoria();
     }
+    return;
   }
+
 }
 
 function preencherSelectResponsaveisContato() {

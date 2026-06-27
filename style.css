@@ -2238,6 +2238,17 @@ body.dark input.input-erro, body.dark textarea.input-erro, body.dark select.inpu
   background: rgba(239,68,68,0.07) !important;
 }
 
+/* Gerador de Ofertas — input auto-preenchido (readonly) */
+.gen-readonly {
+  background: var(--primary-light) !important;
+  color: var(--text-main) !important;
+  cursor: default;
+  opacity: 0.85;
+}
+body.dark .gen-readonly {
+  background: rgba(59,130,246,0.08) !important;
+}
+
 /* =========================
    NF / BADGES
 ========================= */

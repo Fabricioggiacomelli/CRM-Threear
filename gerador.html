@@ -1,0 +1,415 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Gerador de Ofertas — CRM Three Ar</title>
+  <link rel="icon" type="image/png" href="Imagens/LogoCRM.png" />
+  <link rel="stylesheet" href="style.css" />
+  <style>
+    /* Autocomplete rich items */
+    .autocomplete-item .ac-nome { font-size:13px; font-weight:600; color:var(--text-main); line-height:1.3; }
+    .autocomplete-item .ac-sub  { font-size:11px; color:var(--text-muted); margin-top:2px; }
+    .autocomplete-item .ac-end  { font-size:10px; color:var(--text-muted); white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+
+
+    /* Autocomplete rich items */
+    .autocomplete-item .ac-nome { font-size:13px; font-weight:600; color:var(--text-main); line-height:1.3; }
+    .autocomplete-item .ac-sub  { font-size:11px; color:var(--text-muted); margin-top:2px; }
+    .autocomplete-item .ac-end  { font-size:10px; color:var(--text-muted); white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+
+    /* ── Itens da Oferta ── */
+    .gen-itens-lista { display:flex; flex-direction:column; gap:12px; margin-bottom:14px; }
+
+    .gen-itens-empty {
+      display:flex; flex-direction:column; align-items:center; justify-content:center;
+      gap:8px; padding:32px 16px; border-radius:12px;
+      border:1.5px dashed var(--border-soft); color:var(--text-muted);
+      font-size:13px; text-align:center;
+    }
+    .gen-itens-empty svg { opacity:.4; }
+
+    /* Card */
+    .gen-item-card {
+      border-radius:12px; overflow:hidden;
+      border:1px solid var(--border-soft);
+      border-left:3px solid var(--primary);
+      background:var(--bg-container);
+      box-shadow:0 1px 4px rgba(0,0,0,.06);
+      transition:box-shadow .2s, border-color .2s;
+    }
+    .gen-item-card:focus-within {
+      box-shadow:0 0 0 3px color-mix(in srgb,var(--primary) 15%,transparent);
+      border-color:var(--primary);
+    }
+
+    /* Header */
+    .gen-item-header {
+      display:flex; align-items:center; justify-content:space-between;
+      padding:8px 14px;
+      background:var(--primary-light);
+      border-bottom:1px solid var(--border-soft);
+    }
+    .gen-item-badge {
+      font-size:11px; font-weight:800; color:var(--primary);
+      letter-spacing:.6px; text-transform:uppercase; white-space:nowrap;
+    }
+    .gen-item-remove {
+      width:28px; height:28px; flex-shrink:0;
+      display:flex; align-items:center; justify-content:center;
+      background:none; border:none; border-radius:6px;
+      color:var(--text-muted); cursor:pointer; font-size:15px; line-height:1;
+      transition:color .15s, background .15s;
+      font-family:inherit;
+    }
+    .gen-item-remove:hover { color:#ef4444; background:rgba(239,68,68,.1); }
+
+    /* Body */
+    .gen-item-body { padding:14px 16px; display:flex; flex-direction:column; gap:10px; }
+
+    /* Row */
+    .gen-item-row { display:flex; gap:10px; flex-wrap:wrap; align-items:flex-end; }
+
+    /* Price tinted row */
+    .gen-item-row.price-row {
+      background:color-mix(in srgb,var(--primary) 6%,transparent);
+      border-radius:10px; padding:10px 12px; margin:0 -4px;
+    }
+
+    /* Section label divider */
+    .gen-item-section-label {
+      display:flex; align-items:center; gap:8px;
+      font-size:9.5px; font-weight:700; letter-spacing:.7px;
+      text-transform:uppercase; color:var(--text-muted);
+    }
+    .gen-item-section-label::after {
+      content:""; flex:1; height:1px; background:var(--border-soft);
+    }
+
+    /* Field */
+    .gen-item-field { display:flex; flex-direction:column; gap:4px; min-width:0; }
+    .gen-item-field label {
+      font-size:10px; font-weight:700; color:var(--text-muted);
+      text-transform:uppercase; letter-spacing:.5px; white-space:nowrap;
+    }
+    .gen-item-field input {
+      padding:8px 10px; font-size:12px; border-radius:8px;
+      min-height:36px; width:100%;
+    }
+    /* Valor total — readonly highlight */
+    .gen-item-field input.vtotal-display {
+      background:color-mix(in srgb,var(--primary) 12%,transparent) !important;
+      color:var(--primary) !important; font-weight:800 !important;
+      font-size:13px !important; cursor:default;
+      border-color:transparent !important; text-align:right;
+    }
+
+    /* Add button */
+    .btn-add-item {
+      display:flex; align-items:center; justify-content:center; gap:8px;
+      width:100%; background:none;
+      border:1.5px dashed var(--primary); color:var(--primary);
+      border-radius:10px; padding:10px 16px; font-size:13px; font-weight:600;
+      cursor:pointer; transition:background .15s, opacity .15s;
+      font-family:inherit; margin-top:2px;
+    }
+    .btn-add-item:hover { background:var(--primary-light); }
+  </style>
+</head>
+<body>
+
+  <aside class="sidebar collapsed" id="sidebar">
+    <div class="sidebar-header">
+      <img src="Imagens/Logo.png" class="logo-img" alt="logo">
+      <h2 class="sidebar-title">CRM-Three Ar</h2>
+    </div>
+    <nav class="sidebar-menu">
+      <button type="button" class="menu-item" id="btnGerador">
+        <span class="icon">📄</span>
+        <span class="label">Gerador de Ofertas</span>
+      </button>
+      <button type="button" class="menu-item" id="btnVoltar">
+        <span class="icon">↩️</span>
+        <span class="label">Voltar ao CRM</span>
+      </button>
+      <button type="button" class="menu-item" onclick="toggleTheme()">
+        <span class="icon">🌙</span>
+        <span class="label" id="themeLabel">Modo escuro</span>
+      </button>
+      <button type="button" class="menu-item logout" id="btnSair">
+        <span class="icon">🚪</span>
+        <span class="label">Sair</span>
+      </button>
+    </nav>
+    <button class="collapse-btn" type="button" onclick="toggleSidebar()">⮜</button>
+  </aside>
+
+  <div class="main-content">
+    <div style="padding:32px 28px;max-width:900px;">
+
+      <h3>Gerador de Ofertas</h3>
+      <p class="subtitle" style="margin-bottom:24px;">
+        Preencha os campos obrigatórios para gerar a oferta comercial e técnica em PDF e registrá-la automaticamente no CRM.
+      </p>
+
+      <!-- ── Card: Cliente ─────────────────────────────────────── -->
+      <div class="form-card">
+        <h4 style="font-size:14px;font-weight:700;margin-bottom:14px;color:var(--text-strong);">Dados do Cliente</h4>
+        <div class="form-grid">
+
+          <!-- Razão Social com autocomplete -->
+          <div class="form-col" style="flex:1 1 100%;min-width:100%;">
+            <label for="gen_razao">Razão Social *</label>
+            <div class="autocomplete-wrap">
+              <input type="text" id="gen_razao" autocomplete="off"
+                placeholder="Digite a razão social ou busque um cliente cadastrado">
+              <div id="gen_razaoAuto" class="autocomplete-box hidden"></div>
+            </div>
+          </div>
+
+          <!-- CNPJ com autocomplete -->
+          <div class="form-col">
+            <label for="gen_cnpj">CNPJ</label>
+            <div class="autocomplete-wrap">
+              <input type="text" id="gen_cnpj" autocomplete="off" placeholder="00.000.000/0000-00">
+              <div id="gen_cnpjAuto" class="autocomplete-box hidden"></div>
+            </div>
+          </div>
+
+          <div class="form-col">
+            <label for="gen_solicitante">Solicitante *</label>
+            <input type="text" id="gen_solicitante" placeholder="Nome do contato">
+          </div>
+          <div class="form-col">
+            <label for="gen_telefone">Telefone *</label>
+            <input type="text" id="gen_telefone" placeholder="(11) 98888-7777">
+          </div>
+          <div class="form-col">
+            <label for="gen_email">E-mail *</label>
+            <input type="email" id="gen_email" placeholder="email@empresa.com">
+          </div>
+        </div>
+      </div>
+
+      <!-- ── Card: Oferta ──────────────────────────────────────── -->
+      <div class="form-card">
+        <h4 style="font-size:14px;font-weight:700;margin-bottom:14px;color:var(--text-strong);">Dados da Oferta</h4>
+        <div class="form-grid">
+
+          <div class="form-col">
+            <label for="gen_oferta">Nº da Oferta *</label>
+            <input type="text" id="gen_oferta" placeholder="Ex: 2025-001">
+          </div>
+          <div class="form-col">
+            <label for="gen_data_entrada">Data Entrada *</label>
+            <input type="date" id="gen_data_entrada">
+          </div>
+          <div class="form-col">
+            <label for="gen_data_envio">Data de Envio</label>
+            <input type="date" id="gen_data_envio">
+          </div>
+          <div class="form-col">
+            <label for="gen_tipo_oferta">Tipo *</label>
+            <select id="gen_tipo_oferta">
+              <option value="">Selecione</option>
+              <option value="compra">Compra</option>
+              <option value="orcamento">Orçamento</option>
+            </select>
+          </div>
+          <div class="form-col">
+            <label for="gen_status">Status *</label>
+            <select id="gen_status">
+              <option value="">Selecione</option>
+              <option value="Aguardando cliente">Aguardando cliente</option>
+              <option value="Aguardando liberação de crédito">Aguardando liberação de crédito</option>
+              <option value="Aguardando pagamento">Aguardando pagamento</option>
+              <option value="Aguardando proposta">Aguardando proposta</option>
+              <option value="Apresentado parcial">Apresentado parcial</option>
+              <option value="Atendido">Atendido</option>
+              <option value="Concorrência">Concorrência</option>
+              <option value="Declinado">Declinado</option>
+              <option value="Em avaliação técnica">Em avaliação técnica</option>
+              <option value="Em negociação">Em negociação</option>
+              <option value="Em produção">Em produção</option>
+              <option value="Faturado parcial">Faturado parcial</option>
+              <option value="Ganho">Ganho</option>
+              <option value="Liberação Prysmian">Liberação Prysmian</option>
+              <option value="Perdido">Perdido</option>
+              <option value="Proposta enviada" selected>Proposta enviada</option>
+              <option value="Revisão">Revisão</option>
+            </select>
+          </div>
+
+          <!-- B.U. com disparo de segmento -->
+          <div class="form-col">
+            <label for="gen_bu">B.U. *</label>
+            <select id="gen_bu" onchange="_genOnBuChange()">
+              <option value="">Selecione</option>
+              <option value="T&amp;I">T&amp;I</option>
+              <option value="OGP">OGP</option>
+              <option value="OEM">OEM</option>
+              <option value="High Voltage">High Voltage</option>
+              <option value="OHTL">OHTL</option>
+              <option value="Telecom">Telecom</option>
+              <option value="Power Distribution">Power Distribution</option>
+              <option value="Acessórios">Acessórios</option>
+              <option value="MMS">MMS</option>
+              <option value="Renováveis">Renováveis</option>
+              <option value="Serviços">Serviços</option>
+            </select>
+          </div>
+
+          <!-- Segmento (condicional por BU) -->
+          <div class="form-col" id="gen_segmentoWrap" style="display:none;">
+            <label for="gen_segmento">Segmento *</label>
+            <select id="gen_segmento">
+              <option value="">Selecione</option>
+            </select>
+          </div>
+
+          <!-- Representada → dispara Unidade Mantex -->
+          <div class="form-col">
+            <label for="gen_representada">Representada *</label>
+            <select id="gen_representada" onchange="_genOnRepresentadaChange()">
+              <option value="">Selecione...</option>
+            </select>
+          </div>
+
+          <!-- Unidade: só aparece quando representada for Mantex -->
+          <div class="form-col" id="gen_unidadeWrap" style="display:none;">
+            <label for="gen_unidade">Unidade Mantex *</label>
+            <select id="gen_unidade">
+              <option value="">Selecione...</option>
+              <option value="Mantex (matriz)">Mantex (matriz)</option>
+              <option value="Mantex (filial)">Mantex (filial)</option>
+            </select>
+          </div>
+
+          <div class="form-col">
+            <label for="gen_valor_total">Valor Total *</label>
+            <input type="text" id="gen_valor_total" class="money" placeholder="R$">
+          </div>
+
+          <!-- Projeto com autocomplete -->
+          <div class="form-col">
+            <label for="gen_nome_projeto">Nome do Projeto</label>
+            <div class="autocomplete-wrap">
+              <input type="text" id="gen_nome_projeto" autocomplete="off"
+                placeholder="Buscar ou digitar projeto...">
+              <div id="gen_projetoAuto" class="autocomplete-box hidden"></div>
+            </div>
+          </div>
+
+          <div class="form-col">
+            <label for="gen_ref_cliente">Ref. do Cliente</label>
+            <input type="text" id="gen_ref_cliente" placeholder="Referência interna do cliente">
+          </div>
+
+        </div>
+      </div>
+
+      <!-- ── Card: Itens da Oferta ─────────────────────────────── -->
+      <div class="form-card">
+        <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:14px;">
+          <h4 style="font-size:14px;font-weight:700;color:var(--text-strong);">Itens da Oferta</h4>
+          <button type="button" class="btn secondary" style="font-size:12px;padding:6px 14px" onclick="abrirModalColar()">
+            📋 Colar da extensão
+          </button>
+        </div>
+        <div class="gen-itens-lista" id="gen_itens_lista">
+          <p class="gen-itens-empty">Nenhum item adicionado. Clique em "+ Adicionar Item" para começar.</p>
+        </div>
+        <button type="button" class="btn-add-item" onclick="_genAdicionarItem()">
+          + Adicionar Item
+        </button>
+      </div>
+
+      <!-- ── Card: Observações ─────────────────────────────────── -->
+      <div class="form-card">
+        <h4 style="font-size:14px;font-weight:700;margin-bottom:14px;color:var(--text-strong);">Observações Gerais</h4>
+        <textarea id="gen_obs_geral" rows="4"
+          placeholder="Observações técnicas ou comerciais relevantes para a oferta..."
+          style="width:100%;resize:vertical;"></textarea>
+      </div>
+
+      <div class="actions-row" style="margin-top:24px;gap:10px;">
+        <button id="btnGerarComercial" type="button" class="btn" onclick="gerarOferta('comercial')">
+          📄 Oferta Comercial
+        </button>
+        <button id="btnGerarTecnico" type="button" class="btn secondary" onclick="gerarOferta('tecnica')">
+          📋 Oferta Técnica
+        </button>
+        <button id="btnGerarAmbas" type="button" class="btn" style="background:var(--primary-dark,#1348c8)" onclick="gerarOferta('ambas')">
+          ⬇ Gerar Ambas + Salvar
+        </button>
+      </div>
+
+    </div>
+  </div>
+
+  <!-- Modal de sucesso -->
+  <div id="modalGeradorSucesso" class="modal" style="display:none;"
+       onclick="if(event.target===this)fecharModalSucessoGerador()">
+    <div class="modal-content" style="max-width:520px;">
+      <div class="modal-header">
+        <h3 style="color:var(--primary);font-size:17px;">Oferta Gerada com Sucesso</h3>
+        <button type="button" class="modal-close" onclick="fecharModalSucessoGerador()">✕</button>
+      </div>
+      <div class="modal-body" style="text-align:center;padding:32px 24px;">
+        <div style="font-size:52px;margin-bottom:18px;">✅</div>
+        <p style="font-size:15px;line-height:1.75;color:var(--text-main);max-width:380px;margin:0 auto;">
+          Oferta gerada com sucesso.<br>
+          Para adicionar informações complementares, edite o registro diretamente na tela de
+          <strong>Registros do CRM</strong>.
+        </p>
+      </div>
+      <div class="modal-footer" style="justify-content:center;gap:12px;">
+        <button type="button" class="btn secondary" onclick="fecharModalSucessoGerador()">Fechar</button>
+        <button type="button" class="btn" onclick="window.location.href='index.html'">Ver Registros</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Modal: Colar itens da extensão -->
+  <div id="modalColarDados" class="modal" style="display:none"
+       onclick="if(event.target===this)fecharModalColar()">
+    <div class="modal-content" style="max-width:680px;width:95%">
+      <div class="modal-header">
+        <h3 style="font-size:16px">📋 Colar itens da extensão</h3>
+        <button type="button" class="modal-close" onclick="fecharModalColar()">✕</button>
+      </div>
+      <div class="modal-body" style="padding:20px">
+        <p style="font-size:13px;color:var(--text-muted);margin-bottom:12px">
+          Cole abaixo o texto copiado da extensão. Cada linha vira um item da oferta.
+          Quantidade e unidade são detectadas automaticamente se estiverem no texto.
+        </p>
+        <textarea id="gen_paste_area" rows="10"
+          style="width:100%;resize:vertical;font-size:12px;font-family:monospace"
+          placeholder="Cole aqui o texto copiado da extensão. Exemplo:&#10;&#10;1  23881402  AFUMEX FLEX GREEN 120mm² 1kV PT&#10;BOBINA&#10;Quantidade: 500.000 M&#10;Preço unit. (c/ PIS/ COFINS e ICMS): R$ 219,24&#10;Valor (ICMS + PIS + Cofins): R$ 39,46 | Valor (PIS/COFINS, ICMS, IPI e ICMS-ST): R$ 109.622.100,00&#10;ICMS: 18% IPI: 0%&#10;&#10;2  23881500  CABO OUTRO PRODUTO 35mm²&#10;..."></textarea>
+
+        <!-- Preview dos itens detectados -->
+        <div id="gen_paste_preview" style="display:none;margin-top:16px">
+          <p style="font-size:12px;font-weight:600;margin-bottom:8px;color:var(--text-strong)"
+             id="gen_paste_preview_titulo"></p>
+          <div id="gen_paste_itens_preview"
+            style="display:flex;flex-direction:column;gap:6px;max-height:260px;overflow-y:auto"></div>
+        </div>
+      </div>
+      <div class="modal-footer" style="gap:10px">
+        <button type="button" class="btn secondary" onclick="fecharModalColar()">Cancelar</button>
+        <button type="button" class="btn secondary" onclick="_genAnalisarCola()">🔍 Analisar</button>
+        <button type="button" class="btn" id="btnAplicarCola" disabled onclick="_genAplicarCola()">
+          ✅ Adicionar itens
+        </button>
+      </div>
+    </div>
+  </div>
+
+  <script src="https://www.gstatic.com/firebasejs/8.10.1/firebase-app.js"></script>
+  <script src="https://www.gstatic.com/firebasejs/8.10.1/firebase-auth.js"></script>
+  <script src="https://www.gstatic.com/firebasejs/8.10.1/firebase-firestore.js"></script>
+  <script src="firebase.js"></script>
+  <script src="toast.js"></script>
+  <script src="gerador.js"></script>
+</body>
+</html>

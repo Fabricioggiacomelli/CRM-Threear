@@ -121,8 +121,35 @@ function getIntervaloLembreteFollowUp(tipo) {
 }
 
 
-function getLimiteHorasPedidoSemNF() {
-  return DEBUG_ALERTAS ? 0.05 : 72; // 3 dias
+function getLimiteHorasSemNFSemPrazo() {
+  return DEBUG_ALERTAS ? 0.1 : 120; // 5 dias (quando não há data de entrega)
+}
+
+function getDiasAntesEntregaParaNF() {
+  return DEBUG_ALERTAS ? 0 : 2; // apitar 2 dias antes da entrega contratual
+}
+
+function _parseMoedaBR(v) {
+  if (typeof v === "number") return v;
+  const n = parseFloat(String(v || "").replace(/[^\d,.-]/g, "").replace(/\./g, "").replace(",", "."));
+  return isNaN(n) ? 0 : n;
+}
+
+function _formatMoedaBR(v) {
+  return Number(v || 0).toLocaleString("pt-BR", { style: "currency", currency: "BRL" });
+}
+
+function _calcularSomaNFs(pedido) {
+  if (Array.isArray(pedido?.notas_fiscais) && pedido.notas_fiscais.length) {
+    return pedido.notas_fiscais.reduce((soma, nf) => soma + _parseMoedaBR(nf?.valor || 0), 0);
+  }
+  return _parseMoedaBR(pedido?.valor_nf || 0);
+}
+
+function _nfCobertaPedido(pedido) {
+  const valorPedido = _parseMoedaBR(pedido?.valor_pedido);
+  if (!valorPedido) return false; // sem valor de pedido, não há como validar
+  return _calcularSomaNFs(pedido) >= valorPedido;
 }
 
 function formatarDataAlertaBR(valor) {
@@ -398,10 +425,44 @@ async function buscarAlertaPorChave(chaveUnica) {
   }
 
   // Múltiplos documentos com mesma chave (duplicatas acumuladas).
-  // Prefere o alerta ativo; entre iguais, o mais recente.
   const statusFinalizado = ["resolvido", "ignorado", "arquivado"];
+  const STATUS_ATIVOS = ["aberto", "adiado", "aguardando_aprovacao_resolucao", "aguardando_aprovacao_ignorar"];
   const docs = snap.docs.map((d) => ({ id: d.id, ref: d.ref, ...d.data() }));
 
+  const ativos = docs.filter((d) => STATUS_ATIVOS.includes(d.status));
+  const finalizados = docs.filter((d) => statusFinalizado.includes(d.status));
+
+  // Detecta falsa recriação: ativo criado dentro de 2h após resolução do finalizado.
+  // Nesse caso, o "ativo" é um artefato do loop rodando antes dos guards — descarta-o.
+  let preferido = null;
+  if (ativos.length && finalizados.length) {
+    const maisRecenteFinalizado = finalizados
+      .slice()
+      .sort((a, b) => new Date(b.resolvidoEm || b.atualizadoEm || 0) - new Date(a.resolvidoEm || a.atualizadoEm || 0))[0];
+    const maisRecenteAtivo = ativos
+      .slice()
+      .sort((a, b) => new Date(b.dataCriacao || 0) - new Date(a.dataCriacao || 0))[0];
+
+    const resolvidoEm = new Date(maisRecenteFinalizado.resolvidoEm || maisRecenteFinalizado.atualizadoEm || 0).getTime();
+    const ativoCriado = new Date(maisRecenteAtivo.dataCriacao || 0).getTime();
+    const horasEntreResolucaoECriacao = (ativoCriado - resolvidoEm) / 3600000;
+
+    if (horasEntreResolucaoECriacao >= 0 && horasEntreResolucaoECriacao < 2) {
+      // Ativo foi criado em até 2h após a resolução — falsa recriação pelo loop.
+      // Mantém o finalizado como canônico e apaga o(s) ativo(s) falso(s).
+      preferido = maisRecenteFinalizado;
+      const deletar = docs.filter((d) => d.id !== preferido.id);
+      if (deletar.length) {
+        const batch = window.db.batch();
+        deletar.forEach((d) => batch.delete(d.ref));
+        batch.commit().catch(console.error);
+        console.log(`[alertas] falsa recriação detectada e removida: ${deletar.length} doc(s) para chave "${chaveUnica}"`);
+      }
+      return preferido;
+    }
+  }
+
+  // Caso normal: prefere ativo; entre iguais, o mais recente por dataCriacao.
   docs.sort((a, b) => {
     const aFin = statusFinalizado.includes(a.status);
     const bFin = statusFinalizado.includes(b.status);
@@ -530,6 +591,12 @@ async function criarOuAtualizarAlerta(payload) {
     // Alerta adiado (snoozed) — nunca sobrescrever campos de snooze pelo loop
     if (existente.status === "adiado") return existente.id;
 
+    // Alerta aguardando aprovação — não mexer enquanto supervisor está revisando
+    if (
+      existente.status === "aguardando_aprovacao_resolucao" ||
+      existente.status === "aguardando_aprovacao_ignorar"
+    ) return existente.id;
+
     await getAlertasRef().doc(existente.id).set(
       {
         ...payload,
@@ -538,6 +605,20 @@ async function criarOuAtualizarAlerta(payload) {
       { merge: true }
     );
     return existente.id;
+  }
+
+  // Guarda global contra recriação prematura de alerta recém-finalizado.
+  // As funções de verificação têm guardas específicas por tipo, mas este é o
+  // último firewall caso qualquer outra condição escorregue.
+  if (existente) {
+    const dataFim = existente.resolvidoEm || existente.ignoradoEm || existente.atualizadoEm;
+    if (dataFim) {
+      const horasDesde = (Date.now() - new Date(dataFim).getTime()) / 3600000;
+      if (horasDesde < 2) {
+        console.log(`[alertas] guard global: alerta ${existente.id} finalizado há ${horasDesde.toFixed(1)}h — recriação bloqueada`);
+        return existente.id;
+      }
+    }
   }
 
   const ref = getAlertasRef().doc();
@@ -584,8 +665,32 @@ async function adicionarHistoricoAlerta(alertaId, acao, extra = {}) {
 // VERIFICAÇÕES PRINCIPAIS
 // =========================
 
+async function _fecharPrazoEntregaAberto(registroId, prazo) {
+  const chave = montarChaveAlerta({
+    tipo: "prazo_entrega",
+    entidade: "oferta",
+    entidadeId: registroId,
+    referencia: prazo
+  });
+  const existente = await buscarAlertaPorChave(chave);
+  const STATUS_ATIVOS = ["aberto", "adiado", "aguardando_aprovacao_resolucao", "aguardando_aprovacao_ignorar"];
+  if (!existente || !STATUS_ATIVOS.includes(existente.status)) return;
+  const agora = agoraISOAlerta();
+  await getAlertasRef().doc(existente.id).set({
+    status: "resolvido",
+    resolvidoPor: "system",
+    resolvidoEm: agora,
+    aprovadoPor: "system",
+    aprovadoEm: agora,
+    atualizadoEm: agora
+  }, { merge: true });
+  await adicionarHistoricoAlerta(existente.id, "resolvido_auto_prazo_vencido", { usuario: "system" });
+}
+
 async function verificarAlertasPrazoEntrega() {
   const marcos = [15, 10, 5, 3, 2, 1];
+  const emailLogado = getEmailLogadoAlertas();
+  const STATUS_ATIVOS = ["aberto", "adiado", "aguardando_aprovacao_resolucao", "aguardando_aprovacao_ignorar"];
 
   for (const reg of (registros || [])) {
     if (reg.deletado === true) continue;
@@ -603,9 +708,26 @@ async function verificarAlertasPrazoEntrega() {
     const email = normalizarEmailAlerta(reg.responsavelEmail);
     if (!email) continue;
 
+    // Cada usuário só gera alertas das suas próprias ofertas
+    if (email !== emailLogado) continue;
+
     const numeroOferta = getNumeroOfertaTexto(reg);
 
     if (marcos.includes(dias)) {
+      const chavePrazo = montarChaveAlerta({
+        tipo: "prazo_entrega",
+        entidade: "oferta",
+        entidadeId: reg.id,
+        referencia: prazo
+      });
+
+      // Guarda: se já foi resolvido nas últimas 24h (mesmo dia do marco), não recriar
+      const existentePrazo = await buscarAlertaPorChave(chavePrazo);
+      if (existentePrazo?.status === "resolvido" && existentePrazo?.resolvidoEm) {
+        const horasDesdeResolucao = (Date.now() - new Date(existentePrazo.resolvidoEm).getTime()) / 3600000;
+        if (horasDesdeResolucao < 24) continue;
+      }
+
       await criarOuAtualizarAlerta({
         tipo: "prazo_entrega",
         entidade: "oferta",
@@ -616,17 +738,28 @@ async function verificarAlertasPrazoEntrega() {
         prioridade: dias <= 1 ? "critica" : dias <= 3 ? "alta" : "media",
         atraso: false,
         dataReferencia: prazo,
-        // Chave sem incluir `dias` → um único alerta por prazo, atualizado a cada marco
-        chaveUnica: montarChaveAlerta({
-          tipo: "prazo_entrega",
-          entidade: "oferta",
-          entidadeId: reg.id,
-          referencia: prazo
-        })
+        chaveUnica: chavePrazo
       });
     }
 
     if (dias < 0) {
+      // Fecha o prazo_entrega aberto (data já passou, não faz sentido continuar aberto)
+      await _fecharPrazoEntregaAberto(reg.id, prazo);
+
+      const chaveAtrasado = montarChaveAlerta({
+        tipo: "prazo_entrega_atrasado",
+        entidade: "oferta",
+        entidadeId: reg.id,
+        referencia: prazo
+      });
+
+      // Guarda: se foi resolvido há menos de 2h, não recriar (race condition pós-resolução)
+      const existenteAtrasado = await buscarAlertaPorChave(chaveAtrasado);
+      if (existenteAtrasado?.status === "resolvido" && existenteAtrasado?.resolvidoEm) {
+        const horasDesdeResolucao = (Date.now() - new Date(existenteAtrasado.resolvidoEm).getTime()) / 3600000;
+        if (horasDesdeResolucao < 2) continue;
+      }
+
       await criarOuAtualizarAlerta({
         tipo: "prazo_entrega_atrasado",
         entidade: "oferta",
@@ -637,12 +770,7 @@ async function verificarAlertasPrazoEntrega() {
         prioridade: "critica",
         atraso: true,
         dataReferencia: prazo,
-        chaveUnica: montarChaveAlerta({
-          tipo: "prazo_entrega_atrasado",
-          entidade: "oferta",
-          entidadeId: reg.id,
-          referencia: prazo
-        })
+        chaveUnica: chaveAtrasado
       });
     }
   }
@@ -651,6 +779,9 @@ async function verificarAlertasPrazoEntrega() {
 async function verificarAlertaFollowUpRegistro(reg) {
   const email = normalizarEmailAlerta(reg.responsavelEmail);
   if (!email) return;
+
+  // Cada usuário só gera alertas das suas próprias ofertas
+  if (email !== getEmailLogadoAlertas()) return;
 
   const tipo = String(reg.tipo_oferta || "").trim().toLowerCase();
   const status = String(reg.status || "").trim().toLowerCase();
@@ -684,6 +815,13 @@ async function verificarAlertaFollowUpRegistro(reg) {
   );
 
   if (!existente || existente.status === "resolvido" || existente.status === "ignorado") {
+    // Guarda anti-recriaçao prematura: se foi resolvido há menos de limiteHoras,
+    // a resolução em si conta como follow-up — não recriar ainda.
+    if (existente?.status === "resolvido" && existente?.resolvidoEm) {
+      const horasDesdeResolucao = (Date.now() - new Date(existente.resolvidoEm).getTime()) / 3600000;
+      if (horasDesdeResolucao < limiteHoras) return;
+    }
+
     await criarOuAtualizarAlerta({
       tipo: "followup",
       entidade: "oferta",
@@ -702,8 +840,12 @@ async function verificarAlertaFollowUpRegistro(reg) {
     return;
   }
 
-  // Alerta adiado (snoozed) — não atualizar lembretes enquanto snooze ativo
+  // Alerta adiado (snoozed) ou aguardando aprovação — não tocar
   if (existente.status === "adiado") return;
+  if (
+    existente.status === "aguardando_aprovacao_resolucao" ||
+    existente.status === "aguardando_aprovacao_ignorar"
+  ) return;
 
   const lembreteAtual = Number(existente.lembreteNumero || 1);
 
@@ -727,9 +869,6 @@ async function verificarAlertaFollowUpRegistro(reg) {
       { merge: true }
     );
 
-    await adicionarHistoricoAlerta(existente.id, "novo_lembrete_followup", {
-      lembreteNumero: numeroLembreteCalculado
-    });
   }
 }
 
@@ -741,47 +880,85 @@ async function verificarAlertasFollowUp() {
 
 
 async function verificarAlertasPedidoSemNF() {
-  const limite = getLimiteHorasPedidoSemNF();
+  const emailLogado = getEmailLogadoAlertas();
+  const diasAntesEntrega = getDiasAntesEntregaParaNF();
+  const limiteHorasSemPrazo = getLimiteHorasSemNFSemPrazo();
 
   for (const reg of (registros || [])) {
     if (reg.deletado === true) continue;
     if (String(reg.possuiPedido || "").toLowerCase() !== "sim") continue;
-    const statusNF = String(reg.status || "").trim().toLowerCase();
-    if (statusNF === "perdido" || statusNF === "declinado") continue;
+    const statusReg = String(reg.status || "").trim().toLowerCase();
+    if (statusReg === "perdido" || statusReg === "declinado") continue;
 
     const email = normalizarEmailAlerta(reg.responsavelEmail);
     if (!email) continue;
+    if (email !== emailLogado) continue;
 
     const pedido = reg.pedido || {};
-    const temNF = !!(
-      pedido.numero_nf ||
-      pedido.data_nf ||
-      pedido.valor_nf ||
-      (Array.isArray(pedido.notas_fiscais) &&
-        pedido.notas_fiscais.some((nf) => nf?.numero || nf?.data || nf?.valor))
-    );
 
-    if (temNF) continue;
+    // Resolução real: soma das NFs cobre o valor total do pedido
+    if (_nfCobertaPedido(pedido)) continue;
 
-    const baseTempo = pedido.data_po || reg.atualizadoEm || reg.criadoEm;
-    const horas = diferencaHorasDesdeAlerta(baseTempo);
-    if (horas === null || horas < limite) continue;
+    // Determina se deve disparar com base no tipo de prazo
+    const prazoEntrega = pedido.prazo_entrega_contratual;
+    let deveDisparar = false;
+    let dataReferencia;
+
+    if (prazoEntrega) {
+      // Com data de entrega: apitar a partir de D-2 (inclusive após a data)
+      const dias = diferencaDiasAlerta(prazoEntrega);
+      deveDisparar = dias !== null && dias <= diasAntesEntrega;
+      dataReferencia = prazoEntrega;
+    } else {
+      // Sem data de entrega: apitar após 120h desde que foi salvo
+      dataReferencia = pedido.data_po || reg.atualizadoEm || reg.criadoEm;
+      const horas = diferencaHorasDesdeAlerta(dataReferencia);
+      deveDisparar = horas !== null && horas >= limiteHorasSemPrazo;
+    }
+
+    if (!deveDisparar) continue;
+
+    const chaveUnicaNF = montarChaveAlerta({
+      tipo: "pedido_sem_nf",
+      entidade: "oferta",
+      entidadeId: reg.id
+    });
+
+    // Guarda: se foi resolvido recentemente sem valores baterem, não recriar imediatamente
+    const existenteNF = await buscarAlertaPorChave(chaveUnicaNF);
+    if (existenteNF?.status === "resolvido" && existenteNF?.resolvidoEm) {
+      const horasDesdeResolucao = (Date.now() - new Date(existenteNF.resolvidoEm).getTime()) / 3600000;
+      if (horasDesdeResolucao < 24) continue;
+    }
+
+    // Calcula valor faltante para exibir no card
+    const valorPedido = _parseMoedaBR(pedido.valor_pedido);
+    const somaNFs = _calcularSomaNFs(pedido);
+    const valorFaltante = valorPedido > 0 ? Math.max(0, valorPedido - somaNFs) : null;
+
+    let descricao;
+    if (valorPedido > 0 && somaNFs > 0) {
+      descricao = `Oferta ${getNumeroOfertaTexto(reg)}: NFs somam ${_formatMoedaBR(somaNFs)}, mas o pedido é de ${_formatMoedaBR(valorPedido)}.`;
+    } else if (valorPedido > 0) {
+      descricao = `Oferta ${getNumeroOfertaTexto(reg)}: pedido de ${_formatMoedaBR(valorPedido)} sem NF registrada.`;
+    } else {
+      descricao = `Oferta ${getNumeroOfertaTexto(reg)} possui pedido, mas ainda não tem NF registrada.`;
+    }
 
     await criarOuAtualizarAlerta({
       tipo: "pedido_sem_nf",
       entidade: "oferta",
       entidadeId: reg.id,
       titulo: "Pedido sem NF",
-      descricao: `Oferta ${getNumeroOfertaTexto(reg)} possui pedido, mas ainda não tem NF registrada.`,
+      descricao,
       responsavelEmail: email,
       prioridade: "alta",
       atraso: true,
-      dataReferencia: baseTempo,
-      chaveUnica: montarChaveAlerta({
-        tipo: "pedido_sem_nf",
-        entidade: "oferta",
-        entidadeId: reg.id
-      })
+      dataReferencia,
+      valorPedido,
+      somaNFs,
+      valorFaltante,
+      chaveUnica: chaveUnicaNF
     });
   }
 }
@@ -1353,6 +1530,9 @@ function renderListaAlertas() {
           ${status === "adiado" && a.lembrarNovamenteEm ? `<strong>🔔 Volta em:</strong> ${formatarDataAlertaBR(a.lembrarNovamenteEm)} (${textoTempoRelativoAlerta(a.lembrarNovamenteEm)})<br>` : ""}
           <strong>Tipo:</strong> ${labelTipoAlerta(a.tipo)}<br>
           ${a.tipo === "followup" && a.tipoOferta ? `<strong>Tipo de oferta:</strong> ${escapeHtml(a.tipoOferta.charAt(0).toUpperCase() + a.tipoOferta.slice(1))}<br>` : ""}
+          ${a.tipo === "pedido_sem_nf" && a.valorPedido > 0 ? `<strong>Valor do pedido:</strong> ${_formatMoedaBR(a.valorPedido)}<br>` : ""}
+          ${a.tipo === "pedido_sem_nf" && a.somaNFs > 0 ? `<strong>NFs registradas:</strong> ${_formatMoedaBR(a.somaNFs)}<br>` : ""}
+          ${a.tipo === "pedido_sem_nf" && a.valorFaltante > 0 ? `<strong style="color:var(--danger,#ef4444);">Falta:</strong> <span style="color:var(--danger,#ef4444);font-weight:700;">${_formatMoedaBR(a.valorFaltante)}</span><br>` : ""}
           <strong>Entidade:</strong> ${labelEntidadeAlerta(a.entidade)}<br>
           <strong>Responsável:</strong> ${escapeHtml(a.responsavelEmail || "-")}<br>
           <strong>Lido:</strong> ${a.lido ? "Sim" : "Não"}<br>
@@ -1826,18 +2006,12 @@ async function onRegistroSalvoReset(registroId) {
 
   const TIPOS_AUTO_RESET = ["followup"];
 
-  // Se o registro agora tem NF, também auto-resolve pedido_sem_nf
+  // Se as NFs agora cobrem o valor total do pedido, auto-resolve pedido_sem_nf
   const reg = (registros || []).find((r) => r.id === registroId);
   if (reg && String(reg.possuiPedido || "").toLowerCase() === "sim") {
-    const pedido = reg.pedido || {};
-    const temNF = !!(
-      pedido.numero_nf ||
-      pedido.data_nf ||
-      pedido.valor_nf ||
-      (Array.isArray(pedido.notas_fiscais) &&
-        pedido.notas_fiscais.some((nf) => nf?.numero || nf?.data || nf?.valor))
-    );
-    if (temNF) TIPOS_AUTO_RESET.push("pedido_sem_nf");
+    if (_nfCobertaPedido(reg.pedido || {})) {
+      TIPOS_AUTO_RESET.push("pedido_sem_nf");
+    }
   }
 
   const usuario = getUsuarioAcaoAlertas();
