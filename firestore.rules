@@ -113,6 +113,25 @@ service cloud.firestore {
       allow delete: if isAuthed() && isAdmin();
     }
 
+    // ─── histórico de gerações (gerador de ofertas) ─────────────
+    // Cada usuário lê e cria apenas seus próprios registros.
+    match /geracoes/{id} {
+      allow read:   if isAuthed() && isApproved()
+                    && resource.data.geradoPor == request.auth.token.email;
+      allow create: if isAuthed() && isApproved()
+                    && request.resource.data.geradoPor == request.auth.token.email;
+      allow update: if false;
+      allow delete: if isAuthed() && isAdmin();
+    }
+
+    // ─── auditoria ──────────────────────────────────────────────
+    match /auditoria/{id} {
+      allow create: if isAuthed() && isApproved();
+      allow read:   if isAuthed() && isAdmin();
+      allow update: if false;
+      allow delete: if isAuthed() && isAdmin();
+    }
+
     // ─── logs de auditoria ──────────────────────────────────────
     // Qualquer usuário aprovado pode gravar (write = create apenas).
     // Leitura e delete: apenas admin.

@@ -4849,6 +4849,7 @@ function initRepresentadasUI() {
 
   btn.addEventListener("click", async () => {
     const nome = document.getElementById("rep_nome").value.trim();
+    const semNF = document.getElementById("rep_sem_nf")?.checked || false;
     const currentUser = getCurrentUserName();
     const nowIso = new Date().toISOString();
 
@@ -4862,6 +4863,7 @@ function initRepresentadasUI() {
       const rep = {
         id,
         nome,
+        sem_nf: semNF,
         criadoPor: currentUser,
         atualizadoPor: currentUser,
         responsavelEmail: (window.auth?.currentUser?.email || "").toLowerCase(),
@@ -4898,10 +4900,23 @@ function initRepresentadasUI() {
         );
       }
 
+      if ((antigo.sem_nf === true) !== semNF) {
+        eventosHistorico.push(
+          criarEventoHistorico({
+            usuario: currentUser,
+            acao: "alterou",
+            campo: "Emite NF",
+            de: antigo.sem_nf ? "Não" : "Sim",
+            para: semNF ? "Não" : "Sim",
+          }),
+        );
+      }
+
       if (idx !== -1) {
         const rep = {
           id: editRepresentadaId,
           nome,
+          sem_nf: semNF,
           criadoPor: antigo.criadoPor || currentUser,
           atualizadoPor: currentUser,
           responsavelEmail:
@@ -4932,6 +4947,8 @@ function initRepresentadasUI() {
 
     salvarRepresentadas();
     document.getElementById("rep_nome").value = "";
+    const _semNFEl = document.getElementById("rep_sem_nf");
+    if (_semNFEl) _semNFEl.checked = false;
     renderTabelaRepresentadas();
     preencherSelectRepresentadas();
   });
@@ -5040,6 +5057,7 @@ function renderTabelaRepresentadas() {
     ).length;
     const abcRepInfo = abcMapReps[rep.id];
     const badgeRep = abcRepInfo ? abcBadgeHtml(abcRepInfo.classe, abcRepInfo.totalPedido, abcRepInfo.qtdPedidos) : "";
+    const semNFBadge = rep.sem_nf ? `<span style="font-size:10px;background:#fef3c7;color:#92400e;border:1px solid #fde68a;border-radius:4px;padding:1px 5px;margin-left:4px" title="Não emite NF — alerta desativado">Sem NF</span>` : "";
 
     const tr = document.createElement("tr");
     tr.innerHTML = `
@@ -5047,7 +5065,7 @@ function renderTabelaRepresentadas() {
         ? start + index + 1
         : listaOrdenada.length - (start + index)
       }</td>
-      <td>${esc(rep.nome)} ${badgeRep}</td>
+      <td>${esc(rep.nome)} ${badgeRep}${semNFBadge}</td>
       <td class="col-center">${qtdOfertas}</td>
       <td>${esc(usuario)}</td>
       <td style="text-align:center;">
@@ -5091,6 +5109,8 @@ function editarRepresentada(id) {
 
   editRepresentadaId = id;
   document.getElementById("rep_nome").value = rep.nome || "";
+  const _semNFCheckbox = document.getElementById("rep_sem_nf");
+  if (_semNFCheckbox) _semNFCheckbox.checked = rep.sem_nf === true;
 
   const btn = document.getElementById("btnSalvarRepresentada");
   if (btn) btn.textContent = "Salvar Edição";
@@ -7245,6 +7265,8 @@ function cancelarEdicaoCliente() {
 function cancelarEdicaoRepresentada() {
   editRepresentadaId = null;
   document.getElementById("rep_nome").value = "";
+  const _el = document.getElementById("rep_sem_nf");
+  if (_el) _el.checked = false;
 
   const btn = document.getElementById("btnSalvarRepresentada");
   if (btn) btn.textContent = "Salvar Representada";

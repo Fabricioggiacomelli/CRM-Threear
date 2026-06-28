@@ -8,6 +8,7 @@ let _genCurrentUser   = null;
 let _genCurrentEmail  = "";
 let _genItens         = [];
 let _genItemCounter   = 0;
+let _genHistoricoCache = [];
 
 const SEGMENTOS_POR_BU = {
   "T&I":              [],
@@ -221,6 +222,7 @@ async function _genCarregarDados() {
       .sort((a,b) => (a.nome||"").localeCompare(b.nome||""));
 
     _genPopularRepresentadas();
+    _genCarregarHistorico();
   } catch(e) {
     console.error("Erro ao carregar dados:", e);
     if (window.showToast) showToast("Erro ao carregar dados do banco.", "error");
@@ -587,6 +589,44 @@ async function criarRegistroAutomaticoGerador(d) {
 
   await window.db.collection("ofertas").doc(id).set(registro);
 
+  // Snapshot de geração para histórico
+  try {
+    await window.db.collection("geracoes").add({
+      ofertaId:     id,
+      ofertaNumero: d.oferta,
+      geradoEm:     new Date().toISOString(),
+      geradoPor:    _genCurrentEmail,
+      tipoGerado:   "ambas",
+      snapshot: {
+        clienteId:        d.clienteId        || "",
+        razao:            d.razao            || "",
+        cnpj:             d.cnpj             || "",
+        solicitante:      d.solicitante      || "",
+        telefone:         d.telefone         || "",
+        email:            d.email            || "",
+        oferta:           d.oferta           || "",
+        dataEntrada:      d.dataEntrada      || "",
+        dataEnvio:        d.dataEnvio        || "",
+        tipoOferta:       d.tipoOferta       || "",
+        status:           d.status           || "",
+        bu:               d.bu               || "",
+        segmento:         d.segmento         || "",
+        representadaId:   d.representadaId   || "",
+        representadaNome: d.representadaNome || "",
+        unidade:          d.unidade          || "",
+        valorTotal:       d.valorTotal       || 0,
+        valorTotalStr:    d.valorTotalStr    || "",
+        nomeProjeto:      d.nomeProjeto      || "",
+        projetoId:        d.projetoId        || "",
+        refCliente:       d.refCliente       || "",
+        obsGeral:         d.obsGeral         || "",
+        itens:            d.itens            || [],
+      }
+    });
+  } catch(ge) {
+    console.warn("[Gerador] Falha ao salvar histórico:", ge);
+  }
+
   try {
     await window.db.collection("auditoria").add({
       acao:       "criar_via_gerador",
@@ -600,6 +640,109 @@ async function criarRegistroAutomaticoGerador(d) {
 }
 
 // ── PDF Generation ────────────────────────────────────────────────────────────
+async function _genBaixarPDF(d, tipo) {
+  const htmlStr  = _buildProposta(d, tipo);
+  const sufixo   = tipo === "comercial" ? "Comercial" : "Tecnica";
+  const numero   = (d.oferta || "oferta").replace(/[^a-zA-Z0-9_-]/g, "_");
+  const filename = `Proposta_${numero}_${sufixo}.pdf`;
+  const corRgb   = tipo === "comercial" ? [26, 86, 219] : [13, 148, 136];
+
+  // Render full HTML in a hidden same-origin iframe (Blob URL keeps styles + body{} intact)
+  const blob    = new Blob([htmlStr], { type: "text/html;charset=utf-8" });
+  const blobUrl = URL.createObjectURL(blob);
+  const iframe  = document.createElement("iframe");
+  // Must be visible enough for html2canvas — placed far above viewport
+  iframe.style.cssText = "position:absolute;top:-20000px;left:0;width:900px;height:1056px;border:none;";
+  document.body.appendChild(iframe);
+
+  try {
+    await new Promise((res, rej) => {
+      iframe.onload  = res;
+      iframe.onerror = () => rej(new Error("Falha ao carregar proposta"));
+      iframe.src = blobUrl;
+    });
+
+    // Wait for images / web fonts to finish rendering
+    await new Promise(r => setTimeout(r, 1200));
+
+    const iBody = iframe.contentDocument.body;
+
+    // Hide fixed footer (position:fixed breaks canvas capture)
+    const fixedFooter = iBody.querySelector(".page-footer");
+    if (fixedFooter) fixedFooter.style.display = "none";
+
+    // Expand iframe to full content height
+    const fullH = iBody.scrollHeight;
+    iframe.style.height = fullH + "px";
+
+    const canvas = await html2canvas(iBody, {
+      scale:       2,
+      useCORS:     true,
+      logging:     false,
+      scrollX:     0,
+      scrollY:     0,
+      width:       900,
+      windowWidth: 900,
+      backgroundColor: "#ffffff",
+    });
+
+    // ── Build PDF with proper per-page slicing + footer bar ──
+    const { jsPDF } = window.jspdf;
+    const pdf = new jsPDF({ unit: "mm", format: "a4", orientation: "portrait" });
+
+    const pageW   = pdf.internal.pageSize.getWidth();  // 210 mm
+    const pageH   = pdf.internal.pageSize.getHeight(); // 297 mm
+    const footerH = 11; // mm — space reserved for the footer strip
+    const contentH = pageH - footerH; // mm of content per page
+
+    // canvas pixels per mm
+    const pxPerMm    = canvas.width / pageW;
+    const contentPxH = contentH * pxPerMm;
+    const totalPages = Math.ceil(canvas.height / contentPxH);
+
+    for (let p = 0; p < totalPages; p++) {
+      if (p > 0) pdf.addPage();
+
+      // ── Slice canvas to exactly one content page ──
+      const srcY = Math.round(p * contentPxH);
+      const srcH = Math.min(Math.round(contentPxH), canvas.height - srcY);
+
+      const slice = document.createElement("canvas");
+      slice.width  = canvas.width;
+      slice.height = Math.round(contentPxH);
+      const ctx = slice.getContext("2d");
+      ctx.fillStyle = "#ffffff";
+      ctx.fillRect(0, 0, slice.width, slice.height);
+      if (srcH > 0) {
+        ctx.drawImage(canvas, 0, srcY, canvas.width, srcH, 0, 0, canvas.width, srcH);
+      }
+
+      pdf.addImage(slice.toDataURL("image/jpeg", 0.95), "JPEG", 0, 0, pageW, contentH);
+
+      // ── Footer strip ──
+      pdf.setFillColor(247, 249, 252);
+      pdf.rect(0, contentH, pageW, footerH, "F");
+      pdf.setDrawColor(220, 226, 236);
+      pdf.setLineWidth(0.3);
+      pdf.line(8, contentH + 0.3, pageW - 8, contentH + 0.3);
+
+      pdf.setFontSize(7.5);
+      pdf.setTextColor(160, 165, 175);
+      pdf.text("Three Ar Representações", 8, pageH - 4);
+      pdf.text(`Proposta ${d.oferta}`, pageW / 2, pageH - 4, { align: "center" });
+
+      pdf.setTextColor(corRgb[0], corRgb[1], corRgb[2]);
+      pdf.setFontSize(8);
+      pdf.text(`Pág. ${p + 1} / ${totalPages}`, pageW - 8, pageH - 4, { align: "right" });
+    }
+
+    pdf.save(filename);
+  } finally {
+    if (iframe.parentNode) iframe.parentNode.removeChild(iframe);
+    URL.revokeObjectURL(blobUrl);
+  }
+}
+
 function gerarPdfComercial(d) {
   const w = window.open("","_blank","width=960,height=760");
   if (!w) { showToast("Pop-up bloqueado. Permita pop-ups para este site.", "warning"); return; }
@@ -635,76 +778,101 @@ function _buildProposta(d, tipo) {
     if (isCom) {
       itensTable = `
       <h3 class="sec-title">PLANILHA DE PREÇOS</h3>
-      <table>
+      <table style="table-layout:fixed;width:100%;font-size:9.5px;">
+        <colgroup>
+          <col style="width:38px">
+          <col><!-- description flex -->
+          <col style="width:60px">
+          <col style="width:28px">
+          <col style="width:66px">
+          <col style="width:82px">
+          <col style="width:38px">
+          <col style="width:28px">
+          <col style="width:44px">
+          <col style="width:36px">
+          <col style="width:58px">
+          <col style="width:104px">
+        </colgroup>
         <thead>
           <tr>
-            <th style="width:36px;text-align:center">Item</th>
-            <th>Descrição Produto / Cód. Material Cliente</th>
-            <th style="width:44px;text-align:center">Qtde</th>
-            <th style="width:44px;text-align:center">Unid.</th>
-            <th style="width:80px;text-align:right">Preço R$/Un</th>
-            <th style="width:90px;text-align:right">Valor Total R$<br>c/ICMS+PIS+Cofins</th>
-            <th style="width:40px;text-align:center">ICMS %</th>
-            <th style="width:36px;text-align:center">IPI %</th>
-            <th style="width:50px;text-align:center">PIS/COFINS</th>
-            <th style="width:52px;text-align:center">Prazo<br>(dias)</th>
-            <th style="width:70px;text-align:center">Classif.<br>Fiscal</th>
-            <th style="width:64px;text-align:center">Filial de<br>Fatur.</th>
+            <th>Item</th>
+            <th style="text-align:left">Descrição / Cód. Material</th>
+            <th>Qtde<br>Ofertada</th>
+            <th>Un.</th>
+            <th>Preço<br>R$/Un</th>
+            <th>Valor Total R$<br>c/ ICMS+PIS+Cofins</th>
+            <th>ICMS<br>%</th>
+            <th>IPI<br>%</th>
+            <th>PIS/<br>COFINS</th>
+            <th>Prazo<br>(dias)</th>
+            <th>Material<br>Fabricante</th>
+            <th>Filial de<br>Faturamento</th>
           </tr>
         </thead>
         <tbody>
           ${d.itens.map((item, i) => `
             <tr class="${i%2===0?"":"alt"}">
-              <td style="text-align:center;font-weight:700;color:${cor}">${String((i+1)*10).padStart(3,"0")}</td>
+              <td style="text-align:center;font-weight:700;padding:5px 4px">${String((i+1)*10).padStart(3,"0")}</td>
               <td>
-                <div style="font-weight:600">${_genEscape(item.descricao||"")}</div>
-                ${item.cod_material ? `<div style="font-size:9px;color:#777;margin-top:2px">${_genEscape(item.cod_material)}</div>` : ""}
+                <div style="font-weight:600;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${_genEscape(item.descricao||"")}</div>
+                ${item.cod_material ? `<div style="font-size:8px;color:#777;margin-top:1px">${_genEscape(item.cod_material)}</div>` : ""}
               </td>
-              <td style="text-align:center">${_genEscape(item.qtde||"—")}</td>
+              <td style="text-align:right;white-space:nowrap">${_genEscape(item.qtde||"—")}</td>
               <td style="text-align:center">${_genEscape(item.unidade||"—")}</td>
-              <td style="text-align:right">${_genEscape(item.preco_unit||"—")}</td>
-              <td style="text-align:right;font-weight:600">${_genEscape(item.valor_total_item||"—")}</td>
+              <td style="text-align:right;white-space:nowrap">${_genEscape(item.preco_unit||"—")}</td>
+              <td style="text-align:right;font-weight:600;white-space:nowrap">${_genEscape(item.valor_total_item||"—")}</td>
               <td style="text-align:center">${_genEscape(item.icms||"—")}</td>
               <td style="text-align:center">${_genEscape(item.ipi||"—")}</td>
               <td style="text-align:center">${_genEscape(item.pis_cofins||"—")}</td>
               <td style="text-align:center">${_genEscape(item.prazo_entrega||"—")}</td>
-              <td style="text-align:center">${_genEscape(item.classif_fiscal||"—")}</td>
-              <td style="text-align:center">${_genEscape(item.filial||"—")}</td>
+              <td style="text-align:center;font-size:8.5px;word-break:break-all">${_genEscape(item.classif_fiscal||"—")}</td>
+              <td style="text-align:center;font-size:8px;white-space:nowrap">${_genEscape(item.filial||"—")}</td>
             </tr>`).join("")}
           <tr class="total-row">
-            <td colspan="11" style="text-align:right;padding-right:10px;font-size:10px;color:#555">VALOR TOTAL (c/ impostos)</td>
-            <td style="text-align:right;font-size:13px;font-weight:700;color:${cor};white-space:nowrap">${_genEscape(d.valorTotalStr)}</td>
+            <td colspan="12" style="text-align:right;padding-right:8px">
+              <span style="color:#555;font-size:8.5px;font-style:italic;margin-right:16px">c/ ICMS+PIS+Cofins</span>
+              <span>${_genEscape(d.valorTotalStr)}</span>
+            </td>
           </tr>
         </tbody>
       </table>`;
     } else {
       itensTable = `
       <h3 class="sec-title">PLANILHA DE ITENS</h3>
-      <table>
+      <table style="table-layout:fixed;width:100%;font-size:9px;">
+        <colgroup>
+          <col style="width:28px">
+          <col>
+          <col style="width:62px">
+          <col style="width:32px">
+          <col style="width:44px">
+          <col style="width:70px">
+          <col style="width:90px">
+        </colgroup>
         <thead>
           <tr>
-            <th style="width:36px;text-align:center">Item</th>
-            <th>Descrição Produto / Cód. Material Cliente</th>
-            <th style="width:44px;text-align:center">Qtde</th>
-            <th style="width:50px;text-align:center">Unid.</th>
-            <th style="width:60px;text-align:center">Prazo<br>(dias)</th>
-            <th style="width:80px;text-align:center">Classif.<br>Fiscal</th>
-            <th style="width:80px;text-align:center">Filial de<br>Fatur.</th>
+            <th>Item</th>
+            <th style="text-align:left">Descrição / Cód. Material</th>
+            <th>Qtde<br>Ofertada</th>
+            <th>Un.</th>
+            <th>Prazo<br>(dias)</th>
+            <th>Material<br>Fabricante</th>
+            <th>Filial de<br>Faturamento</th>
           </tr>
         </thead>
         <tbody>
           ${d.itens.map((item, i) => `
             <tr class="${i%2===0?"":"alt"}">
-              <td style="text-align:center;font-weight:700;color:${cor}">${String((i+1)*10).padStart(3,"0")}</td>
-              <td>
-                <div style="font-weight:600">${_genEscape(item.descricao||"")}</div>
-                ${item.cod_material ? `<div style="font-size:9px;color:#777;margin-top:2px">${_genEscape(item.cod_material)}</div>` : ""}
+              <td style="text-align:center;font-weight:700">${String((i+1)*10).padStart(3,"0")}</td>
+              <td style="overflow:hidden;">
+                <div style="font-weight:600;white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${_genEscape(item.descricao||"")}</div>
+                ${item.cod_material ? `<div style="font-size:8px;color:#777;margin-top:1px">${_genEscape(item.cod_material)}</div>` : ""}
               </td>
-              <td style="text-align:center">${_genEscape(item.qtde||"—")}</td>
-              <td style="text-align:center">${_genEscape(item.unidade||"—")}</td>
-              <td style="text-align:center">${_genEscape(item.prazo_entrega||"—")}</td>
-              <td style="text-align:center">${_genEscape(item.classif_fiscal||"—")}</td>
-              <td style="text-align:center">${_genEscape(item.filial||"—")}</td>
+              <td style="text-align:right;white-space:nowrap;overflow:hidden">${_genEscape(item.qtde||"—")}</td>
+              <td style="text-align:center;white-space:nowrap;overflow:hidden">${_genEscape(item.unidade||"—")}</td>
+              <td style="text-align:center;white-space:nowrap;overflow:hidden">${_genEscape(item.prazo_entrega||"—")}</td>
+              <td style="text-align:center;white-space:nowrap;overflow:hidden">${_genEscape(item.classif_fiscal||"—")}</td>
+              <td style="text-align:center;white-space:nowrap;overflow:hidden">${_genEscape(item.filial||"—")}</td>
             </tr>`).join("")}
         </tbody>
       </table>`;
@@ -754,7 +922,7 @@ function _buildProposta(d, tipo) {
   <style>
     *{box-sizing:border-box;margin:0;padding:0;}
     body{font-family:Arial,Helvetica,sans-serif;font-size:11px;color:#1a1a1a;
-         background:#fff;padding:28px 32px 72px;}
+         background:#fff;padding:24px 22px 64px;}
 
     /* ── Header ── */
     .page-header{display:flex;justify-content:space-between;align-items:flex-end;
@@ -786,11 +954,14 @@ function _buildProposta(d, tipo) {
                padding-bottom:4px;margin:20px 0 10px;}
 
     /* ── Table ── */
-    table{width:100%;border-collapse:collapse;font-size:10px;margin-bottom:4px;}
-    th{background:${cor};color:#fff;padding:7px 9px;font-size:10px;font-weight:600;}
-    td{padding:6px 9px;border-bottom:1px solid #e8ecf1;vertical-align:top;}
-    tr.alt td{background:${corLight};}
-    tr.total-row td{background:#f0f4ff !important;border-top:2px solid ${cor};padding:10px 12px;}
+    table{width:100%;border-collapse:collapse;font-size:9px;margin-bottom:8px;}
+    th{background:#edf0f5;color:#1a1a2e;padding:6px 8px;font-size:8.5px;font-weight:700;
+       border:1px solid #c6cad4;text-align:center;line-height:1.35;vertical-align:middle;}
+    td{padding:5px 8px;border:1px solid #d4d8e2;vertical-align:middle;line-height:1.4;}
+    tr:hover td{}
+    tr.alt td{background:#f7f8fb;}
+    tr.total-row td{border-top:2px solid ${cor} !important;padding:8px 10px;font-size:9px;}
+    tr.total-row td:last-child{background:#f0f4ff;color:${cor};font-size:13px;font-weight:700;white-space:nowrap;}
 
     /* ── Info grid ── */
     .info-grid{display:grid;grid-template-columns:repeat(3,1fr);gap:12px;margin:8px 0 4px;}
@@ -889,7 +1060,6 @@ function _buildProposta(d, tipo) {
     <span>Proposta ${_genEscape(d.oferta)} — Emitido em ${dataCurta}</span>
   </div>
 
-  <script>window.onload=function(){window.print();};<\/script>
   </body></html>`;
 }
 
@@ -913,18 +1083,16 @@ async function gerarOferta(modo) {
     return;
   }
 
-  if (btn) { btn.disabled = true; btn.textContent = "⏳ Gerando..."; }
+  if (btn) { btn.disabled = true; btn.textContent = "⏳ Gerando PDF..."; }
 
   try {
     if (modo === "comercial") {
-      gerarPdfComercial(d);
+      await _genBaixarPDF(d, "comercial");
     } else if (modo === "tecnica") {
-      gerarPdfTecnico(d);
+      await _genBaixarPDF(d, "tecnica");
     } else {
-      // ambas: abre uma de cada vez (evita bloqueio de popup)
-      gerarPdfComercial(d);
-      await _genDelay(800);
-      gerarPdfTecnico(d);
+      await _genBaixarPDF(d, "comercial");
+      await _genBaixarPDF(d, "tecnica");
       await criarRegistroAutomaticoGerador(d);
       exibirModalSucessoGerador();
       _genResetarFormulario();
@@ -1187,6 +1355,170 @@ function _genParseItemSimples(linha) {
     unidade = mQtde[2].toLowerCase();
   }
   return { ..._genNovoItem(0), descricao: limpa, qtde, unidade };
+}
+
+// ── Histórico de Gerações ──────────────────────────────────────────────────────
+
+async function _genCarregarHistorico() {
+  const lista = document.getElementById("gen_historico_lista");
+  if (!lista || !_genCurrentEmail) return;
+
+  lista.innerHTML = `<div style="color:var(--text-muted);font-size:13px;text-align:center;padding:28px 0;line-height:1.6;">Carregando histórico...</div>`;
+
+  try {
+    const snap = await window.db.collection("geracoes")
+      .where("geradoPor", "==", _genCurrentEmail)
+      .get();
+
+    const geracoes = snap.docs
+      .map(d => ({ id: d.id, ...d.data() }))
+      .sort((a, b) => (b.geradoEm || "").localeCompare(a.geradoEm || ""))
+      .slice(0, 30);
+
+    _genHistoricoCache = geracoes;
+
+    if (!geracoes.length) {
+      lista.innerHTML = `
+        <div style="text-align:center;padding:36px 0;color:var(--text-muted);">
+          <div style="font-size:30px;margin-bottom:12px;opacity:.35;">
+            <svg width="40" height="40" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" style="display:inline-block;">
+              <path d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z"/>
+            </svg>
+          </div>
+          <div style="font-size:13px;font-weight:600;color:var(--text-main);margin-bottom:4px;">Nenhuma geração registrada</div>
+          <div style="font-size:12px;">Preencha o formulário e clique em <strong>⬇ Gerar Ambas + Salvar</strong>.</div>
+        </div>`;
+      return;
+    }
+
+    _genRenderHistorico(geracoes, lista);
+  } catch(e) {
+    console.error("[Gerador] Erro ao carregar histórico:", e);
+    lista.innerHTML = `
+      <div style="text-align:center;padding:28px 0;color:var(--text-muted);">
+        <div style="font-size:12px;color:var(--danger,#ef4444);margin-bottom:12px;">
+          Não foi possível carregar o histórico.
+        </div>
+        <button type="button" class="btn secondary" style="font-size:12px;padding:6px 16px;width:auto;"
+          onclick="_genCarregarHistorico()">Tentar novamente</button>
+      </div>`;
+  }
+}
+
+function _genRenderHistorico(geracoes, lista) {
+  const tipoLabel = { ambas: "Comercial + Técnica", comercial: "Comercial", tecnica: "Técnica" };
+
+  lista.innerHTML = geracoes.map((g, i) => {
+    const s       = g.snapshot || {};
+    const data    = g.geradoEm ? new Date(g.geradoEm) : null;
+    const dataStr = data && !isNaN(data)
+      ? data.toLocaleDateString("pt-BR") + "<br>" +
+        data.toLocaleTimeString("pt-BR", { hour: "2-digit", minute: "2-digit" })
+      : "—";
+    const tipo    = tipoLabel[g.tipoGerado] || g.tipoGerado || "—";
+    const nItens  = (s.itens || []).filter(it => it.descricao).length;
+    const val     = s.valorTotalStr || "—";
+
+    return `
+      <div class="gen-hist-row">
+
+        <div class="gen-hist-col-main">
+          <div style="font-weight:700;font-size:13px;color:var(--text-strong);
+                      white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">
+            ${_genEscape(g.ofertaNumero || "—")}
+          </div>
+          <div style="font-size:11px;color:var(--text-muted);margin-top:2px;
+                      white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">
+            ${_genEscape(s.razao || "—")}
+          </div>
+        </div>
+
+        <div class="gen-hist-col-tipo">
+          <div style="font-size:12px;font-weight:600;color:var(--text-main);">${_genEscape(tipo)}</div>
+          <div style="font-size:11px;color:var(--text-muted);margin-top:2px;">
+            ${nItens} item(s)${s.bu ? " · " + _genEscape(s.bu) : ""}
+          </div>
+        </div>
+
+        <div class="gen-hist-col-val">${_genEscape(val)}</div>
+
+        <div class="gen-hist-col-data" style="line-height:1.5;">${dataStr}</div>
+
+        <div class="gen-hist-col-btn">
+          <button type="button" class="btn secondary"
+            style="font-size:12px;padding:6px 14px;white-space:nowrap;width:auto;"
+            onclick="_genRemontarOferta(${i})">
+            ↩ Remontar
+          </button>
+        </div>
+
+      </div>`;
+  }).join("");
+}
+
+function _genRemontarOferta(idx) {
+  const g = _genHistoricoCache[idx];
+  if (!g?.snapshot) return;
+
+  const s = g.snapshot;
+  if (!confirm(`Remontar a oferta "${g.ofertaNumero || s.oferta}" no formulário?\nOs dados preenchidos atualmente serão substituídos.`)) return;
+
+  const set = (id, val) => {
+    const el = document.getElementById(id);
+    if (el) el.value = val || "";
+  };
+
+  // Dados do cliente
+  set("gen_razao", s.razao);
+  const razaoEl = document.getElementById("gen_razao");
+  if (razaoEl) razaoEl.dataset.clienteId = s.clienteId || "";
+  set("gen_cnpj", s.cnpj);
+  set("gen_solicitante", s.solicitante);
+  set("gen_telefone", s.telefone);
+  set("gen_email", s.email);
+
+  // Dados da oferta
+  set("gen_oferta", s.oferta);
+  set("gen_data_entrada", s.dataEntrada);
+  set("gen_data_envio", s.dataEnvio);
+  set("gen_tipo_oferta", s.tipoOferta);
+  set("gen_status", s.status);
+
+  // BU → segmento
+  set("gen_bu", s.bu);
+  _genOnBuChange();
+  if (s.segmento) set("gen_segmento", s.segmento);
+
+  // Representada → unidade Mantex
+  set("gen_representada", s.representadaId);
+  _genOnRepresentadaChange();
+  if (s.unidade) set("gen_unidade", s.unidade);
+
+  // Valor, projeto, obs
+  set("gen_valor_total", s.valorTotalStr);
+  const projEl = document.getElementById("gen_nome_projeto");
+  if (projEl) {
+    projEl.value = s.nomeProjeto || "";
+    projEl.dataset.projetoId = s.projetoId || "";
+  }
+  set("gen_ref_cliente", s.refCliente);
+  set("gen_obs_geral", s.obsGeral);
+
+  // Itens
+  _genItens = [];
+  _genItemCounter = 0;
+  (s.itens || []).forEach(item => {
+    const id = ++_genItemCounter;
+    _genItens.push({ ..._genNovoItem(id), ...item, id });
+  });
+  _genRenderItens();
+
+  window.scrollTo({ top: 0, behavior: "smooth" });
+
+  if (window.showToast) showToast({
+    title: `Oferta ${g.ofertaNumero || s.oferta} remontada`,
+    description: "Verifique os dados, ajuste se necessário e gere novamente."
+  }, "success");
 }
 
 // ── Theme & Sidebar ───────────────────────────────────────────────────────────

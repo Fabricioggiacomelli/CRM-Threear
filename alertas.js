@@ -890,6 +890,10 @@ async function verificarAlertasPedidoSemNF() {
     const statusReg = String(reg.status || "").trim().toLowerCase();
     if (statusReg === "perdido" || statusReg === "declinado") continue;
 
+    // Representada marcada como "não emite NF" → nunca gerar este alerta
+    const _repObj = (representadas || []).find(r => r.id === reg.representadaId);
+    if (_repObj?.sem_nf === true) continue;
+
     const email = normalizarEmailAlerta(reg.responsavelEmail);
     if (!email) continue;
     if (email !== emailLogado) continue;

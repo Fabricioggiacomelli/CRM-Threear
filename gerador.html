@@ -104,6 +104,41 @@
       border-color:transparent !important; text-align:right;
     }
 
+    /* ── Histórico de Gerações ── */
+    .gen-hist-row {
+      display: flex;
+      align-items: center;
+      gap: 12px;
+      padding: 11px 14px;
+      border-radius: 10px;
+      border: 1px solid var(--border-soft);
+      margin-bottom: 8px;
+      transition: background .15s;
+      flex-wrap: wrap;
+    }
+    .gen-hist-row:hover { background: var(--bg-muted, rgba(99,102,241,.06)); }
+    .gen-hist-col-main  { flex: 1 1 160px; min-width: 0; }
+    .gen-hist-col-tipo  { flex: 0 1 155px; min-width: 0; }
+    .gen-hist-col-val   { flex: 0 1 120px; min-width: 0; font-size: 13px; font-weight: 700; color: var(--primary); }
+    .gen-hist-col-data  { flex: 0 1 110px; min-width: 0; font-size: 11px; color: var(--text-muted); }
+    .gen-hist-col-btn   { flex-shrink: 0; }
+    .gen-hist-label     { font-size: 10px; font-weight: 700; text-transform: uppercase;
+                          letter-spacing: .5px; color: var(--text-muted); margin-bottom: 4px; }
+    .gen-hist-header    { display: flex; align-items: center; gap: 12px;
+                          padding: 0 14px 10px; flex-wrap: wrap; }
+    .gen-hist-header-col-main { flex: 1 1 160px; }
+    .gen-hist-header-col-tipo { flex: 0 1 155px; }
+    .gen-hist-header-col-val  { flex: 0 1 120px; }
+    .gen-hist-header-col-data { flex: 0 1 110px; }
+    .gen-hist-header-col-btn  { flex-shrink: 0; width: 90px; }
+    @media (max-width: 600px) {
+      .gen-hist-col-tipo, .gen-hist-col-data { display: none; }
+    }
+
+    /* Botões da seção de histórico nunca herdam width:100% do reset global */
+    .gen-hist-card-header button,
+    .gen-hist-col-btn button { width: auto !important; flex-shrink: 0; }
+
     /* Add button */
     .btn-add-item {
       display:flex; align-items:center; justify-content:center; gap:8px;
@@ -144,8 +179,8 @@
     <button class="collapse-btn" type="button" onclick="toggleSidebar()">⮜</button>
   </aside>
 
-  <div class="main-content">
-    <div style="padding:32px 28px;max-width:900px;">
+  <div class="main-content" style="display:flex;flex-direction:column;align-items:center;">
+    <div style="padding:32px 28px;max-width:900px;width:100%;box-sizing:border-box;">
 
       <h3>Gerador de Ofertas</h3>
       <p class="subtitle" style="margin-bottom:24px;">
@@ -344,6 +379,40 @@
         </button>
       </div>
 
+      <!-- ── Histórico de Gerações ─────────────────────────────── -->
+      <div class="form-card" style="margin-top:32px;">
+
+        <!-- Header -->
+        <div class="gen-hist-card-header" style="display:flex;align-items:center;gap:12px;margin-bottom:6px;">
+          <h4 style="flex:1;min-width:0;font-size:14px;font-weight:700;color:var(--text-strong);margin:0;">
+            Histórico de Gerações
+          </h4>
+          <button type="button" class="btn secondary"
+            style="font-size:12px;padding:6px 16px;white-space:nowrap;"
+            onclick="_genCarregarHistorico()">
+            Atualizar
+          </button>
+        </div>
+        <p style="font-size:12px;color:var(--text-muted);margin:0 0 20px;line-height:1.5;">
+          Últimas 30 geradas por você. Use <strong> ↩ Remontar</strong> para carregar no formulário.
+        </p>
+
+        <!-- Cabeçalho da lista -->
+        <div class="gen-hist-header" style="border-bottom:1px solid var(--border-soft);margin-bottom:10px;">
+          <div class="gen-hist-header-col-main gen-hist-label">Oferta / Cliente</div>
+          <div class="gen-hist-header-col-tipo gen-hist-label">Tipo</div>
+          <div class="gen-hist-header-col-val  gen-hist-label">Valor</div>
+          <div class="gen-hist-header-col-data gen-hist-label">Gerado em</div>
+          <div class="gen-hist-header-col-btn"></div>
+        </div>
+
+        <div id="gen_historico_lista">
+          <div style="color:var(--text-muted);font-size:13px;text-align:center;padding:28px 0;">
+            Carregando...
+          </div>
+        </div>
+      </div>
+
     </div>
   </div>
 
@@ -408,6 +477,8 @@
   <script src="https://www.gstatic.com/firebasejs/8.10.1/firebase-app.js"></script>
   <script src="https://www.gstatic.com/firebasejs/8.10.1/firebase-auth.js"></script>
   <script src="https://www.gstatic.com/firebasejs/8.10.1/firebase-firestore.js"></script>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/html2canvas/1.4.1/html2canvas.min.js"></script>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
   <script src="firebase.js"></script>
   <script src="toast.js"></script>
   <script src="gerador.js"></script>

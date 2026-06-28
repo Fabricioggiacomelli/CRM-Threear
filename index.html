@@ -954,14 +954,22 @@
       <section id="secRepresentadas">
         <h3>Cadastro de Representadas</h3>
 
-        <label for="rep_nome">Nome da Representada</label>
-        <input type="text" id="rep_nome">
+        <div class="form-card" style="border:none">
+          <label for="rep_nome">Nome da Representada</label>
+          <input type="text" id="rep_nome" placeholder="Nome da representada...">
 
-        <button type="button" id="btnSalvarRepresentada">Salvar Representada</button>
-        <button id="btnCancelarEdicaoRepresentada" type="button" class="btn-cancelar-edicao hidden">
-          Cancelar edição
-        </button>
-        <h4 style="margin-top:20px;">Representadas Cadastradas</h4>
+          <div class="checkbox-inline">
+            <input type="checkbox" id="rep_sem_nf">
+            <span>Não Recebemos Nota Fiscal <span style="font-size:11px;opacity:.6">(desativa alerta "Pedido sem NF")</span></span>
+          </div>
+        </div>
+
+        <div style="display:flex;gap:10px;margin-top:16px;flex-wrap:wrap">
+          <button type="button" id="btnSalvarRepresentada">Salvar Representada</button>
+          <button id="btnCancelarEdicaoRepresentada" type="button" class="secondary hidden">Cancelar edição</button>
+        </div>
+
+        <h4 style="margin-top:28px;">Representadas Cadastradas</h4>
 
         <div class="filters-row">
           <div class="field">
