@@ -29,6 +29,10 @@ firebase deploy --only hosting
 
 There is no build step, bundler, or transpilation. Files are served as-is.
 
+**Stale-cache gotcha:** the alert verification loop runs client-side in every logged-in user's browser, writing to the shared `ofertas`/`alertas` collections. So a fix to `alertas.js` (or any logic) only takes effect once each user loads the new file — a single user on a cached old version can keep recreating "fixed" alerts for everyone. Scripts are referenced without version query strings, so `firebase.json` sets `Cache-Control: no-cache` on `*.js/css/html` to force revalidation on every load. After a deploy, users still holding a pre-`no-cache` copy need one hard reload (Ctrl+Shift+R); afterwards a plain F5 picks up new deploys.
+
+**Auto version-check (forces stale tabs to reload):** an inline script at the top of `index.html` `<head>` fetches `version.json` with `cache: "no-store"` and compares its `version` field to the hardcoded `__APP_VERSION__` in that same inline script. If they differ, it `location.reload()`s once (guarded by `sessionStorage["__verReload"]` so a genuinely stuck cache can't loop — it warns and stops). **Deploy procedure when a JS/logic change must reach all users: bump BOTH `__APP_VERSION__` in `index.html` and `version` in `version.json` to the same new value, then `firebase deploy --only hosting`.** `version.json` is served `no-store` (see `firebase.json`). Note this only catches deploys made *after* a client already loaded a version that contains the check — it can't fix the very first rollout of the check itself.
+
 ## Architecture
 
 ### File Loading Order
@@ -114,7 +118,7 @@ Alert status flow: `aberto` → `aguardando_aprovacao_resolucao` (user role) or 
 
 `criarOuAtualizarAlerta()` only creates a new alert document when the existing one has status `resolvido` or `ignorado` — otherwise it updates in place (preserving status).
 
-**Duplicate alert cleanup:** `buscarAlertaPorChave()` queries without `.limit(1)` and handles multiple docs with the same `chaveUnica` — it keeps the active alert (or most recent if all finalized) and batch-deletes the rest silently. This self-heals accumulated duplicates on the next loop run.
+**Duplicate alert cleanup:** `buscarAlertaPorChave()` queries without `.limit(1)` and handles multiple docs with the same `chaveUnica` — it keeps the active alert (or most recent if all finalized) and batch-deletes the rest silently. This self-heals accumulated duplicates on the next loop run. But it only runs for the offer's own responsible user (the loop skips others' offers) and the `alertas` delete rule is admin-only — so duplicates created by concurrent writers (same user logged in on two devices firing the loop in the same second) can survive. `deduplicarFollowUpsAtivos()` runs every cycle as a backstop: it groups active `followup` alerts by `entidadeId` in `window.alertasCache` and deletes all but one per offer (highest `lembreteNumero`, then oldest). It's silent (only logs when it actually deletes) and never recreates anything, so it can't loop. For an admin the cache holds every alert, so it cleans everyone's duplicates; the batch delete is wrapped in try/catch for non-admins.
 
 **`resolverAlertaDireto` / `aprovarResolucaoAlerta`:** Look up the alert object from `window.alertasCache` first, then fall back to a Firestore fetch. This avoids a race condition where the cache hasn't updated yet and `aplicarEfeitoResolucaoAlerta` would be skipped.
 

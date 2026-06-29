@@ -6,6 +6,38 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>Gestão de Ofertas</title>
 
+  <!-- Verificação de versão: se o código carregado estiver desatualizado em relação
+       ao servidor, recarrega automaticamente (antes de o app iniciar o loop de alertas).
+       AO FAZER DEPLOY que precise forçar atualização: incremente __APP_VERSION__ abaixo
+       E o campo "version" em version.json para o MESMO número. -->
+  <script>
+    (function () {
+      var __APP_VERSION__ = "1";
+      try {
+        fetch("version.json?_=" + Date.now(), { cache: "no-store" })
+          .then(function (r) { return r.ok ? r.json() : null; })
+          .then(function (data) {
+            if (!data || !data.version) return;
+            var servidor = String(data.version);
+            if (servidor === __APP_VERSION__) {
+              sessionStorage.removeItem("__verReload");
+              return;
+            }
+            // Salvaguarda anti-loop: só recarrega uma vez por versão de servidor.
+            if (sessionStorage.getItem("__verReload") === servidor) {
+              console.warn("[versao] Cache preso na versão " + __APP_VERSION__ +
+                " (servidor " + servidor + "). Faça Ctrl+Shift+R.");
+              return;
+            }
+            sessionStorage.setItem("__verReload", servidor);
+            console.log("[versao] Atualizando para a versão " + servidor + "...");
+            location.reload();
+          })
+          .catch(function () {});
+      } catch (e) {}
+    })();
+  </script>
+
   <link rel="preconnect" href="https://fonts.googleapis.com" />
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
   <link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@300;400;500;600;700&display=swap" rel="stylesheet" />

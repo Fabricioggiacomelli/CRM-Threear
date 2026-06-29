@@ -1138,10 +1138,49 @@ async function resolverAlertasMargemNFUmaVez() {
   console.log(`[alertas] ${alvos.length} alerta(s) pedido_sem_nf resolvido(s) por estarem dentro da margem de NF.`);
 }
 
+// Remove follow-ups ATIVOS duplicados da mesma oferta, mantendo apenas um
+// (o de maior lembrete; em empate, o mais antigo). Causa raiz: criação concorrente
+// entre dispositivos do mesmo usuário. Auto-cura silenciosa — só apaga quando há
+// duplicata, então não gera spam de log nem recria nada. Usa o cache em memória
+// (sem query extra); para o admin o cache contém todos os alertas.
+async function deduplicarFollowUpsAtivos() {
+  const STATUS_ATIVOS = ["aberto", "adiado", "aguardando_aprovacao_resolucao", "aguardando_aprovacao_ignorar"];
+  const porOferta = new Map();
+  for (const a of (window.alertasCache || [])) {
+    if (a.tipo !== "followup" || !STATUS_ATIVOS.includes(a.status)) continue;
+    const arr = porOferta.get(a.entidadeId) || [];
+    arr.push(a);
+    porOferta.set(a.entidadeId, arr);
+  }
+
+  const deletar = [];
+  for (const grupo of porOferta.values()) {
+    if (grupo.length <= 1) continue;
+    grupo.sort((a, b) =>
+      (Number(b.lembreteNumero || 0) - Number(a.lembreteNumero || 0)) ||
+      (new Date(a.dataCriacao || 0) - new Date(b.dataCriacao || 0))
+    );
+    deletar.push(...grupo.slice(1)); // mantém grupo[0]
+  }
+  if (!deletar.length) return;
+
+  try {
+    for (let i = 0; i < deletar.length; i += 450) {
+      const batch = window.db.batch();
+      deletar.slice(i, i + 450).forEach(a => batch.delete(getAlertasRef().doc(a.id)));
+      await batch.commit();
+    }
+    console.log(`[alertas] ${deletar.length} follow-up(s) duplicado(s) removido(s).`);
+  } catch (e) {
+    console.warn("[alertas] não foi possível remover follow-ups duplicados (permissão?):", e.message);
+  }
+}
+
 async function verificarAlertasSistema() {
   await deduplicarAlertasPrazoEntregaLegados(); // one-time por sessão
   await limparAlertasSemNFUmaVez();             // one-time: limpa pedido_sem_nf de reps sem NF
   await resolverAlertasMargemNFUmaVez();        // one-time: resolve pedido_sem_nf dentro da margem
+  await deduplicarFollowUpsAtivos();            // remove follow-ups duplicados (silencioso)
   await reativarAlertasAdiados();
   await verificarAlertasPrazoEntrega();
   await verificarAlertasFollowUp();
