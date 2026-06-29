@@ -51,6 +51,30 @@ function diferencaHorasDesdeAlerta(dataIso) {
   return (Date.now() - d.getTime()) / 3600000;
 }
 
+// Horas decorridas desde dataIso até agora, contando APENAS dias úteis
+// (ignora sábados e domingos). Usado pelo follow-up: 24h úteis = 1 dia útil,
+// 48h úteis = 2 dias úteis. Itera dia a dia (eficiente para os poucos dias típicos).
+function _horasUteisDecorridas(dataIso) {
+  if (!dataIso) return null;
+  const inicio = new Date(dataIso);
+  if (isNaN(inicio.getTime())) return null;
+  const agora = new Date();
+  if (agora <= inicio) return 0;
+
+  let horas = 0;
+  let cursor = new Date(inicio);
+  while (cursor < agora) {
+    const dow = cursor.getDay(); // 0 = domingo, 6 = sábado
+    const fimDoDia = new Date(cursor.getFullYear(), cursor.getMonth(), cursor.getDate(), 23, 59, 59, 999);
+    const ate = fimDoDia < agora ? fimDoDia : agora;
+    if (dow !== 0 && dow !== 6) {
+      horas += (ate.getTime() - cursor.getTime()) / 3600000;
+    }
+    cursor = new Date(cursor.getFullYear(), cursor.getMonth(), cursor.getDate() + 1, 0, 0, 0, 0);
+  }
+  return horas;
+}
+
 function montarChaveAlerta({ tipo, entidade, entidadeId, referencia = "" }) {
   return [tipo, entidade, entidadeId, referencia].join("_");
 }
@@ -835,7 +859,7 @@ async function verificarAlertaFollowUpRegistro(reg) {
   const intervaloLembrete = getIntervaloLembreteFollowUp(tipo);
   if (!limiteHoras || !intervaloLembrete) return;
 
-  const horas = diferencaHorasDesdeAlerta(obterUltimaDataOferta(reg));
+  const horas = _horasUteisDecorridas(obterUltimaDataOferta(reg));
   if (horas === null || horas < limiteHoras) return;
 
   const numeroOferta = getNumeroOfertaTexto(reg);
@@ -853,11 +877,11 @@ async function verificarAlertaFollowUpRegistro(reg) {
   );
 
   if (!existente || existente.status === "resolvido" || existente.status === "ignorado") {
-    // Guarda anti-recriaçao prematura: se foi resolvido há menos de limiteHoras,
+    // Guarda anti-recriaçao prematura: se foi resolvido há menos de limiteHoras (úteis),
     // a resolução em si conta como follow-up — não recriar ainda.
     if (existente?.status === "resolvido" && existente?.resolvidoEm) {
-      const horasDesdeResolucao = (Date.now() - new Date(existente.resolvidoEm).getTime()) / 3600000;
-      if (horasDesdeResolucao < limiteHoras) return;
+      const horasDesdeResolucao = _horasUteisDecorridas(existente.resolvidoEm);
+      if (horasDesdeResolucao !== null && horasDesdeResolucao < limiteHoras) return;
     }
 
     await criarOuAtualizarAlerta({

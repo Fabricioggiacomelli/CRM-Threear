@@ -94,7 +94,7 @@ Self-contained module. Runs a verification loop (`iniciarLoopAlertas`) every 60 
 
 | Alert | Triggered when | Stops when |
 |---|---|---|
-| `followup` | Offer inactive past threshold (24h compra, 48h orcamento, 72h others) | `ultimoFollowUpEm` reset or offer edited |
+| `followup` | Offer inactive past threshold counted in **business hours** (24 = 1 business day for compra, 48 = 2 business days for orcamento; other types don't fire) | `ultimoFollowUpEm` reset or offer edited |
 | `prazo_entrega` | Delivery deadline 15/10/5/3/2/1 days away | Deadline passes or `pedido.entregue = "sim"` |
 | `prazo_entrega_atrasado` | Delivery date past + not delivered | `pedido.entregue = "sim"` |
 | `sem_resposta` | No update for 5+ days | `atualizadoEm` reset |
@@ -105,6 +105,8 @@ Self-contained module. Runs a verification loop (`iniciarLoopAlertas`) every 60 
 **`pedido_sem_nf` card values are recomputed live.** `_dadosPedidoSemNF(reg)` is the single source for the financial figures (`valorPedido`, `somaNFs`, `valorFaltante`) and the description string — used both when creating/updating the alert and when rendering the card in `renderListaAlertas`. The card recomputes from the current offer in memory (`registros`) instead of trusting the snapshot stored on the alert doc, so it never shows stale "possui pedido, mas ainda não tem NF" text after the offer's `valor_pedido` is filled in. The stored doc still self-syncs on the next loop cycle via the merge-update in `criarOuAtualizarAlerta`.
 
 **NF tolerance margin per representada (`margem_nf`):** Some representadas (e.g. Prysmian) routinely invoice within a ± percentage of the order value, so the NF sum rarely matches `valor_pedido` exactly. The representada doc carries a numeric `margem_nf` (percent, set via the "Margem de Nota Fiscal (%)" field in the representadas form). `_nfCobertaPedido(pedido, margemPct = 0)` treats the order as covered when `somaNFs >= valor_pedido * (1 - margemPct/100)` — default `0` keeps the exact-match behavior for every other rep. `_margemNFDaOferta(reg)` reads the margin from the offer's representada (from the `representadas` array, robust at runtime). The margin is applied in three places: the loop (`verificarAlertasPedidoSemNF` skips offers within margin), the save-time auto-resolve (`onRegistroSalvoReset` → `TIPOS_AUTO_RESET`), and a once-per-session batch `resolverAlertasMargemNFUmaVez()` (flag `window._alertasMargemResolvidaFeita`) that **resolves** (not deletes — preserves history) pre-existing open/adiado `pedido_sem_nf` alerts whose offers now fall within the margin.
+
+**Follow-up counts business hours only.** `_horasUteisDecorridas(dataIso)` returns the hours elapsed since `dataIso` excluding Saturdays and Sundays (no holiday table). `verificarAlertaFollowUpRegistro` uses it both for the trigger threshold and for the reminder counter (`Math.floor(horas / intervaloLembrete)`), and for the post-resolution anti-recreation guard. So an offer touched Friday afternoon only fires its follow-up the next business day, not on the weekend. Note: only `followup` uses business hours — `pedido_sem_nf`'s 120h-without-prazo path still uses calendar hours via `diferencaHorasDesdeAlerta`.
 
 When an alert is resolved (directly or via approval), `aplicarEfeitoResolucaoAlerta()` updates the underlying offer field in Firestore so the loop won't immediately re-create the alert.
 
