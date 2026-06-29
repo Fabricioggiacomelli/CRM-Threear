@@ -29,9 +29,7 @@ firebase deploy --only hosting
 
 There is no build step, bundler, or transpilation. Files are served as-is.
 
-**Stale-cache gotcha:** the alert verification loop runs client-side in every logged-in user's browser, writing to the shared `ofertas`/`alertas` collections. So a fix to `alertas.js` (or any logic) only takes effect once each user loads the new file — a single user on a cached old version can keep recreating "fixed" alerts for everyone. Scripts are referenced without version query strings, so `firebase.json` sets `Cache-Control: no-cache` on `*.js/css/html` to force revalidation on every load. After a deploy, users still holding a pre-`no-cache` copy need one hard reload (Ctrl+Shift+R); afterwards a plain F5 picks up new deploys.
-
-**Auto version-check (forces stale tabs to reload):** an inline script at the top of `index.html` `<head>` fetches `version.json` with `cache: "no-store"` and compares its `version` field to the hardcoded `__APP_VERSION__` in that same inline script. If they differ, it `location.reload()`s once (guarded by `sessionStorage["__verReload"]` so a genuinely stuck cache can't loop — it warns and stops). **Deploy procedure when a JS/logic change must reach all users: bump BOTH `__APP_VERSION__` in `index.html` and `version` in `version.json` to the same new value, then `firebase deploy --only hosting`.** `version.json` is served `no-store` (see `firebase.json`). Note this only catches deploys made *after* a client already loaded a version that contains the check — it can't fix the very first rollout of the check itself.
+**Stale-cache note:** the alert verification loop runs client-side in every logged-in user's browser, writing to the shared `ofertas`/`alertas` collections. So a fix to `alertas.js` (or any logic) only takes effect once each user loads the new file — a single user on a cached old version can keep recreating "fixed" alerts for everyone. After a deploy, ask users to hard-reload (Ctrl+Shift+R) if a logic change must take effect immediately.
 
 ## Architecture
 
