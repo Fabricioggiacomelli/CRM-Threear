@@ -1017,26 +1017,30 @@ async function reativarAlertasAdiados() {
 }
 
 async function resolverAlertasSemNFAtivos() {
-  const STATUS_ATIVOS = ["aberto", "adiado", "aguardando_aprovacao_resolucao", "aguardando_aprovacao_ignorar"];
-  const paraResolver = (window.alertasCache || []).filter(
+  if (!window.repsSemNFIds?.size) return;
+  const STATUS_ATIVOS = ["aberto", "adiado", "aguardando_aprovacao_resolucao", "aguardando_aprovacao_ignorar", "resolvido", "ignorado"];
+  const paraDeletar = (window.alertasCache || []).filter(
     a => a.tipo === "pedido_sem_nf" &&
          STATUS_ATIVOS.includes(a.status) &&
          _ofertaTemRepSemNF(a.entidadeId)
   );
-  if (!paraResolver.length) return;
-  const agora = agoraISOAlerta();
-  for (const alerta of paraResolver) {
-    await getAlertasRef().doc(alerta.id).set(
-      { status: "resolvido", resolvidoEm: agora, resolvidoPor: "Sistema — representada não emite NF", atualizadoEm: agora },
-      { merge: true }
-    );
-  }
-  if (paraResolver.length) console.log(`[alertas] ${paraResolver.length} alerta(s) pedido_sem_nf resolvido(s) automaticamente (representada sem NF).`);
+  if (!paraDeletar.length) return;
+  const batch = window.db.batch();
+  paraDeletar.forEach(a => batch.delete(getAlertasRef().doc(a.id)));
+  await batch.commit();
+  console.log(`[alertas] ${paraDeletar.length} alerta(s) pedido_sem_nf removido(s) (representada não emite NF).`);
 }
 
 async function verificarAlertasSistema() {
+  // Garante que repsSemNFIds está populado antes de qualquer verificação
+  if (!window.repsSemNFIds) {
+    window.repsSemNFIds = new Set(
+      (typeof representadas !== "undefined" ? representadas : [])
+        .filter(r => r.sem_nf === true).map(r => r.id)
+    );
+  }
   await deduplicarAlertasPrazoEntregaLegados(); // one-time por sessão
-  await resolverAlertasSemNFAtivos();           // limpa ativos de reps sem NF antes de qualquer verificação
+  await resolverAlertasSemNFAtivos();           // deleta alertas de reps sem NF
   await reativarAlertasAdiados();
   await verificarAlertasPrazoEntrega();
   await verificarAlertasFollowUp();
@@ -1096,6 +1100,9 @@ function iniciarListenerAlertas() {
       listaNova.forEach((alerta) => {
         // Adiados nunca disparam toast (estão silenciados intencionalmente)
         if (alerta.status === "adiado") return;
+
+        // Nunca dispara toast de pedido_sem_nf para representadas que não emitem NF
+        if (alerta.tipo === "pedido_sem_nf" && _ofertaTemRepSemNF(alerta.entidadeId)) return;
 
         const ehAtivo =
           alerta.status === "aberto" ||
