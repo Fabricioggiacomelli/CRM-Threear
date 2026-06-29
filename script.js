@@ -4851,6 +4851,8 @@ function initRepresentadasUI() {
   btn.addEventListener("click", async () => {
     const nome = document.getElementById("rep_nome").value.trim();
     const semNF = document.getElementById("rep_sem_nf")?.checked || false;
+    const margemRaw = parseFloat(String(document.getElementById("rep_margem_nf")?.value || "").replace(",", "."));
+    const margemNF = (!isNaN(margemRaw) && margemRaw > 0) ? Math.min(100, margemRaw) : 0;
     const currentUser = getCurrentUserName();
     const nowIso = new Date().toISOString();
 
@@ -4865,6 +4867,7 @@ function initRepresentadasUI() {
         id,
         nome,
         sem_nf: semNF,
+        margem_nf: margemNF,
         criadoPor: currentUser,
         atualizadoPor: currentUser,
         responsavelEmail: (window.auth?.currentUser?.email || "").toLowerCase(),
@@ -4913,11 +4916,24 @@ function initRepresentadasUI() {
         );
       }
 
+      if ((Number(antigo.margem_nf) || 0) !== margemNF) {
+        eventosHistorico.push(
+          criarEventoHistorico({
+            usuario: currentUser,
+            acao: "alterou",
+            campo: "Margem de NF (%)",
+            de: String(Number(antigo.margem_nf) || 0),
+            para: String(margemNF),
+          }),
+        );
+      }
+
       if (idx !== -1) {
         const rep = {
           id: editRepresentadaId,
           nome,
           sem_nf: semNF,
+          margem_nf: margemNF,
           criadoPor: antigo.criadoPor || currentUser,
           atualizadoPor: currentUser,
           responsavelEmail:
@@ -4951,6 +4967,8 @@ function initRepresentadasUI() {
     document.getElementById("rep_nome").value = "";
     const _semNFEl = document.getElementById("rep_sem_nf");
     if (_semNFEl) _semNFEl.checked = false;
+    const _margemEl = document.getElementById("rep_margem_nf");
+    if (_margemEl) _margemEl.value = "";
     renderTabelaRepresentadas();
     preencherSelectRepresentadas();
   });
@@ -5060,6 +5078,7 @@ function renderTabelaRepresentadas() {
     const abcRepInfo = abcMapReps[rep.id];
     const badgeRep = abcRepInfo ? abcBadgeHtml(abcRepInfo.classe, abcRepInfo.totalPedido, abcRepInfo.qtdPedidos) : "";
     const semNFBadge = rep.sem_nf ? `<span style="font-size:10px;background:#fef3c7;color:#92400e;border:1px solid #fde68a;border-radius:4px;padding:1px 5px;margin-left:4px" title="Não emite NF — alerta desativado">Sem NF</span>` : "";
+    const margemBadge = (Number(rep.margem_nf) || 0) > 0 ? `<span style="font-size:10px;background:#dbeafe;color:#1e40af;border:1px solid #bfdbfe;border-radius:4px;padding:1px 5px;margin-left:4px" title="Tolerância entre soma das NFs e valor do pedido">Margem ${esc(String(rep.margem_nf))}%</span>` : "";
 
     const tr = document.createElement("tr");
     tr.innerHTML = `
@@ -5067,7 +5086,7 @@ function renderTabelaRepresentadas() {
         ? start + index + 1
         : listaOrdenada.length - (start + index)
       }</td>
-      <td>${esc(rep.nome)} ${badgeRep}${semNFBadge}</td>
+      <td>${esc(rep.nome)} ${badgeRep}${semNFBadge}${margemBadge}</td>
       <td class="col-center">${qtdOfertas}</td>
       <td>${esc(usuario)}</td>
       <td style="text-align:center;">
@@ -5113,6 +5132,8 @@ function editarRepresentada(id) {
   document.getElementById("rep_nome").value = rep.nome || "";
   const _semNFCheckbox = document.getElementById("rep_sem_nf");
   if (_semNFCheckbox) _semNFCheckbox.checked = rep.sem_nf === true;
+  const _margemCampo = document.getElementById("rep_margem_nf");
+  if (_margemCampo) _margemCampo.value = (Number(rep.margem_nf) || 0) ? rep.margem_nf : "";
 
   const btn = document.getElementById("btnSalvarRepresentada");
   if (btn) btn.textContent = "Salvar Edição";
@@ -7269,6 +7290,8 @@ function cancelarEdicaoRepresentada() {
   document.getElementById("rep_nome").value = "";
   const _el = document.getElementById("rep_sem_nf");
   if (_el) _el.checked = false;
+  const _margemEl = document.getElementById("rep_margem_nf");
+  if (_margemEl) _margemEl.value = "";
 
   const btn = document.getElementById("btnSalvarRepresentada");
   if (btn) btn.textContent = "Salvar Representada";

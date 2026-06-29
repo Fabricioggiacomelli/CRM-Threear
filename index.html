@@ -962,6 +962,10 @@
             <input type="checkbox" id="rep_sem_nf">
             <span>Não Recebemos Nota Fiscal <span style="font-size:11px;opacity:.6">(desativa alerta "Pedido sem NF")</span></span>
           </div>
+
+          <label for="rep_margem_nf" style="margin-top:16px">Margem de Nota Fiscal (%)</label>
+          <input type="number" id="rep_margem_nf" min="0" max="100" step="0.1" placeholder="0" style="max-width:160px">
+          <div style="font-size:11px;opacity:.6;margin-top:4px">Tolerância entre a soma das NFs e o valor do pedido (para mais ou para menos). Ex.: Prysmian = 3. Deixe 0 se não houver.</div>
         </div>
 
         <div style="display:flex;gap:10px;margin-top:16px;flex-wrap:wrap">

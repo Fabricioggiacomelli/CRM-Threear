@@ -146,10 +146,22 @@ function _calcularSomaNFs(pedido) {
   return _parseMoedaBR(pedido?.valor_nf || 0);
 }
 
-function _nfCobertaPedido(pedido) {
+// Margem de tolerância de NF (%) da representada de uma oferta. 0 se não houver.
+// Lê de `representadas` (global carregado em runtime) — nunca falha aberto.
+function _margemNFDaOferta(reg) {
+  const reps = (typeof representadas !== "undefined" && Array.isArray(representadas)) ? representadas : [];
+  const rep = reps.find(r => r && r.id === reg?.representadaId);
+  const m = Number(rep?.margem_nf);
+  return (!isNaN(m) && m > 0) ? m : 0;
+}
+
+// Considera o pedido coberto quando a soma das NFs atinge o valor do pedido,
+// tolerando uma margem para baixo (ex.: Prysmian 3% → cobre se NFs >= 97% do pedido).
+function _nfCobertaPedido(pedido, margemPct = 0) {
   const valorPedido = _parseMoedaBR(pedido?.valor_pedido);
   if (!valorPedido) return false; // sem valor de pedido, não há como validar
-  return _calcularSomaNFs(pedido) >= valorPedido;
+  const fator = 1 - (Math.max(0, Number(margemPct) || 0) / 100);
+  return _calcularSomaNFs(pedido) >= valorPedido * fator;
 }
 
 // Fonte única dos dados financeiros + descrição de um alerta pedido_sem_nf,
@@ -925,8 +937,8 @@ async function verificarAlertasPedidoSemNF() {
 
     const pedido = reg.pedido || {};
 
-    // Resolução real: soma das NFs cobre o valor total do pedido
-    if (_nfCobertaPedido(pedido)) continue;
+    // Resolução real: soma das NFs cobre o valor do pedido (respeitando margem da representada)
+    if (_nfCobertaPedido(pedido, _margemNFDaOferta(reg))) continue;
 
     // Determina se deve disparar com base no tipo de prazo
     const prazoEntrega = pedido.prazo_entrega_contratual;
@@ -1062,9 +1074,50 @@ async function limparAlertasSemNFUmaVez() {
   console.log(`[alertas] limpeza inicial: ${docs.length} alerta(s) pedido_sem_nf de representadas sem NF removido(s).`);
 }
 
+// Resolução ÚNICA por sessão: resolve (NÃO deleta — preserva histórico) os alertas
+// pedido_sem_nf abertos/adiados cujas ofertas agora estão cobertas dentro da margem
+// de NF da representada (ex.: Prysmian 3%). Backlog que ficou aberto antes da margem existir.
+async function resolverAlertasMargemNFUmaVez() {
+  if (window._alertasMargemResolvidaFeita) return;
+  // Só roda quando há ao menos uma representada com margem carregada
+  const reps = (typeof representadas !== "undefined" && Array.isArray(representadas)) ? representadas : [];
+  const temMargem = reps.some(r => (Number(r.margem_nf) || 0) > 0);
+  if (!temMargem) return; // nada a fazer ainda — tenta de novo no próximo ciclo
+  window._alertasMargemResolvidaFeita = true;
+
+  const snap = await getAlertasRef().where("tipo", "==", "pedido_sem_nf").get();
+  if (snap.empty) return;
+
+  const STATUS_ATIVOS = ["aberto", "adiado"];
+  const alvos = snap.docs.filter(d => {
+    const a = d.data();
+    if (!STATUS_ATIVOS.includes(a.status)) return false;
+    const reg = (registros || []).find(r => r.id === a.entidadeId);
+    if (!reg) return false;
+    const margem = _margemNFDaOferta(reg);
+    if (margem <= 0) return false; // só ofertas de representadas com margem
+    return _nfCobertaPedido(reg.pedido || {}, margem);
+  });
+  if (!alvos.length) return;
+
+  const agora = agoraISOAlerta();
+  for (let i = 0; i < alvos.length; i += 450) {
+    const batch = window.db.batch();
+    alvos.slice(i, i + 450).forEach(d => batch.set(d.ref, {
+      status: "resolvido",
+      resolvidoEm: agora,
+      resolvidoPor: "Sistema — dentro da margem de NF",
+      atualizadoEm: agora,
+    }, { merge: true }));
+    await batch.commit();
+  }
+  console.log(`[alertas] ${alvos.length} alerta(s) pedido_sem_nf resolvido(s) por estarem dentro da margem de NF.`);
+}
+
 async function verificarAlertasSistema() {
   await deduplicarAlertasPrazoEntregaLegados(); // one-time por sessão
   await limparAlertasSemNFUmaVez();             // one-time: limpa pedido_sem_nf de reps sem NF
+  await resolverAlertasMargemNFUmaVez();        // one-time: resolve pedido_sem_nf dentro da margem
   await reativarAlertasAdiados();
   await verificarAlertasPrazoEntrega();
   await verificarAlertasFollowUp();
@@ -2090,10 +2143,10 @@ async function onRegistroSalvoReset(registroId) {
 
   const TIPOS_AUTO_RESET = ["followup"];
 
-  // Se as NFs agora cobrem o valor total do pedido, auto-resolve pedido_sem_nf
+  // Se as NFs agora cobrem o valor do pedido (com margem da representada), auto-resolve pedido_sem_nf
   const reg = (registros || []).find((r) => r.id === registroId);
   if (reg && String(reg.possuiPedido || "").toLowerCase() === "sim") {
-    if (_nfCobertaPedido(reg.pedido || {})) {
+    if (_nfCobertaPedido(reg.pedido || {}, _margemNFDaOferta(reg))) {
       TIPOS_AUTO_RESET.push("pedido_sem_nf");
     }
   }
