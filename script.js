@@ -663,6 +663,7 @@ async function carregarRepresentadasFirebase() {
   representadas = snap.docs
     .map((doc) => ({ id: doc.id, ...doc.data() }))
     .filter((r) => !r.deletado);
+  window.repsSemNFIds = new Set(representadas.filter(r => r.sem_nf === true).map(r => r.id));
 }
 
 const OFERTAS_CHUNK_SIZE = 500; // registros por página Firestore
@@ -4946,6 +4947,7 @@ function initRepresentadasUI() {
     }
 
     salvarRepresentadas();
+    window.repsSemNFIds = new Set(representadas.filter(r => r.sem_nf === true).map(r => r.id));
     document.getElementById("rep_nome").value = "";
     const _semNFEl = document.getElementById("rep_sem_nf");
     if (_semNFEl) _semNFEl.checked = false;

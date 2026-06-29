@@ -575,6 +575,12 @@ async function criarOuAtualizarAlerta(payload) {
     return null;
   }
 
+  // Barreira extra: nunca criar pedido_sem_nf para representada marcada como sem_nf
+  if (payload.tipo === "pedido_sem_nf" && payload.entidadeId && window.repsSemNFIds?.size) {
+    const _oferta = (registros || []).find(r => r.id === payload.entidadeId);
+    if (_oferta && window.repsSemNFIds.has(_oferta.representadaId)) return null;
+  }
+
   const existente = await buscarAlertaPorChave(payload.chaveUnica);
 
   if (existente && alertaEhObsoleto(existente)) {
@@ -891,8 +897,8 @@ async function verificarAlertasPedidoSemNF() {
     if (statusReg === "perdido" || statusReg === "declinado") continue;
 
     // Representada marcada como "não emite NF" → nunca gerar este alerta
-    const _repObj = (representadas || []).find(r => r.id === reg.representadaId);
-    if (_repObj?.sem_nf === true) continue;
+    // (limpeza de ativos já feita por resolverAlertasSemNFAtivos no início do ciclo)
+    if (window.repsSemNFIds?.has(reg.representadaId)) continue;
 
     const email = normalizarEmailAlerta(reg.responsavelEmail);
     if (!email) continue;
@@ -974,13 +980,21 @@ async function verificarAlertasPedidoSemNF() {
 // Reativa alertas cujo snooze já expirou (lembrarNovamenteEm no passado).
 // Chamada no início de cada ciclo do loop para garantir que nenhum alerta
 // fique preso em "adiado" indefinidamente.
+function _ofertaTemRepSemNF(entidadeId) {
+  if (!window.repsSemNFIds?.size) return false;
+  const oferta = (registros || []).find(r => r.id === entidadeId);
+  return oferta ? window.repsSemNFIds.has(oferta.representadaId) : false;
+}
+
 async function reativarAlertasAdiados() {
   const agora = new Date().toISOString();
   const expirados = (window.alertasCache || []).filter(
     (a) =>
       a.status === "adiado" &&
       a.lembrarNovamenteEm &&
-      a.lembrarNovamenteEm <= agora
+      a.lembrarNovamenteEm <= agora &&
+      // Nunca reativar pedido_sem_nf para representadas que não emitem NF
+      !(a.tipo === "pedido_sem_nf" && _ofertaTemRepSemNF(a.entidadeId))
   );
 
   if (!expirados.length) return;
@@ -1002,8 +1016,27 @@ async function reativarAlertasAdiados() {
   console.log(`[alertas] ${expirados.length} alerta(s) reativados após snooze expirar.`);
 }
 
+async function resolverAlertasSemNFAtivos() {
+  const STATUS_ATIVOS = ["aberto", "adiado", "aguardando_aprovacao_resolucao", "aguardando_aprovacao_ignorar"];
+  const paraResolver = (window.alertasCache || []).filter(
+    a => a.tipo === "pedido_sem_nf" &&
+         STATUS_ATIVOS.includes(a.status) &&
+         _ofertaTemRepSemNF(a.entidadeId)
+  );
+  if (!paraResolver.length) return;
+  const agora = agoraISOAlerta();
+  for (const alerta of paraResolver) {
+    await getAlertasRef().doc(alerta.id).set(
+      { status: "resolvido", resolvidoEm: agora, resolvidoPor: "Sistema — representada não emite NF", atualizadoEm: agora },
+      { merge: true }
+    );
+  }
+  if (paraResolver.length) console.log(`[alertas] ${paraResolver.length} alerta(s) pedido_sem_nf resolvido(s) automaticamente (representada sem NF).`);
+}
+
 async function verificarAlertasSistema() {
   await deduplicarAlertasPrazoEntregaLegados(); // one-time por sessão
+  await resolverAlertasSemNFAtivos();           // limpa ativos de reps sem NF antes de qualquer verificação
   await reativarAlertasAdiados();
   await verificarAlertasPrazoEntrega();
   await verificarAlertasFollowUp();
