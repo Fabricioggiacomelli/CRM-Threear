@@ -152,6 +152,26 @@ function _nfCobertaPedido(pedido) {
   return _calcularSomaNFs(pedido) >= valorPedido;
 }
 
+// Fonte única dos dados financeiros + descrição de um alerta pedido_sem_nf,
+// calculada a partir do estado ATUAL da oferta. Usada na criação do alerta e
+// no render do card — assim o card nunca fica defasado de um snapshot antigo.
+function _dadosPedidoSemNF(reg) {
+  const pedido = reg?.pedido || {};
+  const valorPedido = _parseMoedaBR(pedido.valor_pedido);
+  const somaNFs = _calcularSomaNFs(pedido);
+  const valorFaltante = valorPedido > 0 ? Math.max(0, valorPedido - somaNFs) : null;
+  const num = getNumeroOfertaTexto(reg);
+  let descricao;
+  if (valorPedido > 0 && somaNFs > 0) {
+    descricao = `Oferta ${num}: NFs somam ${_formatMoedaBR(somaNFs)}, mas o pedido é de ${_formatMoedaBR(valorPedido)}.`;
+  } else if (valorPedido > 0) {
+    descricao = `Oferta ${num}: pedido de ${_formatMoedaBR(valorPedido)} sem NF registrada.`;
+  } else {
+    descricao = `Oferta ${num} possui pedido, mas ainda não tem NF registrada.`;
+  }
+  return { valorPedido, somaNFs, valorFaltante, descricao };
+}
+
 function formatarDataAlertaBR(valor) {
   if (!valor) return "-";
   const d = new Date(valor);
@@ -940,19 +960,8 @@ async function verificarAlertasPedidoSemNF() {
       if (horasDesdeResolucao < 24) continue;
     }
 
-    // Calcula valor faltante para exibir no card
-    const valorPedido = _parseMoedaBR(pedido.valor_pedido);
-    const somaNFs = _calcularSomaNFs(pedido);
-    const valorFaltante = valorPedido > 0 ? Math.max(0, valorPedido - somaNFs) : null;
-
-    let descricao;
-    if (valorPedido > 0 && somaNFs > 0) {
-      descricao = `Oferta ${getNumeroOfertaTexto(reg)}: NFs somam ${_formatMoedaBR(somaNFs)}, mas o pedido é de ${_formatMoedaBR(valorPedido)}.`;
-    } else if (valorPedido > 0) {
-      descricao = `Oferta ${getNumeroOfertaTexto(reg)}: pedido de ${_formatMoedaBR(valorPedido)} sem NF registrada.`;
-    } else {
-      descricao = `Oferta ${getNumeroOfertaTexto(reg)} possui pedido, mas ainda não tem NF registrada.`;
-    }
+    // Calcula valor faltante + descrição para exibir no card (fonte única)
+    const { valorPedido, somaNFs, valorFaltante, descricao } = _dadosPedidoSemNF(reg);
 
     await criarOuAtualizarAlerta({
       tipo: "pedido_sem_nf",
@@ -1561,6 +1570,10 @@ function renderListaAlertas() {
     return;
   }
 
+  const _regsPorId = (typeof registros !== "undefined" && Array.isArray(registros))
+    ? new Map(registros.map(r => [r.id, r]))
+    : new Map();
+
   wrap.innerHTML = lista.map((a) => {
     const prioridade = String(a.prioridade || "baixa").toLowerCase();
     const status = String(a.status || "aberto").toLowerCase();
@@ -1570,6 +1583,18 @@ function renderListaAlertas() {
 
     const podeGerenciarDireto = usuarioPodeGerenciarDiretoAlerta(a);
     const podeAprovar = usuarioPodeAprovarPendencia(a);
+
+    // pedido_sem_nf: recalcula do estado ATUAL da oferta (evita snapshot defasado).
+    // Cai para os valores gravados no alerta se a oferta não estiver mais em memória.
+    let descCard = a.descricao || "";
+    let vPedido = a.valorPedido || 0, vNF = a.somaNFs || 0, vFalta = a.valorFaltante || 0;
+    if (a.tipo === "pedido_sem_nf") {
+      const regAlerta = _regsPorId.get(a.entidadeId);
+      if (regAlerta) {
+        const d = _dadosPedidoSemNF(regAlerta);
+        descCard = d.descricao; vPedido = d.valorPedido; vNF = d.somaNFs; vFalta = d.valorFaltante || 0;
+      }
+    }
 
     return `
       <div class="alerta-card ${classePrioridade} ${classeStatus}">
@@ -1585,13 +1610,13 @@ function renderListaAlertas() {
         </div>
 
         <div class="alerta-meta">
-          ${escapeHtml(a.descricao || "")}<br>
+          ${escapeHtml(descCard)}<br>
           ${status === "adiado" && a.lembrarNovamenteEm ? `<strong>🔔 Volta em:</strong> ${formatarDataAlertaBR(a.lembrarNovamenteEm)} (${textoTempoRelativoAlerta(a.lembrarNovamenteEm)})<br>` : ""}
           <strong>Tipo:</strong> ${labelTipoAlerta(a.tipo)}<br>
           ${a.tipo === "followup" && a.tipoOferta ? `<strong>Tipo de oferta:</strong> ${escapeHtml(a.tipoOferta.charAt(0).toUpperCase() + a.tipoOferta.slice(1))}<br>` : ""}
-          ${a.tipo === "pedido_sem_nf" && a.valorPedido > 0 ? `<strong>Valor do pedido:</strong> ${_formatMoedaBR(a.valorPedido)}<br>` : ""}
-          ${a.tipo === "pedido_sem_nf" && a.somaNFs > 0 ? `<strong>NFs registradas:</strong> ${_formatMoedaBR(a.somaNFs)}<br>` : ""}
-          ${a.tipo === "pedido_sem_nf" && a.valorFaltante > 0 ? `<strong style="color:var(--danger,#ef4444);">Falta:</strong> <span style="color:var(--danger,#ef4444);font-weight:700;">${_formatMoedaBR(a.valorFaltante)}</span><br>` : ""}
+          ${a.tipo === "pedido_sem_nf" && vPedido > 0 ? `<strong>Valor do pedido:</strong> ${_formatMoedaBR(vPedido)}<br>` : ""}
+          ${a.tipo === "pedido_sem_nf" && vNF > 0 ? `<strong>NFs registradas:</strong> ${_formatMoedaBR(vNF)}<br>` : ""}
+          ${a.tipo === "pedido_sem_nf" && vFalta > 0 ? `<strong style="color:var(--danger,#ef4444);">Falta:</strong> <span style="color:var(--danger,#ef4444);font-weight:700;">${_formatMoedaBR(vFalta)}</span><br>` : ""}
           <strong>Entidade:</strong> ${labelEntidadeAlerta(a.entidade)}<br>
           <strong>Responsável:</strong> ${escapeHtml(a.responsavelEmail || "-")}<br>
           <strong>Lido:</strong> ${a.lido ? "Sim" : "Não"}<br>
