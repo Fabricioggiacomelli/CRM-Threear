@@ -575,10 +575,10 @@ async function criarOuAtualizarAlerta(payload) {
     return null;
   }
 
-  // Barreira extra: nunca criar pedido_sem_nf para representada marcada como sem_nf
-  if (payload.tipo === "pedido_sem_nf" && payload.entidadeId && window.repsSemNFIds?.size) {
-    const _oferta = (registros || []).find(r => r.id === payload.entidadeId);
-    if (_oferta && window.repsSemNFIds.has(_oferta.representadaId)) return null;
+  // BARREIRA DEFINITIVA: nunca criar pedido_sem_nf para representada marcada como sem_nf.
+  // Este é o único ponto de criação de alertas — bloquear aqui é suficiente.
+  if (payload.tipo === "pedido_sem_nf" && payload.entidadeId && _ofertaTemRepSemNF(payload.entidadeId)) {
+    return null;
   }
 
   const existente = await buscarAlertaPorChave(payload.chaveUnica);
@@ -897,8 +897,7 @@ async function verificarAlertasPedidoSemNF() {
     if (statusReg === "perdido" || statusReg === "declinado") continue;
 
     // Representada marcada como "não emite NF" → nunca gerar este alerta
-    // (limpeza de ativos já feita por resolverAlertasSemNFAtivos no início do ciclo)
-    if (window.repsSemNFIds?.has(reg.representadaId)) continue;
+    if (_repsSemNFSet().has(reg.representadaId)) continue;
 
     const email = normalizarEmailAlerta(reg.responsavelEmail);
     if (!email) continue;
@@ -980,10 +979,21 @@ async function verificarAlertasPedidoSemNF() {
 // Reativa alertas cujo snooze já expirou (lembrarNovamenteEm no passado).
 // Chamada no início de cada ciclo do loop para garantir que nenhum alerta
 // fique preso em "adiado" indefinidamente.
+// Conjunto de IDs de representadas marcadas como "não emite NF".
+// Recalcula de `representadas` se o cache em window estiver vazio — nunca falha aberto.
+function _repsSemNFSet() {
+  if (window.repsSemNFIds?.size) return window.repsSemNFIds;
+  const reps = (typeof representadas !== "undefined" && Array.isArray(representadas)) ? representadas : [];
+  const s = new Set(reps.filter(r => r && r.sem_nf === true).map(r => r.id));
+  if (s.size) window.repsSemNFIds = s; // cacheia para os próximos checks
+  return s;
+}
+
 function _ofertaTemRepSemNF(entidadeId) {
-  if (!window.repsSemNFIds?.size) return false;
+  const set = _repsSemNFSet();
+  if (!set.size) return false;
   const oferta = (registros || []).find(r => r.id === entidadeId);
-  return oferta ? window.repsSemNFIds.has(oferta.representadaId) : false;
+  return oferta ? set.has(oferta.representadaId) : false;
 }
 
 async function reativarAlertasAdiados() {
@@ -1016,31 +1026,36 @@ async function reativarAlertasAdiados() {
   console.log(`[alertas] ${expirados.length} alerta(s) reativados após snooze expirar.`);
 }
 
-async function resolverAlertasSemNFAtivos() {
-  if (!window.repsSemNFIds?.size) return;
-  const STATUS_ATIVOS = ["aberto", "adiado", "aguardando_aprovacao_resolucao", "aguardando_aprovacao_ignorar", "resolvido", "ignorado"];
-  const paraDeletar = (window.alertasCache || []).filter(
-    a => a.tipo === "pedido_sem_nf" &&
-         STATUS_ATIVOS.includes(a.status) &&
-         _ofertaTemRepSemNF(a.entidadeId)
-  );
-  if (!paraDeletar.length) return;
-  const batch = window.db.batch();
-  paraDeletar.forEach(a => batch.delete(getAlertasRef().doc(a.id)));
-  await batch.commit();
-  console.log(`[alertas] ${paraDeletar.length} alerta(s) pedido_sem_nf removido(s) (representada não emite NF).`);
+// Limpeza ÚNICA por sessão: deleta do Firestore todos os pedido_sem_nf que pertencem
+// a representadas marcadas como "não emite NF". Roda só uma vez — sem spam no loop.
+// A prevenção de novos alertas é feita no chokepoint criarOuAtualizarAlerta.
+async function limparAlertasSemNFUmaVez() {
+  if (window._alertasSemNFLimpezaFeita) return;
+  const set = _repsSemNFSet();
+  // Sem reps sem-NF carregadas ainda → não marca como feita, tenta de novo no próximo ciclo
+  if (!set.size) return;
+  window._alertasSemNFLimpezaFeita = true;
+
+  const snap = await getAlertasRef().where("tipo", "==", "pedido_sem_nf").get();
+  if (snap.empty) return;
+
+  const docs = snap.docs.filter(d => {
+    const oferta = (registros || []).find(r => r.id === d.data().entidadeId);
+    return oferta && set.has(oferta.representadaId);
+  });
+  if (!docs.length) return;
+
+  for (let i = 0; i < docs.length; i += 450) {
+    const batch = window.db.batch();
+    docs.slice(i, i + 450).forEach(d => batch.delete(d.ref));
+    await batch.commit();
+  }
+  console.log(`[alertas] limpeza inicial: ${docs.length} alerta(s) pedido_sem_nf de representadas sem NF removido(s).`);
 }
 
 async function verificarAlertasSistema() {
-  // Garante que repsSemNFIds está populado antes de qualquer verificação
-  if (!window.repsSemNFIds) {
-    window.repsSemNFIds = new Set(
-      (typeof representadas !== "undefined" ? representadas : [])
-        .filter(r => r.sem_nf === true).map(r => r.id)
-    );
-  }
   await deduplicarAlertasPrazoEntregaLegados(); // one-time por sessão
-  await resolverAlertasSemNFAtivos();           // deleta alertas de reps sem NF
+  await limparAlertasSemNFUmaVez();             // one-time: limpa pedido_sem_nf de reps sem NF
   await reativarAlertasAdiados();
   await verificarAlertasPrazoEntrega();
   await verificarAlertasFollowUp();

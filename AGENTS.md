@@ -1,6 +1,6 @@
-# CLAUDE.md
+# AGENTS.md
 
-This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
+This file provides guidance to Codex (Codex.ai/code) when working with code in this repository.
 
 ## Project Overview
 
@@ -99,8 +99,6 @@ Self-contained module. Runs a verification loop (`iniciarLoopAlertas`) every 60 
 | `prazo_entrega_atrasado` | Delivery date past + not delivered | `pedido.entregue = "sim"` |
 | `sem_resposta` | No update for 5+ days | `atualizadoEm` reset |
 | `pedido_sem_nf` | Has order, no NF after 3 days | NF fields populated in `pedido` |
-
-**Representadas that don't issue invoices (`sem_nf: true`):** Some representadas never send an NF, so `pedido_sem_nf` alerts must never fire for their offers. The representada doc carries a `sem_nf` boolean (toggled via the "Não emite Nota Fiscal" checkbox in the representadas form). The blocklist of representada IDs lives in `window.repsSemNFIds` (populated by `carregarRepresentadasFirebase()` and on representada save in `script.js`). In `alertas.js`, `_repsSemNFSet()` returns that set (recomputing from the `representadas` array if the window cache is empty — never fails open), and `_ofertaTemRepSemNF(ofertaId)` checks whether an offer's representada is on it. Creation is blocked at the single chokepoint `criarOuAtualizarAlerta()` (returns `null` for `pedido_sem_nf` of a `sem_nf` rep) plus a guard in `verificarAlertasPedidoSemNF()`, and toasts are suppressed in the `onSnapshot` listener. `limparAlertasSemNFUmaVez()` runs once per session (flag `window._alertasSemNFLimpezaFeita`) to delete pre-existing `pedido_sem_nf` docs for these reps — it is NOT a per-cycle loop (avoids log spam).
 
 When an alert is resolved (directly or via approval), `aplicarEfeitoResolucaoAlerta()` updates the underlying offer field in Firestore so the loop won't immediately re-create the alert.
 
