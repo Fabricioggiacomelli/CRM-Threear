@@ -1176,11 +1176,49 @@ async function deduplicarFollowUpsAtivos() {
   }
 }
 
+// Resolve follow-ups ATIVOS cujas ofertas já entraram em status que exclui follow-up
+// (viraram pedido, perdido/declinado, ou foram para a lixeira). Necessário porque a
+// auto-resolução em verificarAlertaFollowUpRegistro só roda para o responsável logado,
+// e a regra do Firestore só deixa admin/supervisor mudar status para "resolvido" — então
+// fantasmas de usuários comuns ficavam presos. Roda no cache (admin vê todos); silenciosa
+// (só escreve quando há o que resolver) e idempotente (resolvido não reaparece como ativo).
+async function resolverFollowUpsObsoletosGlobal() {
+  const STATUS_ATIVOS = ["aberto", "adiado", "aguardando_aprovacao_resolucao", "aguardando_aprovacao_ignorar"];
+  const alvos = [];
+  for (const a of (window.alertasCache || [])) {
+    if (a.tipo !== "followup" || !STATUS_ATIVOS.includes(a.status)) continue;
+    const reg = (registros || []).find(r => r.id === a.entidadeId);
+    if (!reg) continue;
+    if (statusExcluiAlertaOferta(String(reg.status || "").trim().toLowerCase(), reg)) alvos.push(a);
+  }
+  if (!alvos.length) return;
+
+  const agora = agoraISOAlerta();
+  try {
+    for (let i = 0; i < alvos.length; i += 450) {
+      const batch = window.db.batch();
+      alvos.slice(i, i + 450).forEach(a => batch.set(getAlertasRef().doc(a.id), {
+        status: "resolvido",
+        resolvidoPor: "Sistema — oferta com pedido/encerrada",
+        resolvidoEm: agora,
+        aprovadoPor: "system",
+        aprovadoEm: agora,
+        atualizadoEm: agora,
+      }, { merge: true }));
+      await batch.commit();
+    }
+    console.log(`[alertas] ${alvos.length} follow-up(s) obsoleto(s) resolvido(s) (oferta com pedido/encerrada).`);
+  } catch (e) {
+    console.warn("[alertas] não foi possível resolver follow-ups obsoletos (permissão?):", e.message);
+  }
+}
+
 async function verificarAlertasSistema() {
   await deduplicarAlertasPrazoEntregaLegados(); // one-time por sessão
   await limparAlertasSemNFUmaVez();             // one-time: limpa pedido_sem_nf de reps sem NF
   await resolverAlertasMargemNFUmaVez();        // one-time: resolve pedido_sem_nf dentro da margem
   await deduplicarFollowUpsAtivos();            // remove follow-ups duplicados (silencioso)
+  await resolverFollowUpsObsoletosGlobal();     // resolve follow-ups de ofertas com pedido/encerradas
   await reativarAlertasAdiados();
   await verificarAlertasPrazoEntrega();
   await verificarAlertasFollowUp();
