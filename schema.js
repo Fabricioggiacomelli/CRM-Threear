@@ -13,6 +13,7 @@ window.OFERTA_SCHEMA = [
   { key: "valor_total", label: "Valor Total", type: "money" },
   { key: "ref_cliente", label: "Ref. do Cliente" },
   { key: "data_entrada", label: "Data Entrada", type: "date" },
+  { key: "tipo_produto", label: "Tipo de Produto" },
   { key: "status", label: "Status" },
   { key: "motivo_perda", label: "Motivo da Perda" },
   { key: "tipo_oferta", label: "Tipo (Compra / Orçamento)" },
@@ -25,7 +26,6 @@ window.OFERTA_SCHEMA = [
   { key: "pedido.valor_pedido", label: "Valor Total Pedido", type: "money" },
   { key: "pedido.cond_pagamento", label: "Condição de Pagamento" },
   { key: "pedido.ref_projeto", label: "Ref. Projeto" },
-  { key: "pedido.tipo_produto", label: "Tipo de Produto" },
   { key: "pedido.obs", label: "Obs" },
   
   { key: "pedido.prazo_entrega_contratual", label: "Prazo de Entrega Contratual", type: "date", },

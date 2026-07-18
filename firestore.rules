@@ -29,7 +29,22 @@ service cloud.firestore {
       return userRole() == 'admin' || userRole() == 'supervisor';
     }
 
+    // Fator MFA presente e NÃO expirado no token. O backend (functions/mfaCore.js)
+    // carimba os claims `mfa:true` + `mfaExp` (epoch ms) somente após um TOTP válido.
+    // Sem isso, um login só com e-mail+senha NÃO acessa os dados — o 2FA passa a valer
+    // na camada de dados, e não apenas na UI.
+    function mfaOk() {
+      return request.auth.token.mfa == true
+          && request.auth.token.mfaExp > request.time.toMillis();
+    }
+
+    // Aprovado + com MFA válido — gate padrão das coleções de dados.
+    function podeAcessarDados() {
+      return isAuthed() && isApproved() && mfaOk();
+    }
+
     // ─── usuarios ───────────────────────────────────────────────
+    // NÃO exige mfaOk(): o próprio doc é lido no bootstrap do login, ANTES do TOTP.
     // Cada usuário lê e cria o próprio doc (necessário no primeiro login).
     // Admin pode ler e atualizar qualquer doc.
     // Ninguém (exceto admin) pode alterar campos de permissão no próprio doc.
@@ -50,32 +65,28 @@ service cloud.firestore {
 
     // ─── usuarios_mfa (apenas Admin SDK) ────────────────────────
     // O cliente nunca acessa esta coleção diretamente.
-    // Toda escrita/leitura é feita pelo backend Express via Admin SDK.
+    // Toda escrita/leitura é feita pelo backend Express/Functions via Admin SDK.
     match /usuarios_mfa/{uid} {
       allow read, write: if false;
     }
 
     // ─── ofertas ────────────────────────────────────────────────
-    // Leitura aberta a todos aprovados — filtro de permissão feito pelo cliente JS.
-    // Queries de coleção (get/onSnapshot) falham se a regra depende de resource.data.
+    // Leitura aberta a todos aprovados COM MFA — filtro de visibilidade feito no cliente.
     match /ofertas/{id} {
-      allow read:   if isAuthed() && isApproved();
-      allow create: if isAuthed() && isApproved();
-      allow update: if isAuthed() && isApproved();
-      allow delete: if isAuthed() && isAdmin();
+      allow read:   if podeAcessarDados();
+      allow create: if podeAcessarDados();
+      allow update: if podeAcessarDados();
+      allow delete: if podeAcessarDados() && isAdmin();
     }
 
     // ─── alertas ────────────────────────────────────────────────
-    // Leitura e criação abertas a todos aprovados (filtro feito no cliente JS).
-    // Update: admin/supervisor podem alterar qualquer campo.
-    //         Usuários comuns só podem:
-    //           · Solicitar resolução/ignorar (status → aguardando_*)
-    //           · Adiar / snooze (status → adiado)
-    //           · Marcar como lido (status não muda — resource.data.status == request.resource.data.status)
+    // Update: admin/supervisor alteram qualquer campo. Usuários comuns só podem:
+    //   · Solicitar resolução/ignorar (status → aguardando_*)  · Adiar (status → adiado)
+    //   · Marcar como lido (status inalterado)
     match /alertas/{id} {
-      allow read:   if isAuthed() && isApproved();
-      allow create: if isAuthed() && isApproved();
-      allow update: if isAuthed() && isApproved() && (
+      allow read:   if podeAcessarDados();
+      allow create: if podeAcessarDados();
+      allow update: if podeAcessarDados() && (
         isSupervisorOrAdmin()
         || resource.data.status == request.resource.data.status        // status inalterado (ex: marcar lido)
         || request.resource.data.status in [
@@ -84,70 +95,67 @@ service cloud.firestore {
              'adiado'
            ]
       );
-      allow delete: if isAuthed() && isAdmin();
+      allow delete: if podeAcessarDados() && isAdmin();
     }
 
     // ─── clientes ───────────────────────────────────────────────
-    // Catálogo compartilhado: todos aprovados leem, criam, editam e mandam p/ lixeira.
-    // Delete físico permanente: apenas admin.
+    // Catálogo compartilhado: todos aprovados (com MFA) leem, criam, editam.
     match /clientes/{id} {
-      allow read:   if isAuthed() && isApproved();
-      allow create: if isAuthed() && isApproved();
-      allow update: if isAuthed() && isApproved();
-      allow delete: if isAuthed() && isAdmin();
+      allow read:   if podeAcessarDados();
+      allow create: if podeAcessarDados();
+      allow update: if podeAcessarDados();
+      allow delete: if podeAcessarDados() && isAdmin();
     }
 
     // ─── representadas ──────────────────────────────────────────
     match /representadas/{id} {
-      allow read:   if isAuthed() && isApproved();
-      allow create: if isAuthed() && isApproved();
-      allow update: if isAuthed() && isApproved();
-      allow delete: if isAuthed() && isAdmin();
+      allow read:   if podeAcessarDados();
+      allow create: if podeAcessarDados();
+      allow update: if podeAcessarDados();
+      allow delete: if podeAcessarDados() && isAdmin();
     }
 
     // ─── projetos ───────────────────────────────────────────────
     match /projetos/{id} {
-      allow read:   if isAuthed() && isApproved();
-      allow create: if isAuthed() && isApproved();
-      allow update: if isAuthed() && isApproved();
-      allow delete: if isAuthed() && isAdmin();
+      allow read:   if podeAcessarDados();
+      allow create: if podeAcessarDados();
+      allow update: if podeAcessarDados();
+      allow delete: if podeAcessarDados() && isAdmin();
     }
 
     // ─── histórico de gerações (gerador de ofertas) ─────────────
-    // Cada usuário lê e cria apenas seus próprios registros.
+    // Leitura aberta a todos aprovados (com MFA) — o histórico é compartilhado.
+    // Cada usuário só CRIA registros em seu próprio nome.
     match /geracoes/{id} {
-      allow read:   if isAuthed() && isApproved()
-                    && resource.data.geradoPor == request.auth.token.email;
-      allow create: if isAuthed() && isApproved()
+      allow read:   if podeAcessarDados();
+      allow create: if podeAcessarDados()
                     && request.resource.data.geradoPor == request.auth.token.email;
       allow update: if false;
-      allow delete: if isAuthed() && isAdmin();
+      allow delete: if podeAcessarDados() && isAdmin();
     }
 
     // ─── auditoria ──────────────────────────────────────────────
     match /auditoria/{id} {
-      allow create: if isAuthed() && isApproved();
-      allow read:   if isAuthed() && isAdmin();
+      allow create: if podeAcessarDados();
+      allow read:   if podeAcessarDados() && isAdmin();
       allow update: if false;
-      allow delete: if isAuthed() && isAdmin();
+      allow delete: if podeAcessarDados() && isAdmin();
     }
 
     // ─── logs de auditoria ──────────────────────────────────────
-    // Qualquer usuário aprovado pode gravar (write = create apenas).
-    // Leitura e delete: apenas admin.
     match /logs/{id} {
-      allow create: if isAuthed() && isApproved();
-      allow read:   if isAuthed() && isAdmin();
+      allow create: if podeAcessarDados();
+      allow read:   if podeAcessarDados() && isAdmin();
       allow update: if false;
-      allow delete: if isAuthed() && isAdmin();
+      allow delete: if podeAcessarDados() && isAdmin();
     }
 
     // ─── backups (apenas admin) ──────────────────────────────────
     match /backups/{id} {
-      allow read, write: if isAuthed() && isAdmin();
+      allow read, write: if podeAcessarDados() && isAdmin();
 
       match /{subcollection=**} {
-        allow read, write: if isAuthed() && isAdmin();
+        allow read, write: if podeAcessarDados() && isAdmin();
       }
     }
   }

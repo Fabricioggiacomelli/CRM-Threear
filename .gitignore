@@ -10,6 +10,12 @@ backend/serviceAccount.json
 .env.local
 .env.production
 
+# Tabela de preços interna Prysmian (confidencial — não versionar)
+*.xlsx
+
+# Regras/SKILL de correlação Prysmian (confidencial — não versionar)
+rules/
+
 # Backups
 *.json.backup
 backup_*.json

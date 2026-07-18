@@ -559,7 +559,12 @@ window.addEventListener("load", async () => {
       }
 
       if (!totpOk) {
-        if (sessionStorage.getItem("totpVerified") === "1") {
+        // UX (exigência da empresa): pede o TOTP a cada nova aba/sessão do navegador.
+        // sessionStorage limpa ao fechar a aba → reabrir o CRM pede o código de novo.
+        // Segurança preservada: o sessionStorage é só o gatilho da UI; o acesso aos
+        // dados depende do claim `mfa` real (regras do Firestore). Setar o
+        // sessionStorage na mão no console NÃO libera nada — precisa do TOTP de verdade.
+        if (sessionStorage.getItem("totpVerified") === "1" && await mfaClaimValido(user)) {
           totpOk = true;
         } else {
           await iniciarFluxoTOTP(user);
@@ -923,9 +928,23 @@ function setTotpStatus(msg) {
   if (el) el.textContent = msg || "";
 }
 
+// Fonte de verdade do 2FA: o claim `mfa`/`mfaExp` no token (emitido pelo backend após
+// um TOTP válido). Substitui o antigo gate por sessionStorage, que era burlável no console.
+async function mfaClaimValido(user) {
+  try {
+    const res = await user.getIdTokenResult(true); // força refresh p/ pegar o claim atual
+    const c = res.claims || {};
+    return c.mfa === true && Number(c.mfaExp || 0) > Date.now();
+  } catch (e) {
+    return false;
+  }
+}
+
 async function apiGetQr(userEmail) {
+  const idToken = await auth.currentUser.getIdToken();
   const r = await fetch(
     `${API_BASE}/mfa/qr?user=${encodeURIComponent(userEmail)}`,
+    { headers: { Authorization: `Bearer ${idToken}` } },
   );
   const j = await r.json().catch(() => ({}));
   if (!r.ok || !j.ok)
@@ -934,9 +953,10 @@ async function apiGetQr(userEmail) {
 }
 
 async function apiActivate(userEmail, token) {
+  const idToken = await auth.currentUser.getIdToken();
   const r = await fetch(`${API_BASE}/mfa/activate`, {
     method: "POST",
-    headers: { "Content-Type": "application/json" },
+    headers: { "Content-Type": "application/json", Authorization: `Bearer ${idToken}` },
     body: JSON.stringify({ user: userEmail, token }),
   });
   const j = await r.json().catch(() => ({}));
@@ -946,9 +966,10 @@ async function apiActivate(userEmail, token) {
 }
 
 async function apiVerify(userEmail, token) {
+  const idToken = await auth.currentUser.getIdToken();
   const r = await fetch(`${API_BASE}/mfa/verify`, {
     method: "POST",
-    headers: { "Content-Type": "application/json" },
+    headers: { "Content-Type": "application/json", Authorization: `Bearer ${idToken}` },
     body: JSON.stringify({ user: userEmail, token }),
   });
   const j = await r.json().catch(() => ({}));
@@ -961,7 +982,7 @@ async function apiResetMfa(targetEmail) {
   const adminToken = await auth.currentUser.getIdToken();
   const r = await fetch(`${API_BASE}/mfa/reset`, {
     method: "POST",
-    headers: { "Content-Type": "application/json" },
+    headers: { "Content-Type": "application/json", Authorization: `Bearer ${adminToken}` },
     body: JSON.stringify({ user: targetEmail, adminToken }),
   });
   const j = await r.json().catch(() => ({}));
@@ -1095,6 +1116,9 @@ async function confirmarTotpNoModal() {
 
     setTimeout(async () => {
       fecharModalTOTP(true);
+      // Força refresh do token para carregar o claim `mfa` recém-emitido ANTES de ler
+      // o Firestore (as regras agora exigem mfaOk()).
+      try { await auth.currentUser.getIdToken(true); } catch (_) {}
 
       await carregarPermissoesUsuarioLogado();
       await carregarDadosDoFirebase();
@@ -1444,6 +1468,7 @@ function initForm() {
     possuiPedido: "possui pedido",
     possuiRevisao: "possui revisão",
     obs_geral: "observações gerais",
+    tipo_produto: "tipo de produto",
   };
 
   const mapaCamposPedido = {
@@ -1452,7 +1477,6 @@ function initForm() {
     "pedido.valor_pedido": "valor pedido",
     "pedido.cond_pagamento": "condição de pagamento",
     "pedido.ref_projeto": "ref./projeto do pedido",
-    "pedido.tipo_produto": "tipo de produto",
     "pedido.obs": "obs do pedido",
     "pedido.data_nf": "data NF",
     "pedido.numero_nf": "número NF",
@@ -1487,6 +1511,7 @@ function initForm() {
     const status = document.getElementById("status");
     const data_envio = document.getElementById("data_envio");
     const obsGeral = document.getElementById("obs_geral");
+    const tipoProduto = document.getElementById("tipo_produto");
     const tipoNegocio = document.getElementById("tipo_oferta");
     const segmentoEl = document.getElementById("segmento");
 
@@ -1566,6 +1591,7 @@ function initForm() {
       atendimentoSpot,
       tipo_oferta: tipoNegocio ? tipoNegocio.value : "",
       obs_geral: obsGeral ? obsGeral.value.trim() : "",
+      tipo_produto: tipoProduto ? tipoProduto.value.trim() : "",
     };
 
     if (possuiPedido === "sim") {
@@ -1574,7 +1600,6 @@ function initForm() {
       const valor_pedido = document.getElementById("valor_pedido");
       const cond_pagamento = document.getElementById("cond_pagamento");
       const ref_projeto = document.getElementById("ref_projeto");
-      const tipo_produto = document.getElementById("tipo_produto");
       const obs = document.getElementById("obs");
       const notasFiscais = Array.from(
         document.querySelectorAll("#blocoNotasFiscais .nf-item"),
@@ -1609,7 +1634,6 @@ function initForm() {
         valor_pedido: valor_pedido?.value || "",
         cond_pagamento: cond_pagamento?.value || "",
         ref_projeto: ref_projeto?.value || "",
-        tipo_produto: tipo_produto?.value || "",
         obs: obs?.value || "",
         data_nf: notasFiscais[0]?.data || "",
         numero_nf: notasFiscais[0]?.numero || "",
@@ -2101,6 +2125,7 @@ function getTextoRegistroTodosCampos(reg) {
     reg.status,
     reg.data_envio,
     reg.obs_geral,
+    reg.tipo_produto,
     reg.tipo_oferta,
     reg.atendimentoSpot,
   ];
@@ -2112,7 +2137,6 @@ function getTextoRegistroTodosCampos(reg) {
       reg.pedido.valor_pedido,
       reg.pedido.cond_pagamento,
       reg.pedido.ref_projeto,
-      reg.pedido.tipo_produto,
       reg.pedido.obs,
       reg.pedido.data_nf,
       reg.pedido.numero_nf,
@@ -2345,6 +2369,8 @@ function editarRegistro(id) {
   }
   document.getElementById("data_envio").value = reg.data_envio || "";
   document.getElementById("obs_geral").value = reg.obs_geral || "";
+  document.getElementById("tipo_produto").value =
+    reg.tipo_produto || reg.pedido?.tipo_produto || "";
 
   const tipoNegocio = document.getElementById("tipo_oferta");
   if (tipoNegocio) tipoNegocio.value = reg.tipo_oferta || "";
@@ -2391,8 +2417,6 @@ function editarRegistro(id) {
     document.getElementById("cond_pagamento").value =
       reg.pedido.cond_pagamento || "";
     document.getElementById("ref_projeto").value = reg.pedido.ref_projeto || "";
-    document.getElementById("tipo_produto").value =
-      reg.pedido.tipo_produto || "";
     document.getElementById("obs").value = reg.pedido.obs || "";
     preencherNotasFiscaisUI(reg.pedido);
     document.getElementById("prazo_entrega_contratual").value =
@@ -3032,7 +3056,7 @@ function exportBackupExcel() {
     DataPO: r.pedido?.data_po || "",
     CondicaoPagamento: r.pedido?.cond_pagamento || "",
     RefProjetoPedido: r.pedido?.ref_projeto || "",
-    TipoProduto: r.pedido?.tipo_produto || "",
+    TipoProduto: r.tipo_produto || r.pedido?.tipo_produto || "",
     ObsPedido: r.pedido?.obs || "",
     NotasFiscais: formatarNotasFiscaisTexto(r.pedido),
     PrazoEntregaContratual: r.pedido?.prazo_entrega_contratual || "",
@@ -4010,6 +4034,7 @@ function importBackupExcelFirebase(event) {
           atendimentoSpot: normalizarTexto(row.AtendimentoSpot || "nao"),
           tipo_oferta: normalizarTexto(row.TipoNegocio),
           obs_geral: normalizarTexto(row.ObservacoesGerais),
+          tipo_produto: normalizarTexto(row.TipoProduto),
           pedido: normalizarTexto(row.PossuiPedido || "nao") === "sim"
             ? {
               numero_pedido: normalizarTexto(row.NumeroPedido),
@@ -4017,7 +4042,6 @@ function importBackupExcelFirebase(event) {
               valor_pedido: normalizarTexto(row.ValorPedido),
               cond_pagamento: normalizarTexto(row.CondicaoPagamento),
               ref_projeto: normalizarTexto(row.RefProjetoPedido),
-              tipo_produto: normalizarTexto(row.TipoProduto),
               obs: normalizarTexto(row.ObsPedido),
               data_nf: "",
               numero_nf: "",
@@ -5271,6 +5295,7 @@ function verOferta(id) {
       (reg.status === "Perdido" && reg.motivo_perda ? field("Motivo da Perda", esc(reg.motivo_perda), true) : "") +
       field("Projeto", esc(reg.nome_projeto) || "") +
       (String(reg.representadaNome || "").toLowerCase().includes("mantex") && reg.unidade ? field("Unidade", esc(reg.unidade)) : "") +
+      (reg.tipo_produto ? field("Tipo de Produto", esc(reg.tipo_produto)) : "") +
       (reg.obs_geral && String(reg.obs_geral).trim() ? field("Observações Gerais", esc(reg.obs_geral).replace(/\n/g, "<br>"), true) : "")
     );
 
@@ -5284,7 +5309,7 @@ function verOferta(id) {
       field("Valor Pedido", pedido.valor_pedido || "") +
       field("Cond. Pagamento", pedido.cond_pagamento || "") +
       field("Ref./Projeto", pedido.ref_projeto || "") +
-      field("Tipo de Produto", pedido.tipo_produto || "") +
+      field("Tipo de Produto", esc(reg.tipo_produto || pedido.tipo_produto || "")) +
       field("Prazo Entrega Contratual", formatDateBR(pedido.prazo_entrega_contratual) || "") +
       field("Entregue", pedido.entregue === "sim" ? "Sim" : "Não") +
       field("SOV?", pedido.solicitacao_oc === "sim" ? "Sim" : "Não") +
@@ -5999,6 +6024,7 @@ function initBuSegmento() {
       "Raiways",
       "Renew (PV)",
       "Renew (Wind)",
+      "Rodovias",
       "Rolling Stock",
       "Water"
     ],

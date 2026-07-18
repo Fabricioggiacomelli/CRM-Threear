@@ -4,6 +4,16 @@
 
 function $(id) { return document.getElementById(id); }
 
+// 2FA é exigido na camada de dados (regras do Firestore). Sem o claim `mfa` válido no
+// token, volta ao app principal (index.html) para refazer o TOTP.
+async function _mfaClaimOk(user) {
+  try {
+    const r = await user.getIdTokenResult(true);
+    const c = r.claims || {};
+    return c.mfa === true && Number(c.mfaExp || 0) > Date.now();
+  } catch (e) { return false; }
+}
+
 function setStatus(msg) {
   const el = $("dashStatusText");
   if (el) el.textContent = msg || "";
@@ -953,10 +963,10 @@ function openOfertaDetail(oferta) {
     { title: "Cliente",
       keys: ["razao","cnpj_cliente","solicitante","telefone","email","ref_cliente"] },
     { title: "Proposta",
-      keys: ["representadaNome","unidade","nome_projeto","valor_total","status","motivo_perda","obs_geral"] },
+      keys: ["representadaNome","unidade","nome_projeto","valor_total","status","motivo_perda","tipo_produto","obs_geral"] },
     { title: "Pedido",
       show: isPedidoSim(oferta),
-      keys: ["possuiPedido","pedido.numero_pedido","pedido.data_po","pedido.valor_pedido","pedido.cond_pagamento","pedido.ref_projeto","pedido.tipo_produto","pedido.prazo_entrega_contratual","pedido.sov","pedido.ref_ov","pedido.data_implantacao","pedido.obs"] },
+      keys: ["possuiPedido","pedido.numero_pedido","pedido.data_po","pedido.valor_pedido","pedido.cond_pagamento","pedido.ref_projeto","pedido.prazo_entrega_contratual","pedido.sov","pedido.ref_ov","pedido.data_implantacao","pedido.obs"] },
     { title: "Revisão",
       show: isRevisaoSim(oferta),
       keys: ["possuiRevisao","revisao.numero_oferta_anterior","revisao.mudou"] },
@@ -2698,6 +2708,13 @@ async function initDashboard() {
     if (!user) {
       dashHideSkeleton();
       setStatus("Você precisa fazer login. Redirecionando...");
+      window.location.href = "index.html";
+      return;
+    }
+
+    if (!(await _mfaClaimOk(user))) {
+      dashHideSkeleton();
+      setStatus("Sessão 2FA necessária. Redirecionando para o login...");
       window.location.href = "index.html";
       return;
     }

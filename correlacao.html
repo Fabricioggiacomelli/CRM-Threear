@@ -1,0 +1,221 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Correlação de Cabos — CRM Three Ar</title>
+  <link rel="icon" type="image/png" href="Imagens/LogoCRM.png" />
+  <link rel="stylesheet" href="style.css" />
+  <style>
+    /* ── Upload ── */
+    .cor-upload {
+      border: 1.5px dashed var(--border-soft);
+      border-radius: 12px;
+      padding: 28px 20px;
+      text-align: center;
+      background: var(--primary-light);
+      transition: border-color .2s, background .2s;
+      cursor: pointer;
+    }
+    .cor-upload:hover { border-color: var(--primary); }
+    .cor-upload.dragover { border-color: var(--primary); background: color-mix(in srgb, var(--primary) 10%, transparent); }
+    .cor-upload .cor-up-icon { font-size: 34px; opacity: .65; }
+    .cor-upload .cor-up-title { font-size: 14px; font-weight: 700; margin-top: 8px; color: var(--text-main); }
+    .cor-upload .cor-up-sub { font-size: 12px; color: var(--text-muted); margin-top: 4px; }
+    .cor-arquivo-info {
+      display: none; align-items: center; gap: 10px; margin-top: 14px;
+      padding: 10px 14px; border-radius: 10px; background: var(--bg-container);
+      border: 1px solid var(--border-soft); font-size: 13px;
+    }
+    .cor-arquivo-info .cor-file-nome { font-weight: 600; color: var(--text-main); }
+    .cor-arquivo-info .cor-file-qtd { color: var(--text-muted); margin-left: auto; white-space: nowrap; }
+
+    /* ── Progresso ── */
+    .cor-progresso {
+      display: none; align-items: center; gap: 12px; margin: 18px 0;
+      padding: 14px 16px; border-radius: 10px;
+      background: var(--primary-light); border: 1px solid var(--border-soft);
+      font-size: 13px; font-weight: 600; color: var(--text-main);
+    }
+    .cor-spinner {
+      width: 18px; height: 18px; flex-shrink: 0;
+      border: 2.5px solid color-mix(in srgb, var(--primary) 30%, transparent);
+      border-top-color: var(--primary); border-radius: 50%;
+      animation: cor-spin .7s linear infinite;
+    }
+    @keyframes cor-spin { to { transform: rotate(360deg); } }
+
+    /* ── Resumo de status ── */
+    .cor-resumo { display: flex; flex-wrap: wrap; gap: 10px; margin: 18px 0 14px; }
+    .cor-chip {
+      font-size: 12px; font-weight: 700; padding: 5px 12px; border-radius: 20px;
+      display: inline-flex; align-items: center; gap: 6px;
+    }
+    .cor-chip .cor-dot { width: 8px; height: 8px; border-radius: 50%; }
+    .cor-chip.ok    { background: #dcfce7; color: #166534; }
+    .cor-chip.pend  { background: #fef9c3; color: #854d0e; }
+    .cor-chip.amb   { background: #ffedd5; color: #9a3412; }
+    .cor-chip.erro  { background: #fee2e2; color: #991b1b; }
+    body.dark .cor-chip.ok   { background: rgba(34,197,94,.15);  color: #86efac; }
+    body.dark .cor-chip.pend { background: rgba(234,179,8,.15);  color: #fde047; }
+    body.dark .cor-chip.amb  { background: rgba(249,115,22,.15); color: #fdba74; }
+    body.dark .cor-chip.erro { background: rgba(239,68,68,.15);  color: #fca5a5; }
+
+    /* ── Tabela ── */
+    .cor-tabela-wrap { overflow-x: auto; border: 1px solid var(--border-soft); border-radius: 12px; }
+    table.cor-tabela { width: 100%; border-collapse: collapse; font-size: 13px; }
+    table.cor-tabela th {
+      background: var(--bg-sidebar-item-hover, #f1f5f9); color: var(--text-main);
+      text-align: left; padding: 10px 12px; font-size: 11.5px; font-weight: 700;
+      text-transform: uppercase; letter-spacing: .03em; white-space: nowrap;
+      border-bottom: 1px solid var(--border-soft); position: sticky; top: 0;
+    }
+    table.cor-tabela td {
+      padding: 9px 12px; border-bottom: 1px solid var(--border-soft);
+      color: var(--text-main); vertical-align: top;
+    }
+    table.cor-tabela tr:last-child td { border-bottom: none; }
+    table.cor-tabela td.cor-col-num { color: var(--text-muted); font-variant-numeric: tabular-nums; width: 48px; }
+    table.cor-tabela td.cor-col-cod { font-family: ui-monospace, "Cascadia Code", Consolas, monospace; font-weight: 600; white-space: nowrap; }
+    /* Highlight amarelo para linhas que precisam de atenção */
+    table.cor-tabela tr.cor-atencao td { background: #fef9c3; }
+    body.dark table.cor-tabela tr.cor-atencao td { background: rgba(234,179,8,.12); }
+
+    .cor-status-badge {
+      font-size: 11px; font-weight: 800; padding: 2px 9px; border-radius: 6px;
+      text-transform: uppercase; letter-spacing: .03em; white-space: nowrap;
+    }
+    .cor-status-badge.ok   { background: #dcfce7; color: #166534; }
+    .cor-status-badge.pend { background: #fef9c3; color: #854d0e; }
+    .cor-status-badge.amb  { background: #ffedd5; color: #9a3412; }
+    .cor-status-badge.erro { background: #fee2e2; color: #991b1b; }
+    .cor-status-badge.cab  { background: #e2e8f0; color: #475569; }
+    body.dark .cor-status-badge.cab { background: rgba(148,163,184,.18); color: #cbd5e1; }
+    body.dark .cor-status-badge.ok   { background: rgba(34,197,94,.2);  color: #86efac; }
+    body.dark .cor-status-badge.pend { background: rgba(234,179,8,.2);  color: #fde047; }
+    body.dark .cor-status-badge.amb  { background: rgba(249,115,22,.2); color: #fdba74; }
+    body.dark .cor-status-badge.erro { background: rgba(239,68,68,.2);  color: #fca5a5; }
+
+    /* ── Bloco de códigos ── */
+    .cor-bloco-header { display: flex; align-items: center; justify-content: space-between; margin: 24px 0 8px; }
+    .cor-bloco-header h4 { font-size: 14px; font-weight: 700; margin: 0; color: var(--text-strong, var(--text-main)); }
+    #corBlocoCodigos {
+      width: 100%; box-sizing: border-box; min-height: 180px; resize: vertical;
+      font-family: ui-monospace, "Cascadia Code", Consolas, monospace; font-size: 13px;
+      line-height: 1.7; padding: 14px; border-radius: 10px;
+      border: 1px solid var(--border-soft); background: var(--bg-container);
+      color: var(--text-main);
+    }
+    .cor-hidden { display: none !important; }
+    .cor-mock-badge {
+      display: inline-block; font-size: 11px; font-weight: 700; padding: 3px 10px;
+      border-radius: 6px; background: #e0e7ff; color: #3730a3; margin-left: 8px;
+    }
+    body.dark .cor-mock-badge { background: rgba(99,102,241,.2); color: #c7d2fe; }
+  </style>
+</head>
+
+<body>
+
+  <aside class="sidebar collapsed" id="sidebar">
+    <div class="sidebar-header">
+      <img src="Imagens/Logo.png" class="logo-img" alt="logo">
+      <h2 class="sidebar-title">CRM-Three Ar</h2>
+    </div>
+    <nav class="sidebar-menu">
+      <button type="button" class="menu-item active">
+        <span class="icon">🔌</span>
+        <span class="label">Correlação de Cabos</span>
+      </button>
+      <button type="button" class="menu-item" id="btnVoltar">
+        <span class="icon">↩️</span>
+        <span class="label">Voltar ao CRM</span>
+      </button>
+      <button type="button" class="menu-item" onclick="corToggleTheme()">
+        <span class="icon">🌙</span>
+        <span class="label" id="themeLabel">Modo escuro</span>
+      </button>
+      <button type="button" class="menu-item logout" id="btnSair">
+        <span class="icon">🚪</span>
+        <span class="label">Sair</span>
+      </button>
+    </nav>
+    <button class="collapse-btn" type="button" onclick="corToggleSidebar()">⮜</button>
+  </aside>
+
+  <div class="main-content" style="display:flex;flex-direction:column;align-items:center;">
+    <div style="padding:32px 28px;max-width:1000px;width:100%;box-sizing:border-box;">
+
+      <h3>Correlação de Cabos Prysmian</h3>
+      <p class="subtitle" style="margin-bottom:24px;">
+        Envie um Excel com as descrições dos cabos (uma por linha na coluna A). O sistema interpreta cada
+        descrição e busca o código interno correspondente na TABELA USO INTERNO.
+      </p>
+
+      <!-- ── Upload ── -->
+      <div class="form-card">
+        <div class="cor-upload" id="corDropZone">
+          <div class="cor-up-icon">📄</div>
+          <div class="cor-up-title">Clique para selecionar ou arraste o arquivo</div>
+          <div class="cor-up-sub">Arquivo .xlsx — descrições na coluna A, uma por linha</div>
+          <input type="file" id="corInputArquivo" accept=".xlsx,.xls" style="display:none;">
+        </div>
+
+        <div class="cor-arquivo-info" id="corArquivoInfo">
+          <span class="icon">📊</span>
+          <span class="cor-file-nome" id="corFileNome">—</span>
+          <span class="cor-file-qtd" id="corFileQtd"></span>
+        </div>
+
+        <div style="display:flex;gap:10px;margin-top:16px;flex-wrap:wrap;">
+          <button type="button" class="btn" id="corBtnProcessar" disabled>⚙️ Processar</button>
+          <button type="button" class="secondary cor-hidden" id="corBtnLimpar">Limpar</button>
+        </div>
+      </div>
+
+      <!-- ── Progresso ── -->
+      <div class="cor-progresso" id="corProgresso">
+        <div class="cor-spinner"></div>
+        <span id="corProgressoTexto">Processando…</span>
+      </div>
+
+      <!-- ── Resultado ── -->
+      <div id="corResultado" class="cor-hidden">
+
+        <div class="cor-resumo" id="corResumo"></div>
+
+        <div class="cor-tabela-wrap">
+          <table class="cor-tabela">
+            <thead>
+              <tr>
+                <th>Linha</th>
+                <th>Descrição</th>
+                <th>Código</th>
+                <th>Status</th>
+                <th>Observação</th>
+              </tr>
+            </thead>
+            <tbody id="corTabelaBody"></tbody>
+          </table>
+        </div>
+
+        <div class="cor-bloco-header">
+          <h4>Códigos para colar no Excel <span style="font-weight:400;color:var(--text-muted);font-size:12px;">(mesma ordem das linhas)</span></h4>
+          <button type="button" class="btn" id="corBtnCopiar">📋 Copiar</button>
+        </div>
+        <textarea id="corBlocoCodigos" readonly spellcheck="false"></textarea>
+      </div>
+
+    </div>
+  </div>
+
+  <script src="https://www.gstatic.com/firebasejs/8.10.1/firebase-app.js"></script>
+  <script src="https://www.gstatic.com/firebasejs/8.10.1/firebase-auth.js"></script>
+  <script src="https://www.gstatic.com/firebasejs/8.10.1/firebase-firestore.js"></script>
+  <script src="https://www.gstatic.com/firebasejs/8.10.1/firebase-app-check.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/xlsx-js-style@1.2.0/dist/xlsx.bundle.js"></script>
+  <script src="firebase.js"></script>
+  <script src="toast.js"></script>
+  <script src="correlacao.js"></script>
+</body>
+</html>

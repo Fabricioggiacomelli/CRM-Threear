@@ -10,6 +10,30 @@ let _genItens         = [];
 let _genItemCounter   = 0;
 let _genHistoricoCache = [];
 
+// ── Máscaras de CNPJ e telefone (formatam ao digitar) ─────────────────────────
+function _genMascaraCNPJ(v) {
+  const d = String(v == null ? "" : v).replace(/\D/g, "").slice(0, 14);
+  if (d.length > 12) return `${d.slice(0,2)}.${d.slice(2,5)}.${d.slice(5,8)}/${d.slice(8,12)}-${d.slice(12)}`;
+  if (d.length > 8)  return `${d.slice(0,2)}.${d.slice(2,5)}.${d.slice(5,8)}/${d.slice(8)}`;
+  if (d.length > 5)  return `${d.slice(0,2)}.${d.slice(2,5)}.${d.slice(5)}`;
+  if (d.length > 2)  return `${d.slice(0,2)}.${d.slice(2)}`;
+  return d;
+}
+function _genMascaraTelefone(v) {
+  const d = String(v == null ? "" : v).replace(/\D/g, "").slice(0, 11);
+  if (d.length > 10) return `(${d.slice(0,2)}) ${d.slice(2,7)}-${d.slice(7)}`;
+  if (d.length > 6)  return `(${d.slice(0,2)}) ${d.slice(2,6)}-${d.slice(6)}`;
+  if (d.length > 2)  return `(${d.slice(0,2)}) ${d.slice(2)}`;
+  if (d.length > 0)  return `(${d}`;
+  return d;
+}
+document.addEventListener("input", (ev) => {
+  const el = ev.target;
+  if (!el) return;
+  if (el.id === "gen_cnpj") el.value = _genMascaraCNPJ(el.value);
+  else if (el.id === "gen_telefone") el.value = _genMascaraTelefone(el.value);
+});
+
 const SEGMENTOS_POR_BU = {
   "T&I":              [],
   OGP:                ["On Shore", "Off Shore", "DW"],
@@ -133,9 +157,20 @@ function _genBoot() {
     },
   });
 
-  // Auth gate
-  window.auth.onAuthStateChanged(user => {
+  // 2FA é exigido na camada de dados (regras do Firestore). Sem o claim `mfa` válido,
+  // volta ao app principal (index.html) para refazer o TOTP.
+  async function _mfaClaimOk(user) {
+    try {
+      const r = await user.getIdTokenResult(true);
+      const c = r.claims || {};
+      return c.mfa === true && Number(c.mfaExp || 0) > Date.now();
+    } catch (e) { return false; }
+  }
+
+  // Auth gate — sem login OU sem 2FA válido, volta ao CRM
+  window.auth.onAuthStateChanged(async user => {
     if (!user) { window.location.href = "index.html"; return; }
+    if (!(await _mfaClaimOk(user))) { window.location.href = "index.html"; return; }
     _genCurrentEmail = user.email || "";
     _genCurrentUser  = user;
     _genCarregarDados();
@@ -525,7 +560,6 @@ function _genValidar(d) {
   if (!d.solicitante)    erros.push("Solicitante é obrigatório.");
   if (!d.telefone)       erros.push("Telefone é obrigatório.");
   if (!d.email)          erros.push("E-mail é obrigatório.");
-  if (!d.oferta)         erros.push("Nº da Oferta é obrigatório.");
   if (!d.dataEntrada)    erros.push("Data Entrada é obrigatória.");
   if (!d.tipoOferta)     erros.push("Tipo é obrigatório.");
   if (!d.status)         erros.push("Status é obrigatório.");
@@ -767,7 +801,7 @@ function _buildProposta(d, tipo) {
   const dataCurta = hoje.toLocaleDateString("pt-BR");
   const segStr   = d.segmento ? ` / ${d.segmento}` : "";
   const logoUrl  = window.location.origin +
-                   window.location.pathname.replace(/\/[^/]*$/, "/") + "Imagens/Logo.png";
+                   window.location.pathname.replace(/\/[^/]*$/, "/") + "Imagens/image.png";
   const userName = (_genCurrentUser && _genCurrentUser.displayName) || _genCurrentEmail;
 
   // ── Items table ──
@@ -884,13 +918,12 @@ function _buildProposta(d, tipo) {
   }
 
   // ── Info grid ──
+  const tipoLabel = ({ compra: "Compra", orcamento: "Orçamento" })[d.tipoOferta] || d.tipoOferta;
   const infoItems = [
     { label:"Representada",    value: d.representadaNome },
-    { label:"B.U.",            value: d.bu + segStr },
     d.unidade   ? { label:"Unidade Mantex", value: d.unidade }    : null,
     d.nomeProjeto ? { label:"Projeto",      value: d.nomeProjeto } : null,
-    { label:"Tipo",            value: d.tipoOferta },
-    { label:"Status",          value: d.status },
+    { label:"Tipo",            value: tipoLabel },
     d.refCliente ? { label:"Ref. Cliente",  value: d.refCliente }  : null,
     { label:"Data Entrada",    value: _genFmtDate(d.dataEntrada) },
     d.dataEnvio ? { label:"Data Envio",     value: _genFmtDate(d.dataEnvio) } : null,
@@ -907,9 +940,34 @@ function _buildProposta(d, tipo) {
     </div>`;
 
   // ── Observations ──
-  const obsSection = d.obsGeral ? `
-    <h3 class="sec-title">${isCom ? "OBSERVAÇÕES COMERCIAIS" : "COMENTÁRIOS TÉCNICOS"}</h3>
-    <div class="obs-box">${_genEscape(d.obsGeral).replace(/\n/g,"<br>")}</div>` : "";
+  // Na proposta COMERCIAL, o campo mostra sempre o texto padrão (disclaimer). A observação
+  // digitada pelo usuário é salva em obs_geral no registro, mas NÃO sai no PDF comercial.
+  // Na técnica, mantém o comentário digitado (se houver).
+  const DISCLAIMER_COMERCIAL = "Esta oferta tem caráter orçamentário, preliminar e não definitivo e, portanto, não vinculante. E tão somente uma oferta para análise e não constitui um termo para um contrato. Threear reserva-se ainda o direito de realizar qualquer modificação ou atualização sem prévio aviso.";
+  const obsSection = isCom
+    ? `
+    <h3 class="sec-title">OBSERVAÇÕES COMERCIAIS</h3>
+    <div class="obs-box">${DISCLAIMER_COMERCIAL}</div>`
+    : (d.obsGeral ? `
+    <h3 class="sec-title">COMENTÁRIOS TÉCNICOS</h3>
+    <div class="obs-box">${_genEscape(d.obsGeral).replace(/\n/g,"<br>")}</div>` : "");
+
+  // ── Condições de fornecimento (textos fixos, só na proposta comercial) ──
+  const CONDICOES_FORNECIMENTO = [
+    ["Condição de Pagamento", "30 dias líquido da fatura, SUJEITO À APROVAÇÃO DO LIMITE DE CRÉDITO."],
+    ["Condição de Entrega", "CIF Posto Cliente"],
+    ["Prazo de Entrega", "Os prazos aqui apresentados deverão ser confirmados na ocasião da formalização do pedido."],
+    ["Validade da Proposta", "A presente proposta é válida por 02 dias contados a partir da data de emissão da mesma."],
+  ];
+  const condicoesSection = isCom ? `
+    <h3 class="sec-title">CONDIÇÕES DE FORNECIMENTO</h3>
+    <div class="cond-list">
+      ${CONDICOES_FORNECIMENTO.map(([lab, val]) => `
+        <div class="cond-item">
+          <div class="cond-label">${lab}</div>
+          <div class="cond-value">${val}</div>
+        </div>`).join("")}
+    </div>` : "";
 
   // ── Cover letter ──
   const coverText = isCom
@@ -972,6 +1030,13 @@ function _buildProposta(d, tipo) {
     /* ── Obs ── */
     .obs-box{background:#f7f9ff;border-left:3px solid ${cor};padding:10px 14px;
              font-size:10.5px;line-height:1.7;border-radius:0 4px 4px 0;margin-top:4px;}
+
+    /* ── Condições de fornecimento ── */
+    .cond-list{margin-top:4px;}
+    .cond-item{margin-bottom:9px;}
+    .cond-item:last-child{margin-bottom:0;}
+    .cond-label{font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:.3px;color:${cor};margin-bottom:2px;}
+    .cond-value{font-size:10.5px;color:#222;line-height:1.5;}
 
     /* ── Signature ── */
     .signature{margin-top:30px;padding-top:16px;border-top:1px solid #e0e5ee;}
@@ -1041,6 +1106,9 @@ function _buildProposta(d, tipo) {
   <!-- Observations -->
   ${obsSection}
 
+  <!-- Condições de fornecimento -->
+  ${condicoesSection}
+
   <!-- Signature -->
   <div class="signature">
     <p class="sig-close">Atenciosamente,</p>
@@ -1064,14 +1132,8 @@ function _buildProposta(d, tipo) {
 }
 
 // ── Main Action ───────────────────────────────────────────────────────────────
-async function gerarOferta(modo) {
-  // modo: 'comercial' | 'tecnica' | 'ambas'
-  const btnMap = {
-    comercial: document.getElementById("btnGerarComercial"),
-    tecnica:   document.getElementById("btnGerarTecnico"),
-    ambas:     document.getElementById("btnGerarAmbas"),
-  };
-  const btn = btnMap[modo];
+async function gerarOferta() {
+  const btn = document.getElementById("btnGerarAmbas");
   const d   = _genColetarDados();
   const erros = _genValidar(d);
 
@@ -1086,26 +1148,21 @@ async function gerarOferta(modo) {
   if (btn) { btn.disabled = true; btn.textContent = "⏳ Gerando PDF..."; }
 
   try {
-    if (modo === "comercial") {
-      await _genBaixarPDF(d, "comercial");
-    } else if (modo === "tecnica") {
-      await _genBaixarPDF(d, "tecnica");
-    } else {
-      await _genBaixarPDF(d, "comercial");
-      await _genBaixarPDF(d, "tecnica");
-      await criarRegistroAutomaticoGerador(d);
-      exibirModalSucessoGerador();
-      _genResetarFormulario();
-    }
+    // Nº da Oferta gerado automaticamente e único, só agora (na hora de gerar/salvar).
+    d.oferta = await _genGerarNumeroUnico();
+    await _genBaixarPDF(d, "comercial");
+    await _genBaixarPDF(d, "tecnica");
+    await criarRegistroAutomaticoGerador(d);
+    exibirModalSucessoGerador();
+    _genResetarFormulario();
+    _genCarregarHistorico(); // recarrega pra a oferta recém-gerada aparecer no histórico
   } catch(e) {
     console.error("Erro ao gerar oferta:", e);
     showToast({ title: "Erro ao gerar", description: e.message || String(e) }, "error");
   } finally {
     if (btn) {
       btn.disabled = false;
-      btn.textContent = modo === "comercial" ? "📄 Oferta Comercial"
-                      : modo === "tecnica"   ? "📋 Oferta Técnica"
-                      : "⬇ Gerar Ambas + Salvar";
+      btn.textContent = "⬇ Gerar Ofertas";
     }
   }
 }
@@ -1145,6 +1202,20 @@ function _genResetarFormulario() {
 // ── Utilities ─────────────────────────────────────────────────────────────────
 function _genId() {
   return Date.now().toString(36) + Math.random().toString(36).slice(2, 8);
+}
+
+// Gera o Nº da Oferta: "TR10" + 6 dígitos aleatórios (1.000.000 combinações),
+// garantindo que ainda NÃO exista em `ofertas`. Sorteia e verifica; repete até achar
+// um livre. Assim o sistema nunca repete um número já usado.
+async function _genGerarNumeroUnico() {
+  for (let i = 0; i < 100; i++) {
+    const seis = String(Math.floor(Math.random() * 1000000)).padStart(6, "0");
+    const numero = "TR10" + seis;
+    const snap = await window.db.collection("ofertas")
+      .where("oferta", "==", numero).limit(1).get();
+    if (snap.empty) return numero;
+  }
+  throw new Error("Não consegui gerar um número de oferta único agora. Tente novamente.");
 }
 
 function _genValidarCNPJ(cnpj) {
@@ -1361,37 +1432,26 @@ function _genParseItemSimples(linha) {
 
 async function _genCarregarHistorico() {
   const lista = document.getElementById("gen_historico_lista");
-  if (!lista || !_genCurrentEmail) return;
+  if (!lista) return;
 
   lista.innerHTML = `<div style="color:var(--text-muted);font-size:13px;text-align:center;padding:28px 0;line-height:1.6;">Carregando histórico...</div>`;
 
   try {
-    const snap = await window.db.collection("geracoes")
-      .where("geradoPor", "==", _genCurrentEmail)
-      .get();
-
-    const geracoes = snap.docs
-      .map(d => ({ id: d.id, ...d.data() }))
-      .sort((a, b) => (b.geradoEm || "").localeCompare(a.geradoEm || ""))
-      .slice(0, 30);
-
-    _genHistoricoCache = geracoes;
-
-    if (!geracoes.length) {
-      lista.innerHTML = `
-        <div style="text-align:center;padding:36px 0;color:var(--text-muted);">
-          <div style="font-size:30px;margin-bottom:12px;opacity:.35;">
-            <svg width="40" height="40" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" style="display:inline-block;">
-              <path d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z"/>
-            </svg>
-          </div>
-          <div style="font-size:13px;font-weight:600;color:var(--text-main);margin-bottom:4px;">Nenhuma geração registrada</div>
-          <div style="font-size:12px;">Preencha o formulário e clique em <strong>⬇ Gerar Ambas + Salvar</strong>.</div>
-        </div>`;
-      return;
+    let snap;
+    try {
+      // Histórico compartilhado: todos veem as gerações de todos (mais recentes primeiro).
+      snap = await window.db.collection("geracoes").orderBy("geradoEm", "desc").limit(500).get();
+    } catch (permErr) {
+      // Fallback: se a regra compartilhada de `geracoes` ainda não foi publicada, mostra só as próprias.
+      console.warn("[Gerador] Histórico compartilhado indisponível (regra não publicada?):", permErr && permErr.message);
+      snap = await window.db.collection("geracoes").where("geradoPor", "==", _genCurrentEmail).get();
     }
 
-    _genRenderHistorico(geracoes, lista);
+    _genHistoricoCache = snap.docs
+      .map(d => ({ id: d.id, ...d.data() }))
+      .sort((a, b) => (b.geradoEm || "").localeCompare(a.geradoEm || ""));
+    if (document.getElementById("gen_hist_filtros") && !document.querySelector("#gen_hist_filtros .filter-item")) _genAddFiltroRow();
+    _genAplicarFiltrosHistorico();
   } catch(e) {
     console.error("[Gerador] Erro ao carregar histórico:", e);
     lista.innerHTML = `
@@ -1405,19 +1465,166 @@ async function _genCarregarHistorico() {
   }
 }
 
-function _genRenderHistorico(geracoes, lista) {
-  const tipoLabel = { ambas: "Comercial + Técnica", comercial: "Comercial", tecnica: "Técnica" };
+function _genTipoOfertaLabel(t) {
+  return ({ compra: "Compra", orcamento: "Orçamento" })[t] || t || "—";
+}
 
-  lista.innerHTML = geracoes.map((g, i) => {
+// Nome do usuário a partir do e-mail (parte antes do @), capitalizado.
+function _genNomeUsuario(email) {
+  const local = String(email || "").split("@")[0];
+  if (!local) return email || "—";
+  return local.split(/[._-]+/).filter(Boolean)
+    .map(p => p.charAt(0).toUpperCase() + p.slice(1).toLowerCase())
+    .join(" ") || email;
+}
+
+// Máscara de valor (R$ com separador de milhar) para o campo de busca por valor.
+function _genMascaraValorBusca(v) {
+  const d = String(v).replace(/\D/g, "");
+  return d ? "R$ " + d.replace(/\B(?=(\d{3})+(?!\d))/g, ".") : "";
+}
+
+// Opções do filtro de usuário (valor = e-mail; texto = nome capitalizado).
+function _genOpcoesUsuarios() {
+  const emails = [...new Set(_genHistoricoCache.map(g => g.geradoPor).filter(Boolean))].sort();
+  return `<option value="">Todos</option>` +
+    emails.map(e => `<option value="${_genEscape(e)}">${_genEscape(_genNomeUsuario(e))}</option>`).join("");
+}
+
+// ── Filtros do histórico — padrão do CRM (linhas .filter-item: campo + valor) ──
+const _GEN_FILTRO_CAMPOS = [
+  { value: "cliente", label: "Cliente" },
+  { value: "tipo",    label: "Tipo (Compra/Orçamento)" },
+  { value: "usuario", label: "Usuário" },
+  { value: "valor",   label: "Valor" },
+  { value: "data",    label: "Gerado em" },
+];
+
+function _genAddFiltroRow(campo = "cliente", valor = "") {
+  const wrap = document.getElementById("gen_hist_filtros");
+  if (!wrap) return;
+
+  const div = document.createElement("div");
+  div.className = "filter-item";
+  div.innerHTML = `
+    <select class="multiField">
+      ${_GEN_FILTRO_CAMPOS.map(o => `<option value="${o.value}">${o.label}</option>`).join("")}
+    </select>
+    <div class="multiTermWrap"></div>
+    <button type="button" class="secondary btn-remove">Remover</button>
+  `;
+  wrap.appendChild(div);
+
+  const fieldEl = div.querySelector(".multiField");
+  if (fieldEl) fieldEl.value = campo;
+  _genRenderFiltroValor(div, campo, valor);
+
+  div.querySelector(".btn-remove")?.addEventListener("click", () => {
+    div.remove();
+    _genAplicarFiltrosHistorico();
+  });
+  fieldEl?.addEventListener("change", (e) => {
+    _genRenderFiltroValor(div, e.target.value, "");
+    _genAplicarFiltrosHistorico();
+  });
+}
+
+// Renderiza o campo de valor conforme o tipo escolhido (texto, select ou data).
+function _genRenderFiltroValor(row, campo, valor = "") {
+  const wrap = row.querySelector(".multiTermWrap");
+  if (!wrap) return;
+
+  if (campo === "tipo") {
+    wrap.innerHTML = `<select class="multiTerm">
+        <option value="">Selecione</option>
+        <option value="orcamento" ${valor === "orcamento" ? "selected" : ""}>Orçamento</option>
+        <option value="compra" ${valor === "compra" ? "selected" : ""}>Compra</option>
+      </select>`;
+    wrap.querySelector(".multiTerm")?.addEventListener("change", _genAplicarFiltrosHistorico);
+  } else if (campo === "usuario") {
+    wrap.innerHTML = `<select class="multiTerm">${_genOpcoesUsuarios()}</select>`;
+    const sel = wrap.querySelector(".multiTerm");
+    if (sel) { sel.value = valor || ""; sel.addEventListener("change", _genAplicarFiltrosHistorico); }
+  } else if (campo === "data") {
+    wrap.innerHTML = `<input class="multiTerm" type="date" value="${valor || ""}">`;
+    wrap.querySelector(".multiTerm")?.addEventListener("change", _genAplicarFiltrosHistorico);
+  } else if (campo === "valor") {
+    wrap.innerHTML = `<input class="multiTerm" type="text" placeholder="Digite o valor..." value="${_genEscape(valor || "")}">`;
+    const inp = wrap.querySelector(".multiTerm");
+    if (inp) inp.addEventListener("input", () => { inp.value = _genMascaraValorBusca(inp.value); _genAplicarFiltrosHistorico(); });
+  } else { // cliente
+    wrap.innerHTML = `<input class="multiTerm" type="text" placeholder="Digite para filtrar..." value="${_genEscape(valor || "")}">`;
+    wrap.querySelector(".multiTerm")?.addEventListener("input", _genAplicarFiltrosHistorico);
+  }
+}
+
+// Aplica todos os filtros (uma ou mais linhas, combinados) e re-renderiza.
+function _genAplicarFiltrosHistorico() {
+  const lista = document.getElementById("gen_historico_lista");
+  if (!lista) return;
+
+  const filtros = Array.from(document.querySelectorAll("#gen_hist_filtros .filter-item"))
+    .map(row => ({
+      campo: row.querySelector(".multiField")?.value || "",
+      valor: (row.querySelector(".multiTerm")?.value || "").trim(),
+    }))
+    .filter(f => f.campo && f.valor);
+
+  // Período (select ao lado do título): limita aos últimos N dias.
+  const periodoDias = parseInt(document.getElementById("gen_hist_periodo")?.value, 10);
+  let limiteData = "";
+  if (!isNaN(periodoDias) && periodoDias > 0) {
+    const dt = new Date(); dt.setDate(dt.getDate() - periodoDias);
+    limiteData = dt.toISOString().slice(0, 10);
+  }
+
+  const filtrados = _genHistoricoCache.filter(g => {
+    const s = g.snapshot || {};
+    const dia = (g.geradoEm || "").slice(0, 10);
+    if (limiteData && dia < limiteData) return false;
+    return filtros.every(({ campo, valor }) => {
+      if (campo === "cliente") return String(s.razao || "").toLowerCase().includes(valor.toLowerCase());
+      if (campo === "tipo")    return s.tipoOferta === valor;
+      if (campo === "usuario") return g.geradoPor === valor;
+      if (campo === "valor")   return String(s.valorTotalStr || "").replace(/\D/g, "").includes(valor.replace(/\D/g, ""));
+      if (campo === "data")    return dia === valor;
+      return true;
+    });
+  });
+
+  if (!_genHistoricoCache.length) {
+    lista.innerHTML = `<div style="text-align:center;padding:36px 0;color:var(--text-muted);">
+        <div style="font-size:13px;font-weight:600;color:var(--text-main);margin-bottom:4px;">Nenhuma geração registrada</div>
+        <div style="font-size:12px;">Preencha o formulário e clique em <strong>⬇ Gerar Ofertas</strong>.</div>
+      </div>`;
+    return;
+  }
+  if (!filtrados.length) {
+    lista.innerHTML = `<div style="text-align:center;padding:36px 0;color:var(--text-muted);font-size:13px;">Nenhuma geração encontrada com esses filtros.</div>`;
+    return;
+  }
+  _genRenderHistorico(filtrados, lista);
+}
+
+function _genLimparFiltrosHistorico() {
+  const wrap = document.getElementById("gen_hist_filtros");
+  if (wrap) wrap.innerHTML = "";
+  _genAddFiltroRow();
+  _genAplicarFiltrosHistorico();
+}
+
+function _genRenderHistorico(geracoes, lista) {
+  lista.innerHTML = geracoes.map((g) => {
     const s       = g.snapshot || {};
     const data    = g.geradoEm ? new Date(g.geradoEm) : null;
     const dataStr = data && !isNaN(data)
       ? data.toLocaleDateString("pt-BR") + "<br>" +
         data.toLocaleTimeString("pt-BR", { hour: "2-digit", minute: "2-digit" })
       : "—";
-    const tipo    = tipoLabel[g.tipoGerado] || g.tipoGerado || "—";
+    const tipo    = _genTipoOfertaLabel(s.tipoOferta);
     const nItens  = (s.itens || []).filter(it => it.descricao).length;
     const val     = s.valorTotalStr || "—";
+    const usuario = g.geradoPor || "";
 
     return `
       <div class="gen-hist-row">
@@ -1435,19 +1642,19 @@ function _genRenderHistorico(geracoes, lista) {
 
         <div class="gen-hist-col-tipo">
           <div style="font-size:12px;font-weight:600;color:var(--text-main);">${_genEscape(tipo)}</div>
-          <div style="font-size:11px;color:var(--text-muted);margin-top:2px;">
-            ${nItens} item(s)${s.bu ? " · " + _genEscape(s.bu) : ""}
-          </div>
+          <div style="font-size:11px;color:var(--text-muted);margin-top:2px;">${nItens} item(s)</div>
         </div>
 
         <div class="gen-hist-col-val">${_genEscape(val)}</div>
 
         <div class="gen-hist-col-data" style="line-height:1.5;">${dataStr}</div>
 
+        <div class="gen-hist-col-user" title="${_genEscape(usuario)}">${_genEscape(usuario ? _genNomeUsuario(usuario) : "—")}</div>
+
         <div class="gen-hist-col-btn">
           <button type="button" class="btn secondary"
             style="font-size:12px;padding:6px 14px;white-space:nowrap;width:auto;"
-            onclick="_genRemontarOferta(${i})">
+            onclick="_genRemontarOferta('${g.id}')">
             ↩ Remontar
           </button>
         </div>
@@ -1456,12 +1663,16 @@ function _genRenderHistorico(geracoes, lista) {
   }).join("");
 }
 
-function _genRemontarOferta(idx) {
-  const g = _genHistoricoCache[idx];
+async function _genRemontarOferta(id) {
+  const g = _genHistoricoCache.find(x => x.id === id);
   if (!g?.snapshot) return;
 
   const s = g.snapshot;
-  if (!confirm(`Remontar a oferta "${g.ofertaNumero || s.oferta}" no formulário?\nOs dados preenchidos atualmente serão substituídos.`)) return;
+  const _ok = await window.showConfirm(
+    "Os dados preenchidos no formulário serão substituídos.",
+    { title: `Remontar a oferta "${g.ofertaNumero || s.oferta}"?`, confirmText: "Remontar", cancelText: "Cancelar", danger: false }
+  );
+  if (!_ok) return;
 
   const set = (id, val) => {
     const el = document.getElementById(id);

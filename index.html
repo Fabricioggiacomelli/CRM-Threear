@@ -25,6 +25,7 @@
 
 <body>
 
+  
   <div id="modalAlertas" class="modal hidden">
     <div class="modal-content modal-alertas-content">
       <div class="modal-header">
@@ -276,6 +277,11 @@
         <span class="label">Gerador de Ofertas</span>
       </button>
 
+      <button type="button" class="menu-item" onclick="window.location.href='correlacao.html'">
+        <span class="icon">🔌</span>
+        <span class="label">Correlação de Cabos</span>
+      </button>
+
       <button type="button" class="menu-item" onclick="irPara('backup')">
         <span class="icon">💾</span>
         <span class="label">Backup</span>
@@ -443,6 +449,9 @@
               <label for="oferta">N° da Oferta</label>
               <input type="text" id="oferta">
 
+              <label for="tipo_produto">Tipo de Produto</label>
+              <input type="text" id="tipo_produto">
+
               <label for="obs_geral">Observações</label>
               <textarea id="obs_geral" rows="2"></textarea>
             </div>
@@ -556,9 +565,6 @@
 
                 <label for="ref_projeto">Ref./Projeto *</label>
                 <input type="text" id="ref_projeto">
-
-                <label for="tipo_produto">Tipo de Produto</label>
-                <input type="text" id="tipo_produto">
 
                 <label for="obs">Obs</label>
                 <textarea id="obs"></textarea>
@@ -1289,6 +1295,7 @@
   <script src="https://www.gstatic.com/firebasejs/9.23.0/firebase-app-compat.js"></script>
   <script src="https://www.gstatic.com/firebasejs/9.23.0/firebase-auth-compat.js"></script>
   <script src="https://www.gstatic.com/firebasejs/9.23.0/firebase-firestore-compat.js"></script>
+  <script src="https://www.gstatic.com/firebasejs/9.23.0/firebase-app-check-compat.js"></script>
 
   <script src="./firebase.js"></script>
   <script src="toast.js"></script>
