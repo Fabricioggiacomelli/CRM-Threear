@@ -966,7 +966,7 @@ function openOfertaDetail(oferta) {
       keys: ["representadaNome","unidade","nome_projeto","valor_total","status","motivo_perda","tipo_produto","obs_geral"] },
     { title: "Pedido",
       show: isPedidoSim(oferta),
-      keys: ["possuiPedido","pedido.numero_pedido","pedido.data_po","pedido.valor_pedido","pedido.cond_pagamento","pedido.ref_projeto","pedido.prazo_entrega_contratual","pedido.sov","pedido.ref_ov","pedido.data_implantacao","pedido.obs"] },
+      keys: ["possuiPedido","pedido.numero_pedido","pedido.data_po","pedido.valor_pedido","pedido.cond_pagamento","pedido.ref_projeto","pedido.prazo_entrega_contratual","pedido.entregue","pedido.solicitacao_oc","pedido.ref_oc","pedido.data_implantacao","pedido.obs"] },
     { title: "Revisão",
       show: isRevisaoSim(oferta),
       keys: ["possuiRevisao","revisao.numero_oferta_anterior","revisao.mudou"] },

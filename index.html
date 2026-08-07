@@ -549,69 +549,77 @@
           <div id="secaoPedido" class="hidden">
             <h3>Informações do Pedido</h3>
 
-            <div class="form-grid">
-              <div class="form-col">
-                <label for="numero_pedido">N° Pedido</label>
-                <input type="text" id="numero_pedido">
+            <div id="blocoPedidos">
+              <div class="pedido-item" data-index="1">
+                <div class="form-grid">
+                  <div class="form-col">
+                    <label for="numero_pedido">N° Pedido</label>
+                    <input type="text" id="numero_pedido" class="ped-numero">
 
-                <label for="data_po">Data Entrada P.O</label>
-                <input type="date" id="data_po">
+                    <label for="data_po">Data Entrada P.O</label>
+                    <input type="date" id="data_po" class="ped-data-po">
 
-                <label for="valor_pedido">VL. Total Pedido *</label>
-                <input type="text" id="valor_pedido" class="money" placeholder="R$">
+                    <label for="valor_pedido">VL. Total Pedido *</label>
+                    <input type="text" id="valor_pedido" class="money ped-valor" placeholder="R$">
 
-                <label for="cond_pagamento">Condição de Pagamento *</label>
-                <input type="text" id="cond_pagamento">
+                    <label for="cond_pagamento">Condição de Pagamento *</label>
+                    <input type="text" id="cond_pagamento" class="ped-cond-pag">
 
-                <label for="ref_projeto">Ref./Projeto *</label>
-                <input type="text" id="ref_projeto">
+                    <label for="ref_projeto">Ref./Projeto *</label>
+                    <input type="text" id="ref_projeto" class="ped-ref-projeto">
 
-                <label for="obs">Obs</label>
-                <textarea id="obs"></textarea>
-              </div>
+                    <label for="obs">Obs</label>
+                    <textarea id="obs" class="ped-obs"></textarea>
+                  </div>
 
-              <div class="form-col">
+                  <div class="form-col">
 
-                <div id="blocoNotasFiscais">
-                  <div class="nf-item" data-index="1">
-                    <label for="data_nf">Data da Nota Fiscal</label>
-                    <input type="date" id="data_nf">
+                    <div id="blocoNotasFiscais" class="bloco-nfs">
+                      <div class="nf-item" data-index="1">
+                        <label for="data_nf">Data da Nota Fiscal</label>
+                        <input type="date" id="data_nf" class="nf-data">
 
-                    <label for="numero_nf">Número da NF</label>
-                    <input type="text" id="numero_nf">
+                        <label for="numero_nf">Número da NF</label>
+                        <input type="text" id="numero_nf" class="nf-numero">
 
-                    <label for="valor_nf">Valor da Nota Fiscal</label>
-                    <input type="text" id="valor_nf" class="money" placeholder="R$">
+                        <label for="valor_nf">Valor da Nota Fiscal</label>
+                        <input type="text" id="valor_nf" class="money nf-valor" placeholder="R$">
+                      </div>
+                    </div>
+
+                    <button type="button" id="btnAdicionarNF" class="secondary btn-add-nf">
+                      Adicionar NF
+                    </button>
+
+                    <label for="prazo_entrega_contratual">Prazo de entrega contratual</label>
+                    <input type="date" id="prazo_entrega_contratual" class="ped-prazo">
+
+                    <label>Entregue?</label>
+                    <div class="radio-group">
+                      <label><input type="radio" name="entregue" class="ped-entregue" value="sim"> Sim</label>
+                      <label><input type="radio" name="entregue" class="ped-entregue" value="nao" checked> Não</label>
+                    </div>
+
+                    <label>Solicitação de ordem de venda?</label>
+                    <div class="radio-group">
+                      <label><input type="radio" name="sol_oc" class="ped-sol-oc" value="sim"> Sim</label>
+                      <label><input type="radio" name="sol_oc" class="ped-sol-oc" value="nao" checked> Não</label>
+                    </div>
+
+                    <label for="ref_oc">Ref da ordem de venda</label>
+                    <input type="text" id="ref_oc" class="ped-ref-oc">
+
+                    <label for="data_implantacao">Data de Implantação</label>
+                    <input type="date" id="data_implantacao" class="ped-data-impl">
+
                   </div>
                 </div>
-
-                <button type="button" id="btnAdicionarNF" class="secondary">
-                  Adicionar NF
-                </button>
-
-                <label for="prazo_entrega_contratual">Prazo de entrega contratual</label>
-                <input type="date" id="prazo_entrega_contratual">
-
-                <label>Entregue?</label>
-                <div class="radio-group">
-                  <label><input type="radio" name="entregue" value="sim"> Sim</label>
-                  <label><input type="radio" name="entregue" value="nao" checked> Não</label>
-                </div>
-
-                <label>Solicitação de ordem de venda?</label>
-                <div class="radio-group">
-                  <label><input type="radio" name="sol_oc" value="sim"> Sim</label>
-                  <label><input type="radio" name="sol_oc" value="nao" checked> Não</label>
-                </div>
-
-                <label for="ref_oc">Ref da ordem de venda</label>
-                <input type="text" id="ref_oc">
-
-                <label for="data_implantacao">Data de Implantação</label>
-                <input type="date" id="data_implantacao">
-
               </div>
             </div>
+
+            <button type="button" id="btnAdicionarPedido" class="secondary" style="margin-top:12px;">
+              + Adicionar Pedido 2
+            </button>
           </div>
 
           <button type="button" id="btnAdicionar">Adicionar</button>

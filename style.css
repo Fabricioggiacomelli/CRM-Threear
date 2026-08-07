@@ -2257,6 +2257,11 @@ body.dark .gen-readonly {
 .nf-title { font-size: 13px; font-weight: 700; color: var(--text-strong); }
 .nf-divider { border: 0; border-top: 1px dashed var(--border-soft); margin: 16px 0 10px; }
 
+/* Múltiplos pedidos por oferta */
+.pedido-item + .pedido-item { border-top: 2px solid var(--border-soft); margin-top: 22px; padding-top: 6px; }
+.pedido-header-row { display: flex; align-items: center; justify-content: space-between; gap: 10px; margin: 14px 0 8px; }
+.pedido-title { font-size: 14px; font-weight: 700; color: var(--primary); }
+
 .badge-atrasado {
   display: inline-flex;
   align-items: center;

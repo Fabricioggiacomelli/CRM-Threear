@@ -29,8 +29,11 @@ window.OFERTA_SCHEMA = [
   { key: "pedido.obs", label: "Obs" },
   
   { key: "pedido.prazo_entrega_contratual", label: "Prazo de Entrega Contratual", type: "date", },
-  { key: "pedido.sov", label: "SOV", type: "yesno" },
-  { key: "pedido.ref_ov", label: "Ref OV" },
+  { key: "pedido.entregue", label: "Entregue", type: "yesno" },
+  // Chaves reais do pedido salvo (antes: pedido.sov / pedido.ref_ov — não existem nos
+  // dados, então essas colunas saíam sempre vazias na exportação e no PDF).
+  { key: "pedido.solicitacao_oc", label: "SOV", type: "yesno" },
+  { key: "pedido.ref_oc", label: "Ref OV" },
   { key: "pedido.data_implantacao", label: "Data de Implantação", type: "date", },
 
   { key: "possuiRevisao", label: "Revisão (Sim / Não)", type: "yesno" },
