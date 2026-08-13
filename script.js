@@ -7847,7 +7847,7 @@ function addFiltroClienteRow(field = "todos", term = "") {
 
     <div class="multiTermWrap"></div>
 
-    <button type="button" class="btn-remove">Remover</button>
+    <button type="button" class="secondary btn-remove">Remover</button>
   `;
 
   wrap.appendChild(div);
@@ -9708,7 +9708,7 @@ function addFiltroProjetoRow(field = "todos", term = "") {
       <option value="usuario">Usuário</option>
     </select>
     <div class="multiTermWrap"></div>
-    <button type="button" class="btn-remove">Remover</button>
+    <button type="button" class="secondary btn-remove">Remover</button>
   `;
 
   wrap.appendChild(div);

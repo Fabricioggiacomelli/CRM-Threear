@@ -2227,6 +2227,48 @@ body.dark .btn-alerta-mais {
   /* iOS dá zoom automático ao focar campo com fonte < 16px — e não volta sozinho.
      Forçar 16px nos campos evita o zoom, sem precisar bloquear o pinch do usuário. */
   input, select, textarea { font-size: 16px !important; }
+
+  /* ── Menu lateral: ícone + TEXTO ───────────────────────────────────
+     A sidebar nasce com .collapsed (só ícones) e o "expandir" existia apenas
+     no hover do desktop — no celular o usuário via só emojis, sem saber para
+     onde ia. Aberta no celular, ela mostra o rótulo junto. */
+  .sidebar,
+  .sidebar.collapsed { width: 248px; }
+  .sidebar.collapsed .sidebar-title,
+  .sidebar.collapsed .label {
+    opacity: 1;
+    width: auto;
+    pointer-events: auto;
+  }
+  .sidebar.collapsed .menu-item { justify-content: flex-start; }
+
+  /* ── Filtros ───────────────────────────────────────────────────────
+     Cada filtro vira um bloco: campo em cima, valor embaixo e um "Remover"
+     discreto à direita (antes o Remover ocupava a linha toda e parecia o
+     botão principal da tela). */
+  .filter-item {
+    flex-direction: column;
+    align-items: stretch;
+    gap: 8px;
+    padding: 10px;
+    border: 1px solid var(--border-soft);
+    border-radius: 12px;
+  }
+  .filter-item .multiTermWrap { width: 100%; }
+  .filter-item select,
+  .filter-item input {
+    width: 100% !important;
+    min-width: 0 !important;
+    flex: unset !important;
+  }
+  #filtersRegistros .btn-remove,
+  #filtersClientes .btn-remove,
+  #filtersProjetos .btn-remove,
+  .filter-item .btn-remove {
+    width: auto !important;
+    align-self: flex-end;
+    padding: 6px 14px;
+  }
 }
 
 /* =========================
