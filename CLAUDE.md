@@ -160,6 +160,14 @@ On phones the CRM is a **consultation panel**: browse, filter, open detail modal
 
 Marked `data-desktop-only` in `index.html`: the 7 write/admin sidebar items (Cadastro Oferta, Gerador, Correlação, Backup, Lixeira, Aprovar Usuários, Auditoria); the write-only sections (`secCadastro`, `secBackup`, `secaoLixeira`, `secAprovacaoUsuarios`, `secAuditoria`); the 3 export buttons in `secRegistros`; and a wrapper `<div>` around the **form half** of the three mixed sections (`secClientes`, `secProjetos`, `secRepresentadas`), which each hold "Cadastro de X" (form) followed by "Consultar X" (list) — the wrapper runs from the `<h3>` to the Salvar/Cancelar buttons, so the list below stays visible.
 
+**Every data table must sit inside `<div class="table-scroll">.**` That wrapper is what keeps a wide table scrolling inside its own box instead of stretching the page. Registros and Lixeira had it; Clientes, Projetos and Representadas did not, so on a phone their tables pushed the whole layout past the viewport and the content was cut off — all five are wrapped now.
+
+Two layout fixes that make the mobile view usable, both easy to regress:
+- `.main-content` needs `min-width: 0`. It is a flex item of `body`, and flex items refuse to shrink below their content's intrinsic width — with `.table-scroll table { min-width: 1100px }` that stretched the **page** to 1100px on a 390px phone.
+- Form controls are forced to `font-size: 16px` on mobile. iOS Safari auto-zooms on focus of any field below 16px and never zooms back out — that was the "zoom preso" report, not the user pinching. `maximum-scale`/`user-scalable=no` do **not** help: iOS has ignored them since iOS 10.
+
+The row `⋮` (`.btn-kebab`) deliberately stays visible on mobile — it is the only way to open the detail modal. Its menu is filtered instead: the write entries (`#actEditar`, `#actExcluir`, `#actExportar`, `#actAprovar`, `#actBloquear`, `#actToggleAtivo`, `#actResetMfa`, `#actExcluirFirestore`, `#actRestaurar`, `#actExcluirDefinitivo`) are hidden, leaving Ver / Ver contatos / Ver ofertas. Those need `!important` because `openActionsMenu()` sets `style.display` inline.
+
 Note `irPara()` only does `scrollIntoView` — every section lives on the same page — so hiding the menu item alone is not enough; the section itself must be hidden. This is a **UI restriction, not a security boundary** (same class as `podeVerDe`): a phone user could still reach the desktop layout. Real permissions stay in the Firestore rules.
 
 ### Dashboard (`dashboard.html` / `dashboard.js`)
