@@ -2195,8 +2195,10 @@ body.dark .btn-alerta-mais {
      Marque com [data-desktop-only] tudo que for ação/cadastro.
      (É uma restrição de INTERFACE, não de segurança — as permissões reais
      continuam nas regras do Firestore.) */
+  /* O ⋮ CONTINUA visível: é por ele que se abre o modal de detalhes (única forma
+     de ver a proposta completa no celular). O menu dele é filtrado logo abaixo,
+     deixando só as opções de visualizar. */
   [data-desktop-only],
-  .btn-kebab,
   .alerta-actions,
   .alerta-actions-secondary,
   .btn-alerta-mais,
@@ -2205,13 +2207,26 @@ body.dark .btn-alerta-mais {
   .ct-btn-edit,
   .ct-btn-del,
   .ct-btn-restore,
-  .col-acoes {          /* coluna "Ações" inteira (th + td), não só o botão */
+  /* Do menu ⋮ sobram apenas as opções de VISUALIZAR (Ver / Ver contatos / Ver ofertas). */
+  #actExportar,
+  #actEditar,
+  #actExcluir,
+  #actAprovar,
+  #actBloquear,
+  #actToggleAtivo,
+  #actResetMfa,
+  #actExcluirFirestore,
+  #actRestaurar,
+  #actExcluirDefinitivo {
     display: none !important;
   }
 
-  /* Tabelas: no celular a coluna de ações some, então o mínimo de 1100px
-     (pensado para o desktop) só criava rolagem lateral desnecessária. */
+  /* Tabelas: menos colunas obrigatórias = menos rolagem lateral no celular. */
   .table-scroll table { min-width: 720px; }
+
+  /* iOS dá zoom automático ao focar campo com fonte < 16px — e não volta sozinho.
+     Forçar 16px nos campos evita o zoom, sem precisar bloquear o pinch do usuário. */
+  input, select, textarea { font-size: 16px !important; }
 }
 
 /* =========================
