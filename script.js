@@ -2267,7 +2267,7 @@ function renderTabela() {
         <td>${pedidoIcon}</td>
         <td>${revisaoIcon}</td>
         <td>${usuario}</td>
-<td style="text-align:center;">
+<td class="col-acoes" style="text-align:center;">
   <button class="btn-kebab" onclick="openActionsMenu(event,'oferta','${reg.id}')">...</button>
 </td>
       `;
@@ -4593,7 +4593,7 @@ function renderTabelaClientes() {
         <td class="col-center">${qtdOfertas}</td>
         <td class="col-center">${qtdContatos}</td>
         <td>${usuario}</td>
-        <td style="text-align:center;">
+        <td class="col-acoes" style="text-align:center;">
           <button class="btn-kebab" onclick="openActionsMenu(event,'cliente','${cli.id}')">...</button>
         </td>
       `;
@@ -5064,7 +5064,7 @@ function renderTabelaRepresentadas() {
       <td>${esc(rep.nome)} ${badgeRep}${semNFBadge}${margemBadge}</td>
       <td class="col-center">${qtdOfertas}</td>
       <td>${esc(usuario)}</td>
-      <td style="text-align:center;">
+      <td class="col-acoes" style="text-align:center;">
         <button class="btn-kebab" onclick="openActionsMenu(event,'rep','${rep.id}')">...</button>
       </td>
     `;
@@ -9673,7 +9673,7 @@ function renderTabelaProjetos() {
         <td>${esc(proj.numero_referencia)}</td>
         <td class="col-center">${qtdOfertas}</td>
         <td>${esc(usuario)}</td>
-        <td style="text-align:center;">
+        <td class="col-acoes" style="text-align:center;">
           <button class="btn-kebab" onclick="openActionsMenu(event,'projeto','${proj.id}')">...</button>
         </td>
       `;

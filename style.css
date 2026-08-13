@@ -278,6 +278,10 @@ body.dark .menu-item.logout { color: #f87171 !important; }
 
 .main-content {
   flex: 1;
+  /* Flex item não encolhe abaixo do conteúdo sem isto: as tabelas têm
+     min-width:1100px e esticavam a PÁGINA inteira no celular (tudo cortado).
+     Com min-width:0 o overflow fica dentro do .table-scroll, como deve ser. */
+  min-width: 0;
   width: calc(100% - 272px);
   margin-left: 260px;
   padding: 20px 16px 24px 0;
@@ -2200,9 +2204,14 @@ body.dark .btn-alerta-mais {
   .ct-add-btn,
   .ct-btn-edit,
   .ct-btn-del,
-  .ct-btn-restore {
+  .ct-btn-restore,
+  .col-acoes {          /* coluna "Ações" inteira (th + td), não só o botão */
     display: none !important;
   }
+
+  /* Tabelas: no celular a coluna de ações some, então o mínimo de 1100px
+     (pensado para o desktop) só criava rolagem lateral desnecessária. */
+  .table-scroll table { min-width: 720px; }
 }
 
 /* =========================
