@@ -188,22 +188,50 @@ function _nfCobertaPedido(pedido, margemPct = 0) {
   return _calcularSomaNFs(pedido) >= valorPedido * fator;
 }
 
+// ── Alertas POR PEDIDO ────────────────────────────────────────────────────────
+// Uma oferta pode ter vários pedidos, cada um com prazo, valor e NFs próprios — então
+// prazo_entrega, prazo_entrega_atrasado e pedido_sem_nf são gerados por pedido.
+// Para não invalidar os alertas já existentes na base, o 1º pedido MANTÉM a chave
+// antiga (sem sufixo) e os demais recebem "_p2", "_p3"... Sem isso, os alertas abertos
+// hoje ficariam órfãos e seriam recriados duplicados.
+function _pedidosDaOferta(reg) {
+  if (typeof getPedidosRegistro === "function") return getPedidosRegistro(reg) || [];
+  if (Array.isArray(reg?.pedidos) && reg.pedidos.length) return reg.pedidos;
+  return reg?.pedido ? [reg.pedido] : [];
+}
+
+function _refPedidoAlerta(base, idx) {
+  const suf = idx > 0 ? `p${idx + 1}` : "";
+  if (!base) return suf;
+  return suf ? `${base}_${suf}` : base;
+}
+
+// Rótulo do pedido nas descrições. Vazio quando a oferta tem um pedido só — assim
+// o texto dos alertas antigos continua idêntico.
+function _labelPedidoAlerta(reg, idx) {
+  const pedidos = _pedidosDaOferta(reg);
+  if (pedidos.length <= 1) return "";
+  const num = String(pedidos[idx]?.numero_pedido || "").trim();
+  return num ? ` (pedido ${idx + 1} — ${num})` : ` (pedido ${idx + 1})`;
+}
+
 // Fonte única dos dados financeiros + descrição de um alerta pedido_sem_nf,
 // calculada a partir do estado ATUAL da oferta. Usada na criação do alerta e
 // no render do card — assim o card nunca fica defasado de um snapshot antigo.
-function _dadosPedidoSemNF(reg) {
-  const pedido = reg?.pedido || {};
+function _dadosPedidoSemNF(reg, idx = 0) {
+  const pedido = _pedidosDaOferta(reg)[idx] || {};
   const valorPedido = _parseMoedaBR(pedido.valor_pedido);
   const somaNFs = _calcularSomaNFs(pedido);
   const valorFaltante = valorPedido > 0 ? Math.max(0, valorPedido - somaNFs) : null;
   const num = getNumeroOfertaTexto(reg);
+  const rot = _labelPedidoAlerta(reg, idx);
   let descricao;
   if (valorPedido > 0 && somaNFs > 0) {
-    descricao = `Oferta ${num}: NFs somam ${_formatMoedaBR(somaNFs)}, mas o pedido é de ${_formatMoedaBR(valorPedido)}.`;
+    descricao = `Oferta ${num}${rot}: NFs somam ${_formatMoedaBR(somaNFs)}, mas o pedido é de ${_formatMoedaBR(valorPedido)}.`;
   } else if (valorPedido > 0) {
-    descricao = `Oferta ${num}: pedido de ${_formatMoedaBR(valorPedido)} sem NF registrada.`;
+    descricao = `Oferta ${num}${rot}: pedido de ${_formatMoedaBR(valorPedido)} sem NF registrada.`;
   } else {
-    descricao = `Oferta ${num} possui pedido, mas ainda não tem NF registrada.`;
+    descricao = `Oferta ${num}${rot} possui pedido, mas ainda não tem NF registrada.`;
   }
   return { valorPedido, somaNFs, valorFaltante, descricao };
 }
@@ -727,12 +755,12 @@ async function adicionarHistoricoAlerta(alertaId, acao, extra = {}) {
 // VERIFICAÇÕES PRINCIPAIS
 // =========================
 
-async function _fecharPrazoEntregaAberto(registroId, prazo) {
+async function _fecharPrazoEntregaAberto(registroId, prazo, idxPedido = 0) {
   const chave = montarChaveAlerta({
     tipo: "prazo_entrega",
     entidade: "oferta",
     entidadeId: registroId,
-    referencia: prazo
+    referencia: _refPedidoAlerta(prazo, idxPedido)
   });
   const existente = await buscarAlertaPorChave(chave);
   const STATUS_ATIVOS = ["aberto", "adiado", "aguardando_aprovacao_resolucao", "aguardando_aprovacao_ignorar"];
@@ -759,14 +787,6 @@ async function verificarAlertasPrazoEntrega() {
     const statusReg = String(reg.status || "").trim().toLowerCase();
     if (statusReg === "perdido" || statusReg === "declinado") continue;
 
-    const prazo = reg?.pedido?.prazo_entrega_contratual;
-    const entregue = String(reg?.pedido?.entregue || "nao").toLowerCase() === "sim";
-
-    if (!prazo || entregue) continue;
-
-    const dias = diferencaDiasAlerta(prazo);
-    if (dias === null) continue;
-
     const email = normalizarEmailAlerta(reg.responsavelEmail);
     if (!email) continue;
 
@@ -774,66 +794,83 @@ async function verificarAlertasPrazoEntrega() {
     if (email !== emailLogado) continue;
 
     const numeroOferta = getNumeroOfertaTexto(reg);
+    const pedidos = _pedidosDaOferta(reg);
 
-    if (marcos.includes(dias)) {
-      const chavePrazo = montarChaveAlerta({
-        tipo: "prazo_entrega",
-        entidade: "oferta",
-        entidadeId: reg.id,
-        referencia: prazo
-      });
+    // Cada pedido tem seu próprio prazo e seu próprio "entregue" → um alerta por pedido.
+    for (let idx = 0; idx < pedidos.length; idx++) {
+      const ped = pedidos[idx] || {};
+      const prazo = ped.prazo_entrega_contratual;
+      const entregue = String(ped.entregue || "nao").toLowerCase() === "sim";
 
-      // Guarda: se já foi resolvido nas últimas 24h (mesmo dia do marco), não recriar
-      const existentePrazo = await buscarAlertaPorChave(chavePrazo);
-      if (existentePrazo?.status === "resolvido" && existentePrazo?.resolvidoEm) {
-        const horasDesdeResolucao = (Date.now() - new Date(existentePrazo.resolvidoEm).getTime()) / 3600000;
-        if (horasDesdeResolucao < 24) continue;
+      if (!prazo || entregue) continue;
+
+      const dias = diferencaDiasAlerta(prazo);
+      if (dias === null) continue;
+
+      const rotPedido = _labelPedidoAlerta(reg, idx);
+
+      if (marcos.includes(dias)) {
+        const chavePrazo = montarChaveAlerta({
+          tipo: "prazo_entrega",
+          entidade: "oferta",
+          entidadeId: reg.id,
+          referencia: _refPedidoAlerta(prazo, idx)
+        });
+
+        // Guarda: se já foi resolvido nas últimas 24h (mesmo dia do marco), não recriar
+        const existentePrazo = await buscarAlertaPorChave(chavePrazo);
+        if (existentePrazo?.status === "resolvido" && existentePrazo?.resolvidoEm) {
+          const horasDesdeResolucao = (Date.now() - new Date(existentePrazo.resolvidoEm).getTime()) / 3600000;
+          if (horasDesdeResolucao < 24) continue;
+        }
+
+        await criarOuAtualizarAlerta({
+          tipo: "prazo_entrega",
+          entidade: "oferta",
+          entidadeId: reg.id,
+          pedidoIndice: idx,
+          titulo: "Prazo de entrega próximo",
+          descricao: `Oferta ${numeroOferta}${rotPedido} com ${dias} dia(s) para entrega.`,
+          responsavelEmail: email,
+          prioridade: dias <= 1 ? "critica" : dias <= 3 ? "alta" : "media",
+          atraso: false,
+          dataReferencia: prazo,
+          chaveUnica: chavePrazo
+        });
       }
 
-      await criarOuAtualizarAlerta({
-        tipo: "prazo_entrega",
-        entidade: "oferta",
-        entidadeId: reg.id,
-        titulo: "Prazo de entrega próximo",
-        descricao: `Oferta ${numeroOferta} com ${dias} dia(s) para entrega.`,
-        responsavelEmail: email,
-        prioridade: dias <= 1 ? "critica" : dias <= 3 ? "alta" : "media",
-        atraso: false,
-        dataReferencia: prazo,
-        chaveUnica: chavePrazo
-      });
-    }
+      if (dias < 0) {
+        // Fecha o prazo_entrega aberto (data já passou, não faz sentido continuar aberto)
+        await _fecharPrazoEntregaAberto(reg.id, prazo, idx);
 
-    if (dias < 0) {
-      // Fecha o prazo_entrega aberto (data já passou, não faz sentido continuar aberto)
-      await _fecharPrazoEntregaAberto(reg.id, prazo);
+        const chaveAtrasado = montarChaveAlerta({
+          tipo: "prazo_entrega_atrasado",
+          entidade: "oferta",
+          entidadeId: reg.id,
+          referencia: _refPedidoAlerta(prazo, idx)
+        });
 
-      const chaveAtrasado = montarChaveAlerta({
-        tipo: "prazo_entrega_atrasado",
-        entidade: "oferta",
-        entidadeId: reg.id,
-        referencia: prazo
-      });
+        // Guarda: se foi resolvido há menos de 2h, não recriar (race condition pós-resolução)
+        const existenteAtrasado = await buscarAlertaPorChave(chaveAtrasado);
+        if (existenteAtrasado?.status === "resolvido" && existenteAtrasado?.resolvidoEm) {
+          const horasDesdeResolucao = (Date.now() - new Date(existenteAtrasado.resolvidoEm).getTime()) / 3600000;
+          if (horasDesdeResolucao < 2) continue;
+        }
 
-      // Guarda: se foi resolvido há menos de 2h, não recriar (race condition pós-resolução)
-      const existenteAtrasado = await buscarAlertaPorChave(chaveAtrasado);
-      if (existenteAtrasado?.status === "resolvido" && existenteAtrasado?.resolvidoEm) {
-        const horasDesdeResolucao = (Date.now() - new Date(existenteAtrasado.resolvidoEm).getTime()) / 3600000;
-        if (horasDesdeResolucao < 2) continue;
+        await criarOuAtualizarAlerta({
+          tipo: "prazo_entrega_atrasado",
+          entidade: "oferta",
+          entidadeId: reg.id,
+          pedidoIndice: idx,
+          titulo: "Prazo de entrega atrasado",
+          descricao: `Oferta ${numeroOferta}${rotPedido} está atrasada há ${Math.abs(dias)} dia(s).`,
+          responsavelEmail: email,
+          prioridade: "critica",
+          atraso: true,
+          dataReferencia: prazo,
+          chaveUnica: chaveAtrasado
+        });
       }
-
-      await criarOuAtualizarAlerta({
-        tipo: "prazo_entrega_atrasado",
-        entidade: "oferta",
-        entidadeId: reg.id,
-        titulo: "Prazo de entrega atrasado",
-        descricao: `Oferta ${numeroOferta} está atrasada há ${Math.abs(dias)} dia(s).`,
-        responsavelEmail: email,
-        prioridade: "critica",
-        atraso: true,
-        dataReferencia: prazo,
-        chaveUnica: chaveAtrasado
-      });
     }
   }
 }
@@ -959,61 +996,69 @@ async function verificarAlertasPedidoSemNF() {
     if (!email) continue;
     if (email !== emailLogado) continue;
 
-    const pedido = reg.pedido || {};
+    const margem = _margemNFDaOferta(reg);
+    const pedidos = _pedidosDaOferta(reg);
 
-    // Resolução real: soma das NFs cobre o valor do pedido (respeitando margem da representada)
-    if (_nfCobertaPedido(pedido, _margemNFDaOferta(reg))) continue;
+    // Cada pedido tem valor e NFs próprios → um alerta por pedido.
+    for (let idx = 0; idx < pedidos.length; idx++) {
+      const pedido = pedidos[idx] || {};
 
-    // Determina se deve disparar com base no tipo de prazo
-    const prazoEntrega = pedido.prazo_entrega_contratual;
-    let deveDisparar = false;
-    let dataReferencia;
+      // Resolução real: soma das NFs cobre o valor do pedido (respeitando margem da representada)
+      if (_nfCobertaPedido(pedido, margem)) continue;
 
-    if (prazoEntrega) {
-      // Com data de entrega: apitar a partir de D-2 (inclusive após a data)
-      const dias = diferencaDiasAlerta(prazoEntrega);
-      deveDisparar = dias !== null && dias <= diasAntesEntrega;
-      dataReferencia = prazoEntrega;
-    } else {
-      // Sem data de entrega: apitar após 120h desde que foi salvo
-      dataReferencia = pedido.data_po || reg.atualizadoEm || reg.criadoEm;
-      const horas = diferencaHorasDesdeAlerta(dataReferencia);
-      deveDisparar = horas !== null && horas >= limiteHorasSemPrazo;
+      // Determina se deve disparar com base no tipo de prazo
+      const prazoEntrega = pedido.prazo_entrega_contratual;
+      let deveDisparar = false;
+      let dataReferencia;
+
+      if (prazoEntrega) {
+        // Com data de entrega: apitar a partir de D-2 (inclusive após a data)
+        const dias = diferencaDiasAlerta(prazoEntrega);
+        deveDisparar = dias !== null && dias <= diasAntesEntrega;
+        dataReferencia = prazoEntrega;
+      } else {
+        // Sem data de entrega: apitar após 120h desde que foi salvo
+        dataReferencia = pedido.data_po || reg.atualizadoEm || reg.criadoEm;
+        const horas = diferencaHorasDesdeAlerta(dataReferencia);
+        deveDisparar = horas !== null && horas >= limiteHorasSemPrazo;
+      }
+
+      if (!deveDisparar) continue;
+
+      const chaveUnicaNF = montarChaveAlerta({
+        tipo: "pedido_sem_nf",
+        entidade: "oferta",
+        entidadeId: reg.id,
+        referencia: _refPedidoAlerta("", idx)
+      });
+
+      // Guarda: se foi resolvido recentemente sem valores baterem, não recriar imediatamente
+      const existenteNF = await buscarAlertaPorChave(chaveUnicaNF);
+      if (existenteNF?.status === "resolvido" && existenteNF?.resolvidoEm) {
+        const horasDesdeResolucao = (Date.now() - new Date(existenteNF.resolvidoEm).getTime()) / 3600000;
+        if (horasDesdeResolucao < 24) continue;
+      }
+
+      // Calcula valor faltante + descrição para exibir no card (fonte única)
+      const { valorPedido, somaNFs, valorFaltante, descricao } = _dadosPedidoSemNF(reg, idx);
+
+      await criarOuAtualizarAlerta({
+        tipo: "pedido_sem_nf",
+        entidade: "oferta",
+        entidadeId: reg.id,
+        pedidoIndice: idx,
+        titulo: "Pedido sem NF",
+        descricao,
+        responsavelEmail: email,
+        prioridade: "alta",
+        atraso: true,
+        dataReferencia,
+        valorPedido,
+        somaNFs,
+        valorFaltante,
+        chaveUnica: chaveUnicaNF
+      });
     }
-
-    if (!deveDisparar) continue;
-
-    const chaveUnicaNF = montarChaveAlerta({
-      tipo: "pedido_sem_nf",
-      entidade: "oferta",
-      entidadeId: reg.id
-    });
-
-    // Guarda: se foi resolvido recentemente sem valores baterem, não recriar imediatamente
-    const existenteNF = await buscarAlertaPorChave(chaveUnicaNF);
-    if (existenteNF?.status === "resolvido" && existenteNF?.resolvidoEm) {
-      const horasDesdeResolucao = (Date.now() - new Date(existenteNF.resolvidoEm).getTime()) / 3600000;
-      if (horasDesdeResolucao < 24) continue;
-    }
-
-    // Calcula valor faltante + descrição para exibir no card (fonte única)
-    const { valorPedido, somaNFs, valorFaltante, descricao } = _dadosPedidoSemNF(reg);
-
-    await criarOuAtualizarAlerta({
-      tipo: "pedido_sem_nf",
-      entidade: "oferta",
-      entidadeId: reg.id,
-      titulo: "Pedido sem NF",
-      descricao,
-      responsavelEmail: email,
-      prioridade: "alta",
-      atraso: true,
-      dataReferencia,
-      valorPedido,
-      somaNFs,
-      valorFaltante,
-      chaveUnica: chaveUnicaNF
-    });
   }
 }
 
@@ -1120,7 +1165,8 @@ async function resolverAlertasMargemNFUmaVez() {
     if (!reg) return false;
     const margem = _margemNFDaOferta(reg);
     if (margem <= 0) return false; // só ofertas de representadas com margem
-    return _nfCobertaPedido(reg.pedido || {}, margem);
+    const ped = _pedidosDaOferta(reg)[Number(a.pedidoIndice) || 0];
+    return _nfCobertaPedido(ped || {}, margem);
   });
   if (!alvos.length) return;
 
@@ -1745,7 +1791,7 @@ function renderListaAlertas() {
     if (a.tipo === "pedido_sem_nf") {
       const regAlerta = _regsPorId.get(a.entidadeId);
       if (regAlerta) {
-        const d = _dadosPedidoSemNF(regAlerta);
+        const d = _dadosPedidoSemNF(regAlerta, Number(a.pedidoIndice) || 0);
         descCard = d.descricao; vPedido = d.valorPedido; vNF = d.somaNFs; vFalta = d.valorFaltante || 0;
       }
     }
@@ -1884,22 +1930,47 @@ async function aplicarEfeitoResolucaoAlerta(alerta) {
   if (!entidadeId) return;
 
   if (tipo === "prazo_entrega" || tipo === "prazo_entrega_atrasado") {
-    await marcarRegistroEntregue(entidadeId);
+    await marcarRegistroEntregue(entidadeId, Number(alerta?.pedidoIndice) || 0);
   } else if (tipo === "followup") {
     await resetarFollowUpRegistro(entidadeId);
   }
   // pedido_sem_nf: sem efeito — só para quando NF for adicionada
 }
 
-async function marcarRegistroEntregue(registroId) {
+// Marca como entregue o pedido que originou o alerta (não sempre o 1º).
+// Firestore não faz merge dentro de array, então para pedidos 2+ reescrevemos o array
+// inteiro a partir do estado em memória.
+async function marcarRegistroEntregue(registroId, idxPedido = 0) {
   const agora = agoraISOAlerta();
+  const i = (registros || []).findIndex((r) => r.id === registroId);
+  const reg = i !== -1 ? registros[i] : null;
+  const pedidos = reg ? _pedidosDaOferta(reg).map((p) => ({ ...(p || {}) })) : [];
+
+  // Oferta com um pedido só (ou registro fora do cache): caminho antigo, merge simples.
+  if (idxPedido === 0 && pedidos.length <= 1) {
+    await window.db.collection("ofertas").doc(registroId).set(
+      { pedido: { entregue: "sim", entregueEm: agora } },
+      { merge: true }
+    );
+    if (reg) {
+      registros[i].pedido = { ...(reg.pedido || {}), entregue: "sim", entregueEm: agora };
+    }
+    return;
+  }
+
+  if (!pedidos[idxPedido]) return; // índice inválido — não mexe em nada
+
+  pedidos[idxPedido].entregue = "sim";
+  pedidos[idxPedido].entregueEm = agora;
+
+  // `pedido` continua sendo o espelho do 1º pedido (compatibilidade com o resto do app).
   await window.db.collection("ofertas").doc(registroId).set(
-    { pedido: { entregue: "sim", entregueEm: agora } },
+    { pedidos, pedido: pedidos[0] },
     { merge: true }
   );
-  const idx = (registros || []).findIndex((r) => r.id === registroId);
-  if (idx !== -1) {
-    registros[idx].pedido = { ...(registros[idx].pedido || {}), entregue: "sim", entregueEm: agora };
+  if (reg) {
+    registros[i].pedidos = pedidos;
+    registros[i].pedido = pedidos[0];
   }
 }
 
@@ -2242,26 +2313,31 @@ async function onRegistroSalvoReset(registroId) {
     "aguardando_aprovacao_resolucao", "aguardando_aprovacao_ignorar"
   ];
 
-  const TIPOS_AUTO_RESET = ["followup"];
+  const chavesAutoReset = [
+    montarChaveAlerta({ tipo: "followup", entidade: "oferta", entidadeId: registroId })
+  ];
 
-  // Se as NFs agora cobrem o valor do pedido (com margem da representada), auto-resolve pedido_sem_nf
+  // pedido_sem_nf é por pedido: auto-resolve o alerta de CADA pedido cujas NFs já
+  // cobrem o valor (respeitando a margem da representada).
   const reg = (registros || []).find((r) => r.id === registroId);
   if (reg && String(reg.possuiPedido || "").toLowerCase() === "sim") {
-    if (_nfCobertaPedido(reg.pedido || {}, _margemNFDaOferta(reg))) {
-      TIPOS_AUTO_RESET.push("pedido_sem_nf");
-    }
+    const margem = _margemNFDaOferta(reg);
+    _pedidosDaOferta(reg).forEach((ped, idx) => {
+      if (_nfCobertaPedido(ped || {}, margem)) {
+        chavesAutoReset.push(montarChaveAlerta({
+          tipo: "pedido_sem_nf",
+          entidade: "oferta",
+          entidadeId: registroId,
+          referencia: _refPedidoAlerta("", idx)
+        }));
+      }
+    });
   }
 
   const usuario = getUsuarioAcaoAlertas();
   const agora = agoraISOAlerta();
 
-  for (const tipo of TIPOS_AUTO_RESET) {
-    const chaveUnica = montarChaveAlerta({
-      tipo,
-      entidade: "oferta",
-      entidadeId: registroId
-    });
-
+  for (const chaveUnica of chavesAutoReset) {
     const alerta = await buscarAlertaPorChave(chaveUnica);
     if (!alerta) continue;
     if (STATUS_IGNORAR.includes(alerta.status)) continue;

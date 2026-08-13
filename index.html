@@ -247,7 +247,7 @@
     </div>
 
     <nav class="sidebar-menu">
-      <button type="button" class="menu-item" onclick="irPara('cadastro')">
+      <button type="button" class="menu-item" data-desktop-only onclick="irPara('cadastro')">
         <span class="icon">📝</span>
         <span class="label">Cadastro Oferta</span>
       </button>
@@ -272,32 +272,32 @@
         <span class="label">Representadas</span>
       </button>
 
-      <button type="button" class="menu-item" onclick="window.location.href='gerador.html'">
+      <button type="button" class="menu-item" data-desktop-only onclick="window.location.href='gerador.html'">
         <span class="icon">📄</span>
         <span class="label">Gerador de Ofertas</span>
       </button>
 
-      <button type="button" class="menu-item" onclick="window.location.href='correlacao.html'">
+      <button type="button" class="menu-item" data-desktop-only onclick="window.location.href='correlacao.html'">
         <span class="icon">🔌</span>
         <span class="label">Correlação de Cabos</span>
       </button>
 
-      <button type="button" class="menu-item" onclick="irPara('backup')">
+      <button type="button" class="menu-item" data-desktop-only onclick="irPara('backup')">
         <span class="icon">💾</span>
         <span class="label">Backup</span>
       </button>
 
-      <button type="button" class="menu-item" onclick="irPara('lixeira')">
+      <button type="button" class="menu-item" data-desktop-only onclick="irPara('lixeira')">
         <span class="icon">🗑️</span>
         <span class="label">Lixeira</span>
       </button>
 
-      <button type="button" class="menu-item hidden" id="menuAprovacao" onclick="irPara('aprovacao')">
+      <button type="button" class="menu-item hidden" data-desktop-only id="menuAprovacao" onclick="irPara('aprovacao')">
         <span class="icon">✅</span>
         <span class="label">Aprovar Usuários</span>
       </button>
 
-      <button type="button" class="menu-item hidden" id="menuAuditoria" onclick="irPara('auditoria')">
+      <button type="button" class="menu-item hidden" data-desktop-only id="menuAuditoria" onclick="irPara('auditoria')">
         <span class="icon">🔍</span>
         <span class="label">Auditoria</span>
       </button>
@@ -390,7 +390,7 @@
         </div>
       </div>
 
-      <section id="secCadastro">
+      <section id="secCadastro" data-desktop-only>
         <h3>Cadastro de Oferta</h3>
         <p class="subtitle">(*) Campos obrigatórios</p>
 
@@ -660,9 +660,9 @@
 
         <div class="actions-row">
           <button id="btnVerTudo" class="secondary" type="button">Atualizar Lista</button>
-          <button id="btnExportExcel" class="secondary" type="button">Exportar Registros (Excel)</button>
-          <button id="btnExportPdfResumo" class="secondary" type="button">Gerar PDF Resumido</button>
-          <button id="btnExportPdfCompleto" class="secondary" type="button">Gerar PDF Completo</button>
+          <button id="btnExportExcel" class="secondary" type="button" data-desktop-only>Exportar Registros (Excel)</button>
+          <button id="btnExportPdfResumo" class="secondary" type="button" data-desktop-only>Gerar PDF Resumido</button>
+          <button id="btnExportPdfCompleto" class="secondary" type="button" data-desktop-only>Gerar PDF Completo</button>
         </div>
 
         <div class="table-scroll">
@@ -707,6 +707,7 @@
       </section>
 
       <section id="secClientes">
+        <div data-desktop-only>
         <h3>Cadastro de Clientes</h3>
 
         <div class="form-grid">
@@ -768,6 +769,7 @@
         <button id="btnCancelarEdicaoCliente" type="button" class="btn-cancelar-edicao hidden">
           Cancelar edição
         </button>
+        </div>
 
         <h4 style="margin-top:20px;">Consultar Clientes</h4>
 
@@ -831,6 +833,7 @@
       </section>
 
       <section id="secProjetos">
+        <div data-desktop-only>
         <h3>Cadastro de Projetos</h3>
 
         <div class="form-grid">
@@ -919,6 +922,7 @@
         <button id="btnCancelarEdicaoProjeto" type="button" class="btn-cancelar-edicao hidden">
           Cancelar edição
         </button>
+        </div>
 
         <h4 style="margin-top:20px;">Consultar Projetos</h4>
 
@@ -966,6 +970,7 @@
       </section>
 
       <section id="secRepresentadas">
+        <div data-desktop-only>
         <h3>Cadastro de Representadas</h3>
 
         <div class="form-card" style="border:none">
@@ -985,6 +990,7 @@
         <div style="display:flex;gap:10px;margin-top:16px;flex-wrap:wrap">
           <button type="button" id="btnSalvarRepresentada">Salvar Representada</button>
           <button id="btnCancelarEdicaoRepresentada" type="button" class="secondary hidden">Cancelar edição</button>
+        </div>
         </div>
 
         <h4 style="margin-top:28px;">Representadas Cadastradas</h4>
@@ -1036,7 +1042,7 @@
 
       </section>
 
-      <section id="secBackup">
+      <section id="secBackup" data-desktop-only>
         <h3>Backup</h3>
         <p class="subtitle">
           Exporte um backup dos dados do sistema ou importe um arquivo de backup.
@@ -1057,7 +1063,7 @@
         </div>
       </section>
 
-      <section id="secaoLixeira">
+      <section id="secaoLixeira" data-desktop-only>
         <h3>Lixeira</h3>
         <p class="subtitle">
           Itens excluídos podem ser restaurados em até 7 dias. Após esse prazo, são removidos automaticamente.
@@ -1156,7 +1162,7 @@
         </div>
       </section>
 
-      <section id="secAprovacaoUsuarios" class="hidden">
+      <section id="secAprovacaoUsuarios" class="hidden" data-desktop-only>
         <h3>Aprovar Usuários</h3>
         <p style="opacity:.85">Somente o administrador pode aprovar novos acessos.</p>
 
@@ -1227,7 +1233,7 @@
       </section>
 
       <!-- ── AUDITORIA (admin only) ───────────────────────────── -->
-      <section id="secAuditoria" class="hidden">
+      <section id="secAuditoria" class="hidden" data-desktop-only>
         <h3>Auditoria de Ações</h3>
         <p style="opacity:.85">Registro de todas as ações críticas realizadas no sistema.</p>
 

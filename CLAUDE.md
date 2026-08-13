@@ -146,7 +146,21 @@ When an offer is saved/edited, `onRegistroSalvoReset()` in `alertas.js` is calle
 
 **Fixed while adding this:** `schema.js` had `pedido.sov` / `pedido.ref_ov`, but the saved pedido object uses `solicitacao_oc` / `ref_oc` — so the "SOV" and "Ref OV" columns came out **empty in every Registros export and PDF**, and `pedido.entregue` was missing from the schema entirely. Corrected in `schema.js` and in `dashboard.js`'s `SECTIONS` (which reused the same keys). Import is unaffected: it reads the backup-format keys (`row.SolicitacaoOC`, `row.RefOC`), not the schema labels.
 
-**⚠️ Alerts only look at the FIRST pedido.** `alertas.js` reads `reg.pedido` directly (`prazo_entrega_contratual`/`entregue` at ~line 762, `_dadosPedidoSemNF` and `_nfCobertaPedido` for `pedido_sem_nf`). So a delivery deadline or a missing NF on pedido 2+ does **not** raise alerts, and `pedido_sem_nf` compares NFs against pedido 1's `valor_pedido` only — not the sum of all pedidos. Making alerts span every pedido means iterating `getPedidosRegistro()` in those paths (and deciding whether the alert key stays per-offer or becomes per-pedido).
+**Alerts are PER PEDIDO.** `prazo_entrega`, `prazo_entrega_atrasado` and `pedido_sem_nf` iterate `_pedidosDaOferta(reg)` (local wrapper over `getPedidosRegistro`, with its own fallback so `alertas.js` stays self-contained) and emit one alert per pedido, carrying `pedidoIndice` on the doc. `followup`/`sem_resposta` are per offer and unchanged.
+
+**Key compatibility is load-bearing:** `_refPedidoAlerta(base, idx)` appends `_p2`, `_p3`… only for idx > 0, so **pedido 1 keeps the exact pre-existing `chaveUnica`**. Changing pedido 1's key would orphan every open alert in the database and recreate them as duplicates. Any new per-pedido alert type must preserve this.
+
+Downstream paths that had to follow: `_dadosPedidoSemNF(reg, idx)` (card render passes `a.pedidoIndice`), `_fecharPrazoEntregaAberto(regId, prazo, idx)`, `resolverAlertasMargemNFUmaVez` (reads the alert's own pedido), and `onRegistroSalvoReset`, which now builds one auto-resolve key per pedido whose NFs are covered instead of a flat type list. `marcarRegistroEntregue(regId, idx)` marks the pedido that raised the alert — Firestore can't merge into an array element, so for idx > 0 it rewrites the whole `pedidos` array from the in-memory record and keeps `pedido` mirroring `pedidos[0]`; the single-pedido case still takes the old `{ pedido: { entregue } }` merge path.
+
+### Mobile = read-only (≤780px)
+
+On phones the CRM is a **consultation panel**: browse, filter, open detail modals — no create/edit/delete. Enforced by ONE CSS rule at the end of the `@media (max-width: 780px)` block in `style.css`, which hides `[data-desktop-only]` plus the action controls that are generated at runtime and therefore can't carry the attribute (`.btn-kebab`, `.alerta-actions`, `.alerta-actions-secondary`, `.btn-alerta-mais`, `#modalDetalhesEditar`, `.ct-add-btn`, `.ct-btn-edit`, `.ct-btn-del`, `.ct-btn-restore`).
+
+**Adding a new action button? Tag it `data-desktop-only`** (static markup) or add its class to that rule (runtime markup) — otherwise it leaks into the mobile read-only view.
+
+Marked `data-desktop-only` in `index.html`: the 7 write/admin sidebar items (Cadastro Oferta, Gerador, Correlação, Backup, Lixeira, Aprovar Usuários, Auditoria); the write-only sections (`secCadastro`, `secBackup`, `secaoLixeira`, `secAprovacaoUsuarios`, `secAuditoria`); the 3 export buttons in `secRegistros`; and a wrapper `<div>` around the **form half** of the three mixed sections (`secClientes`, `secProjetos`, `secRepresentadas`), which each hold "Cadastro de X" (form) followed by "Consultar X" (list) — the wrapper runs from the `<h3>` to the Salvar/Cancelar buttons, so the list below stays visible.
+
+Note `irPara()` only does `scrollIntoView` — every section lives on the same page — so hiding the menu item alone is not enough; the section itself must be hidden. This is a **UI restriction, not a security boundary** (same class as `podeVerDe`): a phone user could still reach the desktop layout. Real permissions stay in the Firestore rules.
 
 ### Dashboard (`dashboard.html` / `dashboard.js`)
 

@@ -2184,6 +2184,25 @@ body.dark .btn-alerta-mais {
   .alerta-topo { flex-wrap: wrap; gap: 8px; }
   .alerta-titulo { font-size: 12.5px; }
   .alerta-meta { font-size: 12px; }
+
+  /* ── Celular = somente visualização ──────────────────────────────────
+     No celular o CRM funciona como painel de consulta: dá para navegar,
+     filtrar e abrir os detalhes, mas não para criar, editar ou excluir.
+     Marque com [data-desktop-only] tudo que for ação/cadastro.
+     (É uma restrição de INTERFACE, não de segurança — as permissões reais
+     continuam nas regras do Firestore.) */
+  [data-desktop-only],
+  .btn-kebab,
+  .alerta-actions,
+  .alerta-actions-secondary,
+  .btn-alerta-mais,
+  #modalDetalhesEditar,
+  .ct-add-btn,
+  .ct-btn-edit,
+  .ct-btn-del,
+  .ct-btn-restore {
+    display: none !important;
+  }
 }
 
 /* =========================
