@@ -1218,6 +1218,44 @@ function toggleFiltrosMobile(btn) {
   btn.setAttribute("aria-expanded", aberto ? "true" : "false");
 }
 
+// Mostra no botão quantos filtros estão preenchidos ("Filtros · 2"), para o usuário
+// perceber que a lista está filtrada mesmo com o bloco fechado.
+function atualizarContadorFiltrosMobile() {
+  // "todos"/"todas"/vazio = sem filtro. O seletor de campo (.multiField) sempre tem
+  // valor, então as linhas de filtro contam pelo VALOR digitado (.multiTerm).
+  const NEUTRO = new Set(["", "todos", "todas"]);
+
+  document.querySelectorAll(".btn-filtros-toggle").forEach((btn) => {
+    const bloco = btn.nextElementSibling;
+    if (!bloco) return;
+
+    let n = 0;
+    bloco.querySelectorAll(".filter-item").forEach((row) => {
+      if (String(row.querySelector(".multiTerm")?.value || "").trim()) n++;
+    });
+    bloco.querySelectorAll("input, select").forEach((el) => {
+      if (el.closest(".filter-item")) return; // já contado acima
+      if (!NEUTRO.has(String(el.value || "").trim().toLowerCase())) n++;
+    });
+
+    btn.textContent = n ? `Filtros · ${n}` : "Filtros";
+    btn.classList.toggle("tem-filtro", n > 0);
+  });
+}
+
+// Só recalcula quando o que mudou está de fato dentro de um bloco de filtros.
+["input", "change"].forEach((ev) =>
+  document.addEventListener(ev, (e) => {
+    if (e.target?.closest?.(".filtros-mobile")) atualizarContadorFiltrosMobile();
+  }),
+);
+// Cliques em adicionar/remover/limpar mudam as linhas — recalcula no tick seguinte.
+document.addEventListener("click", (e) => {
+  if (e.target.closest(".filtros-mobile, .btn-filtros-toggle, .actions-row")) {
+    setTimeout(atualizarContadorFiltrosMobile, 0);
+  }
+});
+
 function toggleSidebar() {
   const sidebar = document.getElementById("sidebar");
   if (!sidebar) return;
@@ -1782,6 +1820,7 @@ function initForm() {
   });
 
   initFiltrosRegistrosUI();
+  atualizarContadorFiltrosMobile(); // estado inicial do botão "Filtros"
 
   bindGotoPage(
     "gotoPageRegistros",

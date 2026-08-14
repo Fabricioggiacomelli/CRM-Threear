@@ -2326,6 +2326,13 @@ body.dark .btn-alerta-mais {
     transition: transform .2s;
   }
   .btn-filtros-toggle[aria-expanded="true"]::after { transform: rotate(180deg); }
+  /* Com filtro ativo o botão fica destacado — sinaliza que a lista está filtrada
+     mesmo com o bloco fechado. */
+  .btn-filtros-toggle.tem-filtro {
+    border-color: var(--primary);
+    color: var(--primary);
+    background: var(--primary-light);
+  }
   .filtros-mobile { display: none !important; }
   .filtros-mobile.aberto { display: flex !important; flex-direction: column; gap: 8px; }
   /* .filters e .filters-row já são flex em linha — mantêm o layout 2-por-linha */
