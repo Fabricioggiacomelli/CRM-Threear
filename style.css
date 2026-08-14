@@ -881,6 +881,10 @@ body.dark .filters-row input, body.dark .filters-row select {
 
 #filtersRegistros, #filtersClientes { display: flex; flex-direction: column; gap: 10px; width: 100%; }
 
+/* Botão "Filtros" existe só no celular (regras em @media max-width:780px).
+   No desktop ele some e o bloco de filtros fica sempre visível. */
+.btn-filtros-toggle { display: none; }
+
 .filter-item { display: flex; gap: 10px; flex-wrap: wrap; align-items: center; }
 .filter-item select { min-width: 240px; width: 240px; }
 .filter-item input  { flex: 1; min-width: 220px; }
@@ -2243,18 +2247,22 @@ body.dark .btn-alerta-mais {
   .sidebar.collapsed .menu-item { justify-content: flex-start; }
 
   /* ── Filtros ───────────────────────────────────────────────────────
-     Cada filtro vira um bloco: campo em cima, valor embaixo e um "Remover"
-     discreto à direita (antes o Remover ocupava a linha toda e parecia o
-     botão principal da tela). */
+     Empilhado, cada filtro ocupava 3 linhas cheias e a tela inteira virava
+     filtro antes de mostrar qualquer dado. Layout compacto:
+        [ campo ▾              ]
+        [ valor          ] [ ✕ ]
+     e os botões lado a lado em vez de um por linha. */
   .filter-item {
-    flex-direction: column;
-    align-items: stretch;
+    flex-direction: row;
+    flex-wrap: wrap;
+    align-items: center;
     gap: 8px;
     padding: 10px;
     border: 1px solid var(--border-soft);
     border-radius: 12px;
   }
-  .filter-item .multiTermWrap { width: 100%; }
+  .filter-item > .multiField { flex: 1 1 100%; }           /* campo: linha inteira */
+  .filter-item .multiTermWrap { flex: 1 1 auto; min-width: 0; }  /* valor: divide a linha */
   .filter-item select,
   .filter-item input {
     width: 100% !important;
@@ -2266,9 +2274,63 @@ body.dark .btn-alerta-mais {
   #filtersProjetos .btn-remove,
   .filter-item .btn-remove {
     width: auto !important;
-    align-self: flex-end;
-    padding: 6px 14px;
+    flex: 0 0 auto;
+    padding: 0 14px;
   }
+
+  /* Botões e selects dos filtros: dois por linha em vez de um embaixo do outro.
+     (.filters volta a ser linha; os contêineres de filtro seguem ocupando a
+     largura toda, só os campos avulsos é que dividem a linha.) */
+  .filters { flex-direction: row; flex-wrap: wrap; gap: 8px; }
+  .filters > div { flex: 1 1 100%; }
+  /* .actions-row genérico: alcança também Clientes/Projetos, cujos botões de
+     filtro ficam fora do .filters. */
+  .actions-row { flex-direction: row; flex-wrap: wrap; gap: 8px; }
+  .actions-row button {
+    flex: 1 1 calc(50% - 4px);
+    width: auto !important;
+    min-width: 0;
+  }
+  .filters > input,
+  .filters > select {
+    flex: 1 1 calc(50% - 4px);
+    width: auto !important;
+    min-width: 0;
+  }
+
+  /* ── Filtros recolhidos ────────────────────────────────────────────
+     No celular a lista aparece logo de cara; os filtros ficam atrás do
+     botão "Filtros" (padrão de app). No desktop nada muda: o botão some
+     e os filtros ficam sempre visíveis. */
+  .btn-filtros-toggle {
+    display: flex !important;
+    align-items: center;
+    justify-content: space-between;
+    gap: 8px;
+    width: 100%;
+    margin: 8px 0 4px;
+    padding: 11px 14px;
+    background: none;
+    border: 1px solid var(--border-soft);
+    border-radius: 12px;
+    color: var(--text-main);
+    font-family: inherit;
+    font-size: 13.5px;
+    font-weight: 600;
+    cursor: pointer;
+  }
+  .btn-filtros-toggle::after {
+    content: "▾";
+    font-size: 12px;
+    opacity: .6;
+    transition: transform .2s;
+  }
+  .btn-filtros-toggle[aria-expanded="true"]::after { transform: rotate(180deg); }
+  .filtros-mobile { display: none !important; }
+  .filtros-mobile.aberto { display: flex !important; flex-direction: column; gap: 8px; }
+  /* .filters e .filters-row já são flex em linha — mantêm o layout 2-por-linha */
+  .filters.filtros-mobile.aberto,
+  .filters-row.filtros-mobile.aberto { flex-direction: row; flex-wrap: wrap; }
 }
 
 /* =========================

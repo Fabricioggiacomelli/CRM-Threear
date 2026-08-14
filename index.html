@@ -635,7 +635,8 @@
         <div id="registrosCount" class="subtitle"></div>
         <div id="activeFiltersTags" style="margin-top:8px;"></div>
 
-        <div class="filters">
+        <button type="button" class="btn-filtros-toggle" aria-expanded="false" onclick="toggleFiltrosMobile(this)">Filtros</button>
+        <div class="filtros-mobile filters">
           <div id="filtersRegistros"></div>
 
           <div class="actions-row" style="margin-top:10px;">
@@ -777,6 +778,8 @@
 
         <div id="clientesCount" style="margin: 8px 0 4px 0;"></div>
 
+        <button type="button" class="btn-filtros-toggle" aria-expanded="false" onclick="toggleFiltrosMobile(this)">Filtros</button>
+        <div class="filtros-mobile">
         <div id="filtersClientes" class="filters-stack"></div>
 
         <div class="actions-row">
@@ -791,6 +794,7 @@
               <option value="C">C — Padrão</option>
             </select>
           </div>
+        </div>
         </div>
 
 
@@ -930,10 +934,13 @@
 
         <div id="projetosCount" style="margin: 8px 0 6px 0;"></div>
 
+        <button type="button" class="btn-filtros-toggle" aria-expanded="false" onclick="toggleFiltrosMobile(this)">Filtros</button>
+        <div class="filtros-mobile">
         <div id="filtersProjetos" class="filters-stack"></div>
         <div class="actions-row">
           <button type="button" id="btnAddFiltroProjeto" class="secondary">+ Adicionar filtro</button>
           <button type="button" id="btnLimparFiltrosProjetos" class="secondary">Limpar filtros</button>
+        </div>
         </div>
 
         <div class="table-scroll">
@@ -999,7 +1006,8 @@
 
         <h4 style="margin-top:28px;">Representadas Cadastradas</h4>
 
-        <div class="filters-row">
+        <button type="button" class="btn-filtros-toggle" aria-expanded="false" onclick="toggleFiltrosMobile(this)">Filtros</button>
+        <div class="filtros-mobile filters-row">
           <div class="field">
             <label for="searchRepresentadas">Buscar:</label>
             <input id="searchRepresentadas" type="text" placeholder="Nome da representada..." />

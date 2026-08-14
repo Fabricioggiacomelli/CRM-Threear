@@ -1209,6 +1209,15 @@ function toggleTheme() {
   applyTheme(newTheme);
 }
 
+// Mostra/esconde o bloco de filtros no celular (botão "Filtros" logo acima dele).
+// No desktop o botão fica oculto por CSS e os filtros seguem sempre visíveis.
+function toggleFiltrosMobile(btn) {
+  const bloco = btn?.nextElementSibling;
+  if (!bloco) return;
+  const aberto = bloco.classList.toggle("aberto");
+  btn.setAttribute("aria-expanded", aberto ? "true" : "false");
+}
+
 function toggleSidebar() {
   const sidebar = document.getElementById("sidebar");
   if (!sidebar) return;
