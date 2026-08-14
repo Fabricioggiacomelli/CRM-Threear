@@ -1216,6 +1216,18 @@ function toggleFiltrosMobile(btn) {
   if (!bloco) return;
   const aberto = bloco.classList.toggle("aberto");
   btn.setAttribute("aria-expanded", aberto ? "true" : "false");
+
+  // Ao abrir, garante que exista uma linha de filtro para escolher. Sem isto o
+  // painel pode abrir só com os botões, sem nada para selecionar.
+  if (aberto && !bloco.querySelector(".filter-item")) {
+    if (bloco.querySelector("#filtersRegistros") && typeof addFiltroRegistroRow === "function") {
+      addFiltroRegistroRow();
+    } else if (bloco.querySelector("#filtersClientes") && typeof addFiltroClienteRow === "function") {
+      addFiltroClienteRow();
+    } else if (bloco.querySelector("#filtersProjetos") && typeof addFiltroProjetoRow === "function") {
+      addFiltroProjetoRow();
+    }
+  }
 }
 
 // Mostra no botão quantos filtros estão preenchidos ("Filtros · 2"), para o usuário
