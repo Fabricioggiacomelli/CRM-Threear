@@ -1,11 +1,16 @@
 {
-  "name": "CRM-Three Ar",
+  "name": "CRM Three Ar",
   "short_name": "CRM",
-  "start_url": ".",
+  "description": "Gestão de ofertas e clientes — Three Ar",
+  "start_url": "./",
+  "scope": "./",
   "display": "standalone",
-  "background_color": "#ffffff",
+  "background_color": "#0B0D18",
   "theme_color": "#2563eb",
+  "lang": "pt-BR",
   "icons": [
-    { "src": "Imagens/LogoCRM.png", "sizes": "512x512", "type": "image/png" }
+    { "src": "Imagens/icone-192.png", "sizes": "192x192", "type": "image/png", "purpose": "any" },
+    { "src": "Imagens/icone-512.png", "sizes": "512x512", "type": "image/png", "purpose": "any" },
+    { "src": "Imagens/icone-512.png", "sizes": "512x512", "type": "image/png", "purpose": "maskable" }
   ]
 }

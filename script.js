@@ -258,6 +258,7 @@ window.SEGMENTO_OPTIONS = [
   "OGP (Óleo, Gás e Petroquímica)",
   "Papel & Celulose",
   "Portos",
+  "Renováveis",
   "Revendas e Distribuidores",
   "RMT (Rede de Média Tensão)",
   "Rodovias",
@@ -575,6 +576,13 @@ window.addEventListener("load", async () => {
       }
 
       await carregarPermissoesUsuarioLogado();
+
+      // Celular liberado apenas para admin/supervisor
+      if (mobileBloqueadoParaUsuario()) {
+        mostrarBloqueioMobile();
+        return;
+      }
+
       await carregarDadosDoFirebase();
       atualizarSugestoesCnpj();
       mostrarApp();
@@ -717,7 +725,50 @@ async function carregarProjetosFirebase() {
     .filter((p) => !p.deletado);
 }
 
+// ── Acesso pelo celular: só admin e supervisor ────────────────────────────────
+// Restrição de INTERFACE (as regras do Firestore continuam as mesmas para todos):
+// serve para padronizar o uso, não como barreira de segurança.
+
+// Detecta celular pelo TAMANHO FÍSICO da tela — não muda ao girar o aparelho,
+// então não dá para escapar do bloqueio virando para paisagem.
+function ehDispositivoMobile() {
+  const menorLado = Math.min(window.screen?.width || 0, window.screen?.height || 0);
+  if (menorLado && menorLado <= 480) return true; // celular
+  return window.innerWidth <= 780;                // ou janela muito estreita
+}
+
+function mobileBloqueadoParaUsuario() {
+  const role = String(window.usuarioLogadoCRM?.role || "").toLowerCase();
+  return ehDispositivoMobile() && role !== "admin" && role !== "supervisor";
+}
+
+function mostrarBloqueioMobile() {
+  document.getElementById("appContainer")?.classList.add("hidden");
+  document.getElementById("loginContainer")?.classList.add("hidden");
+
+  let el = document.getElementById("bloqueioMobile");
+  if (!el) {
+    el = document.createElement("div");
+    el.id = "bloqueioMobile";
+    el.innerHTML =
+      '<div class="bm-card">' +
+        '<div class="bm-icone">🔒</div>' +
+        '<h2 class="bm-titulo">Acesso bloqueado</h2>' +
+        '<p class="bm-texto">O acesso pelo celular está disponível apenas para administradores e supervisores.</p>' +
+        '<p class="bm-texto bm-sub">Use um computador para acessar o CRM.</p>' +
+        '<button type="button" class="bm-btn" onclick="logout()">Sair</button>' +
+      '</div>';
+    document.body.appendChild(el);
+  }
+  el.classList.remove("hidden");
+}
+
+function esconderBloqueioMobile() {
+  document.getElementById("bloqueioMobile")?.classList.add("hidden");
+}
+
 function mostrarLogin() {
+  esconderBloqueioMobile();
   const loginContainer = document.getElementById("loginContainer");
   const appContainer = document.getElementById("appContainer");
   if (appContainer) appContainer.classList.add("hidden");
@@ -1122,6 +1173,13 @@ async function confirmarTotpNoModal() {
       try { await auth.currentUser.getIdToken(true); } catch (_) {}
 
       await carregarPermissoesUsuarioLogado();
+
+      // Celular liberado apenas para admin/supervisor
+      if (mobileBloqueadoParaUsuario()) {
+        mostrarBloqueioMobile();
+        return;
+      }
+
       await carregarDadosDoFirebase();
       atualizarSugestoesCnpj();
       mostrarApp();
@@ -1211,6 +1269,17 @@ function toggleTheme() {
 
 // Mostra/esconde o bloco de filtros no celular (botão "Filtros" logo acima dele).
 // No desktop o botão fica oculto por CSS e os filtros seguem sempre visíveis.
+// Registra o service worker — é ele que permite instalar o CRM na tela inicial.
+// Ver sw.js: a estratégia é REDE PRIMEIRO, então instalar não prende o usuário
+// numa versão antiga.
+if ("serviceWorker" in navigator) {
+  window.addEventListener("load", () => {
+    navigator.serviceWorker.register("sw.js").catch((e) => {
+      console.warn("Service worker não registrado:", e && e.message);
+    });
+  });
+}
+
 function toggleFiltrosMobile(btn) {
   const bloco = btn?.nextElementSibling;
   if (!bloco) return;

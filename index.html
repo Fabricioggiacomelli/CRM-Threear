@@ -9,10 +9,17 @@
   <link rel="preconnect" href="https://fonts.googleapis.com" />
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
   <link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@300;400;500;600;700&display=swap" rel="stylesheet" />
-  <link rel="stylesheet" href="style.css?v=20260708" />
+  <link rel="stylesheet" href="style.css?v=20260708c" />
   <link rel="manifest" href="manifest.json" />
   <link rel="icon" type="image/png" href="Imagens/LogoCRM.png" />
   <meta name="theme-color" content="#2563eb" />
+
+  <!-- Instalação na tela inicial (PWA). O iOS ignora parte do manifest e exige
+       estas tags para abrir em tela cheia, com ícone e nome próprios. -->
+  <meta name="apple-mobile-web-app-capable" content="yes" />
+  <meta name="apple-mobile-web-app-status-bar-style" content="black" />
+  <meta name="apple-mobile-web-app-title" content="CRM" />
+  <link rel="apple-touch-icon" href="Imagens/icone-192.png" />
   <script>
     if (sessionStorage.getItem('totpVerified') === '1') {
       document.documentElement.classList.add('skip-login-flash');
@@ -1325,13 +1332,13 @@
   <script src="https://www.gstatic.com/firebasejs/9.23.0/firebase-firestore-compat.js"></script>
   <script src="https://www.gstatic.com/firebasejs/9.23.0/firebase-app-check-compat.js"></script>
 
-  <script src="./firebase.js?v=20260708"></script>
-  <script src="toast.js?v=20260708"></script>
+  <script src="./firebase.js?v=20260708c"></script>
+  <script src="toast.js?v=20260708c"></script>
 
-  <script src="schema.js?v=20260708" defer></script>
-  <script src="usuarios.js?v=20260708"></script>
-  <script src="alertas.js?v=20260708"></script>
-  <script src="script.js?v=20260708" defer></script>
+  <script src="schema.js?v=20260708c" defer></script>
+  <script src="usuarios.js?v=20260708c"></script>
+  <script src="alertas.js?v=20260708c"></script>
+  <script src="script.js?v=20260708c" defer></script>
 </body>
 
 </html>
