@@ -9,7 +9,7 @@
   <link rel="preconnect" href="https://fonts.googleapis.com" />
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
   <link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@300;400;500;600;700&display=swap" rel="stylesheet" />
-  <link rel="stylesheet" href="style.css?v=20260708c" />
+  <link rel="stylesheet" href="style.css?v=20260708d" />
   <link rel="manifest" href="manifest.json" />
   <link rel="icon" type="image/png" href="Imagens/LogoCRM.png" />
   <meta name="theme-color" content="#2563eb" />
@@ -31,6 +31,17 @@
 </head>
 
 <body>
+
+  <!-- Tela de carregamento: aparece de imediato e some quando o login ou o CRM
+       estiver pronto. Sem ela, o usuario via uma TELA BRANCA enquanto os dados
+       (ofertas, clientes, projetos...) eram baixados. -->
+  <div id="splashCarregando">
+    <div class="splash-box">
+      <img src="Imagens/icone-192.png" alt="" class="splash-logo" />
+      <div class="splash-spinner"></div>
+      <div class="splash-texto" id="splashTexto">Carregando...</div>
+    </div>
+  </div>
 
   
   <div id="modalAlertas" class="modal hidden">
@@ -342,15 +353,15 @@
         <button id="tabSignup" type="button" class="login-tab">Criar conta</button>
       </div>
 
-      <div id="panelLogin" class="login-panel">
+      <form id="panelLogin" class="login-panel" onsubmit="event.preventDefault(); document.getElementById('btnLogin').click();">
         <div class="login-field">
           <label for="loginUser">E-mail</label>
-          <input type="email" id="loginUser" placeholder="email@dominio.com" />
+          <input type="email" id="loginUser" name="username" autocomplete="username" inputmode="email" autocapitalize="none" spellcheck="false" placeholder="email@dominio.com" />
         </div>
 
         <div class="login-field">
           <label for="loginPass">Senha</label>
-          <input type="password" id="loginPass" placeholder="••••••••" />
+          <input type="password" id="loginPass" name="password" autocomplete="current-password" placeholder="••••••••" />
         </div>
 
         <button id="btnLogin" type="button" class="login-btn-primary">Entrar</button>
@@ -359,25 +370,25 @@
 
         <button id="btnForgot" type="button" class="login-btn-secondary">Esqueci minha senha</button>
         <button id="btnResendVerify" type="button" class="login-btn-secondary">Reenviar verificação de e-mail</button>
-      </div>
+      </form>
 
-      <div id="panelSignup" class="login-panel hidden">
+      <form id="panelSignup" class="login-panel hidden" onsubmit="event.preventDefault(); document.getElementById('btnSignup').click();">
         <p class="login-panel-desc">Crie sua conta. Acesso sujeito à aprovação.</p>
 
         <div class="login-field">
           <label for="signupEmail">E-mail</label>
-          <input type="email" id="signupEmail" placeholder="email@dominio.com" />
+          <input type="email" id="signupEmail" name="email" autocomplete="username" inputmode="email" autocapitalize="none" spellcheck="false" placeholder="email@dominio.com" />
         </div>
 
         <div class="login-field">
           <label for="signupPass">Senha</label>
-          <input type="password" id="signupPass" placeholder="Mín. 8 caracteres, maiúscula e símbolo" />
+          <input type="password" id="signupPass" name="new-password" autocomplete="new-password" placeholder="Mín. 8 caracteres, maiúscula e símbolo" />
         </div>
 
         <button id="btnSignup" type="button" class="login-btn-primary">Criar conta</button>
 
         <div id="signupMsg" class="login-msg"></div>
-      </div>
+      </form>
     </div>
 
 
@@ -1332,13 +1343,13 @@
   <script src="https://www.gstatic.com/firebasejs/9.23.0/firebase-firestore-compat.js"></script>
   <script src="https://www.gstatic.com/firebasejs/9.23.0/firebase-app-check-compat.js"></script>
 
-  <script src="./firebase.js?v=20260708c"></script>
-  <script src="toast.js?v=20260708c"></script>
+  <script src="./firebase.js?v=20260708d"></script>
+  <script src="toast.js?v=20260708d"></script>
 
-  <script src="schema.js?v=20260708c" defer></script>
-  <script src="usuarios.js?v=20260708c"></script>
-  <script src="alertas.js?v=20260708c"></script>
-  <script src="script.js?v=20260708c" defer></script>
+  <script src="schema.js?v=20260708d" defer></script>
+  <script src="usuarios.js?v=20260708d"></script>
+  <script src="alertas.js?v=20260708d"></script>
+  <script src="script.js?v=20260708d" defer></script>
 </body>
 
 </html>

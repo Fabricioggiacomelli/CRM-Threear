@@ -3610,3 +3610,42 @@ body.dark .perm-badge-full {
   word-break: break-word;
   vertical-align: top;
 }
+
+/* =========================
+   TELA DE CARREGAMENTO (splash)
+   Aparece assim que a página abre e some quando o login/CRM está pronto.
+   Evita a "tela branca" enquanto os dados são baixados.
+========================= */
+#splashCarregando {
+  position: fixed;
+  inset: 0;
+  z-index: 4000;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: var(--bg-body);
+}
+#splashCarregando.hidden { display: none !important; }
+#splashCarregando .splash-box { text-align: center; padding: 24px; }
+#splashCarregando .splash-logo {
+  width: 68px;
+  height: 68px;
+  border-radius: 16px;
+  object-fit: cover;
+  margin-bottom: 20px;
+}
+#splashCarregando .splash-spinner {
+  width: 26px;
+  height: 26px;
+  margin: 0 auto 14px;
+  border: 3px solid var(--border-soft);
+  border-top-color: var(--primary);
+  border-radius: 50%;
+  animation: splash-gira .8s linear infinite;
+}
+@keyframes splash-gira { to { transform: rotate(360deg); } }
+#splashCarregando .splash-texto {
+  font-size: 13.5px;
+  color: var(--text-muted);
+  line-height: 1.5;
+}

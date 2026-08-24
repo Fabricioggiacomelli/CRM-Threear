@@ -583,6 +583,7 @@ window.addEventListener("load", async () => {
         return;
       }
 
+      mostrarCarregando("Carregando seus dados...");
       await carregarDadosDoFirebase();
       atualizarSugestoesCnpj();
       mostrarApp();
@@ -743,6 +744,7 @@ function mobileBloqueadoParaUsuario() {
 }
 
 function mostrarBloqueioMobile() {
+  esconderCarregando();
   document.getElementById("appContainer")?.classList.add("hidden");
   document.getElementById("loginContainer")?.classList.add("hidden");
 
@@ -767,7 +769,31 @@ function esconderBloqueioMobile() {
   document.getElementById("bloqueioMobile")?.classList.add("hidden");
 }
 
+// ── Tela de carregamento ──────────────────────────────────────────────────────
+// Fica visivel desde o carregamento da pagina ate o login OU o CRM aparecer.
+function mostrarCarregando(texto) {
+  const el = document.getElementById("splashCarregando");
+  if (!el) return;
+  const t = document.getElementById("splashTexto");
+  if (t && texto) t.textContent = texto;
+  el.classList.remove("hidden");
+}
+
+function esconderCarregando() {
+  document.getElementById("splashCarregando")?.classList.add("hidden");
+}
+
+// Rede lenta/queda: em vez de girar para sempre, orienta o usuario.
+setTimeout(() => {
+  const el = document.getElementById("splashCarregando");
+  if (el && !el.classList.contains("hidden")) {
+    const t = document.getElementById("splashTexto");
+    if (t) t.textContent = "Está demorando mais que o normal. Verifique sua conexão e recarregue a página.";
+  }
+}, 30000);
+
 function mostrarLogin() {
+  esconderCarregando();
   esconderBloqueioMobile();
   const loginContainer = document.getElementById("loginContainer");
   const appContainer = document.getElementById("appContainer");
@@ -776,6 +802,7 @@ function mostrarLogin() {
 }
 
 function mostrarApp() {
+  esconderCarregando();
   const loginContainer = document.getElementById("loginContainer");
   const appContainer = document.getElementById("appContainer");
 
@@ -1180,6 +1207,7 @@ async function confirmarTotpNoModal() {
         return;
       }
 
+      mostrarCarregando("Carregando seus dados...");
       await carregarDadosDoFirebase();
       atualizarSugestoesCnpj();
       mostrarApp();
