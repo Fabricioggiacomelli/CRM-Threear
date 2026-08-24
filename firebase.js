@@ -24,4 +24,12 @@ if (APP_CHECK_SITE_KEY && typeof firebase.appCheck === "function") {
 }
 
 window.db = firebase.firestore();
+
+// Cache local (IndexedDB). Precisa vir ANTES de qualquer leitura.
+// Na primeira vez os dados vêm da rede; nas seguintes saem do disco do próprio
+// aparelho — é o que faz o app reabrir rápido em vez de rebaixar tudo de novo.
+// Falha silenciosa de propósito: sem cache o app funciona igual, só mais lento.
+window.db.enablePersistence({ synchronizeTabs: true }).catch((e) => {
+  console.warn("Cache local do Firestore indisponível:", e && e.code);
+});
 window.auth = firebase.auth();

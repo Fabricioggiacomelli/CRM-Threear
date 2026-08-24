@@ -626,32 +626,42 @@ document.addEventListener("DOMContentLoaded", async () => {
   }
 });
 
+// Carrega em DUAS FASES: o app abre assim que a tela principal (Registros) tem
+// dados, e o restante (clientes, projetos, usuários) entra em segundo plano.
+// Antes esperava-se TODAS as coleções para só então mostrar qualquer coisa — com
+// milhares de documentos, isso deixava o usuário parado na tela de carregamento.
 async function carregarDadosDoFirebase() {
-  const colecoes = [
-    { fn: carregarClientesFirebase,      nome: "clientes" },
-    { fn: carregarRepresentadasFirebase, nome: "representadas" },
-    { fn: carregarRegistrosFirebase,     nome: "ofertas" },
-    { fn: carregarUsuariosFirebase,      nome: "usuarios" },
-    { fn: carregarProjetosFirebase,      nome: "projetos" },
-  ];
+  const aviso = (nome) => (r) => {
+    if (r.status === "rejected") console.error(`Falha ao carregar "${nome}":`, r.reason);
+  };
 
-  const resultados = await Promise.allSettled(colecoes.map((c) => c.fn()));
-
-  resultados.forEach((r, i) => {
-    if (r.status === "rejected") {
-      console.error(`Falha ao carregar "${colecoes[i].nome}":`, r.reason);
-    }
-  });
+  // ── Fase 1: o essencial para a tela de Registros aparecer ──
+  const [rReps, rOfertas] = await Promise.allSettled([
+    carregarRepresentadasFirebase(),
+    carregarRegistrosFirebase(),
+  ]);
+  aviso("representadas")(rReps);
+  aviso("ofertas")(rOfertas);
 
   preencherSelectRepresentadas();
-  preencherSelectResponsaveisContato();
-  preencherSelectResponsaveisProjeto();
   renderTabela();
-  renderTabelaClientes();
   renderTabelaRepresentadas();
-  renderTabelaProjetos();
-  initAutoCompleteCnpjSimples();
-  initAutoCompleteProjetoOferta();
+
+  // ── Fase 2: o resto, sem travar a tela ──
+  Promise.allSettled([
+    carregarClientesFirebase(),
+    carregarProjetosFirebase(),
+    carregarUsuariosFirebase(),
+  ]).then((res) => {
+    ["clientes", "projetos", "usuarios"].forEach((n, i) => aviso(n)(res[i]));
+    preencherSelectResponsaveisContato();
+    preencherSelectResponsaveisProjeto();
+    renderTabelaClientes();
+    renderTabelaProjetos();
+    initAutoCompleteCnpjSimples();
+    initAutoCompleteProjetoOferta();
+    if (typeof atualizarSugestoesCnpj === "function") atualizarSugestoesCnpj();
+  });
 }
 
 async function carregarClientesFirebase() {
