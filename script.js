@@ -490,6 +490,7 @@ window.addEventListener("load", async () => {
 
   auth.onAuthStateChanged(async (user) => {
     try {
+      _marcarEtapa("Verificando acesso");
       if (!user) {
         totpOk = false;
         totpIsActive = false;
@@ -535,6 +536,7 @@ window.addEventListener("load", async () => {
         );
       }
 
+      _marcarEtapa("Confirmando cadastro");
       await user.reload();
       if (!user.emailVerified) {
         await auth.signOut();
@@ -556,6 +558,7 @@ window.addEventListener("load", async () => {
       }
 
       function mostrarTelaBloqueada() {
+        esconderCarregando();
         document.getElementById("appContainer")?.classList.add("hidden");
         document.getElementById("loginContainer")?.classList.add("hidden");
       }
@@ -583,6 +586,7 @@ window.addEventListener("load", async () => {
         return;
       }
 
+      _marcarEtapa("Buscando dados");
       mostrarCarregando("Carregando seus dados...");
       await carregarDadosDoFirebase();
       atualizarSugestoesCnpj();
@@ -644,6 +648,7 @@ async function _lerDoCache(colecao, limite) {
 }
 
 async function carregarDadosDoFirebase() {
+  _marcarEtapa("Lendo dados salvos");
   const aviso = (nome) => (r) => {
     if (r.status === "rejected") console.error(`Falha ao carregar "${nome}":`, r.reason);
   };
@@ -667,6 +672,8 @@ async function carregarDadosDoFirebase() {
   } catch (e) {
     console.warn("[cache] leitura local falhou:", e && e.message);
   }
+
+  _marcarEtapa(temCache ? "Atualizando (cache pronto)" : "Baixando da rede");
 
   // ── Da rede: atualiza os dados. Em duas etapas para o essencial vir primeiro ──
   const daRede = (async () => {
@@ -820,6 +827,27 @@ function esconderBloqueioMobile() {
   document.getElementById("bloqueioMobile")?.classList.add("hidden");
 }
 
+// ── Medição de tempo (diagnóstico) ────────────────────────────────────────────
+// Mostra na tela de carregamento em que etapa o app está e quanto já levou.
+// Serve para descobrir ONDE está a demora em vez de adivinhar.
+window._tempos = [];
+function _marcarEtapa(nome) {
+  const ms = Math.round(performance.now());
+  const ant = window._tempos.length ? window._tempos[window._tempos.length - 1].ms : 0;
+  window._tempos.push({ etapa: nome, ms, delta: ms - ant });
+  console.log(`[tempo] ${nome}: ${(ms / 1000).toFixed(1)}s (+${((ms - ant) / 1000).toFixed(1)}s)`);
+  const el = document.getElementById("splashTexto");
+  if (el) el.textContent = `${nome}... (${(ms / 1000).toFixed(1)}s)`;
+}
+// Resumo legível: rode  tempos()  no console
+window.tempos = () => {
+  console.table(window._tempos.map((t) => ({
+    etapa: t.etapa,
+    "total (s)": (t.ms / 1000).toFixed(1),
+    "durou (s)": (t.delta / 1000).toFixed(1),
+  })));
+};
+
 // ── Tela de carregamento ──────────────────────────────────────────────────────
 // Fica visivel desde o carregamento da pagina ate o login OU o CRM aparecer.
 function mostrarCarregando(texto) {
@@ -837,9 +865,19 @@ function esconderCarregando() {
 // Rede lenta/queda: em vez de girar para sempre, orienta o usuario.
 setTimeout(() => {
   const el = document.getElementById("splashCarregando");
-  if (el && !el.classList.contains("hidden")) {
-    const t = document.getElementById("splashTexto");
-    if (t) t.textContent = "Está demorando mais que o normal. Verifique sua conexão e recarregue a página.";
+  if (!el || el.classList.contains("hidden")) return;
+  const t = document.getElementById("splashTexto");
+  if (!t) return;
+  t.textContent = "Está demorando mais que o normal.";
+  if (!document.getElementById("btnSplashRecarregar")) {
+    const b = document.createElement("button");
+    b.id = "btnSplashRecarregar";
+    b.type = "button";
+    b.className = "bm-btn";
+    b.textContent = "Recarregar";
+    b.style.marginTop = "16px";
+    b.onclick = () => location.reload();
+    t.parentElement?.appendChild(b);
   }
 }, 30000);
 
@@ -853,6 +891,7 @@ function mostrarLogin() {
 }
 
 function mostrarApp() {
+  _marcarEtapa("Pronto");
   esconderCarregando();
   const loginContainer = document.getElementById("loginContainer");
   const appContainer = document.getElementById("appContainer");
@@ -993,13 +1032,23 @@ function initLogin() {
     } catch (err) {
       console.error(err);
 
-      const msg =
-        err?.code === "auth/user-not-found"
-          ? "Usuário não encontrado."
-          : err?.code === "auth/wrong-password"
-            ? "Senha incorreta."
-            : err?.code === "auth/invalid-email"
-              ? "Email inválido."
+      // O Firebase hoje devolve "invalid-login-credentials" tanto para senha errada
+      // quanto para usuário inexistente (evita revelar quais e-mails existem).
+      const cod = String(err?.code || "");
+      const credencialInvalida =
+        cod === "auth/invalid-login-credentials" ||
+        cod === "auth/invalid-credential" ||
+        cod === "auth/wrong-password" ||
+        cod === "auth/user-not-found";
+
+      const msg = credencialInvalida
+        ? "E-mail ou senha incorretos. Se a senha foi preenchida automaticamente, ela pode estar desatualizada — apague o campo e digite a senha."
+        : cod === "auth/invalid-email"
+          ? "E-mail inválido."
+          : cod === "auth/too-many-requests"
+            ? "Muitas tentativas seguidas. Aguarde alguns minutos e tente novamente."
+            : cod === "auth/network-request-failed"
+              ? "Sem conexão. Verifique a internet e tente novamente."
               : "Erro ao fazer login: " + (err?.message || err);
 
       showToast(msg, "error");
@@ -1021,6 +1070,10 @@ function initTotpUI() {
 function abrirModalTOTP() {
   const m = document.getElementById("modalTOTP");
   if (!m) return;
+
+  // A tela de carregamento fica ACIMA dos modais; sem esconder, o usuário não
+  // veria o campo do código 2FA e ficaria preso em "Carregando...".
+  esconderCarregando();
 
   m.classList.remove("hidden");
 
@@ -1258,6 +1311,7 @@ async function confirmarTotpNoModal() {
         return;
       }
 
+      _marcarEtapa("Buscando dados");
       mostrarCarregando("Carregando seus dados...");
       await carregarDadosDoFirebase();
       atualizarSugestoesCnpj();

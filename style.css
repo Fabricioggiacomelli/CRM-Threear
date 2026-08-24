@@ -3619,7 +3619,9 @@ body.dark .perm-badge-full {
 #splashCarregando {
   position: fixed;
   inset: 0;
-  z-index: 4000;
+  /* ABAIXO dos modais (z-index 60): se um modal precisar aparecer durante o
+     carregamento — como o do código 2FA — ele nunca fica escondido atrás. */
+  z-index: 50;
   display: flex;
   align-items: center;
   justify-content: center;
