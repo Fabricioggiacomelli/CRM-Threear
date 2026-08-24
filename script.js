@@ -1027,7 +1027,23 @@ function initLogin() {
       btnLogin.disabled = true;
       btnLogin.textContent = "Entrando...";
 
-      await auth.signInWithEmailAndPassword(email, pass);
+      try {
+        await auth.signInWithEmailAndPassword(email, pass);
+      } catch (e1) {
+        // O preenchimento automático do iOS às vezes insere caracteres invisíveis
+        // (espaço fino, espaço rígido) que o .trim() acima remove — aí a senha vai
+        // diferente da salva. Se a credencial foi recusada e o valor CRU difere do
+        // tratado, tenta uma segunda vez com o valor exatamente como veio do campo.
+        const bruto = pEl?.value || "";
+        const recusada = String(e1?.code || "").includes("credential") ||
+                         String(e1?.code || "").includes("password");
+        if (recusada && bruto && bruto !== pass) {
+          console.warn("[login] tentando novamente com o valor original do campo");
+          await auth.signInWithEmailAndPassword(email, bruto);
+        } else {
+          throw e1;
+        }
+      }
 
     } catch (err) {
       console.error(err);
@@ -1411,6 +1427,16 @@ if ("serviceWorker" in navigator) {
       console.warn("Service worker não registrado:", e && e.message);
     });
   });
+}
+
+// Alterna entre mostrar e ocultar a senha digitada/preenchida.
+function alternarVerSenha(btn) {
+  const campo = document.getElementById("loginPass");
+  if (!campo) return;
+  const mostrando = campo.type === "text";
+  campo.type = mostrando ? "password" : "text";
+  btn.textContent = mostrando ? "Mostrar" : "Ocultar";
+  btn.setAttribute("aria-label", mostrando ? "Mostrar senha" : "Ocultar senha");
 }
 
 function toggleFiltrosMobile(btn) {
