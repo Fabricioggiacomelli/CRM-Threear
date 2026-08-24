@@ -630,29 +630,62 @@ document.addEventListener("DOMContentLoaded", async () => {
 // dados, e o restante (clientes, projetos, usuários) entra em segundo plano.
 // Antes esperava-se TODAS as coleções para só então mostrar qualquer coisa — com
 // milhares de documentos, isso deixava o usuário parado na tela de carregamento.
+// Lê do cache local do aparelho (instantâneo, sem rede). Só ativar o
+// enablePersistence NÃO basta: por padrão o get() espera o servidor mesmo tendo
+// cache. É preciso pedir a fonte "cache" explicitamente.
+async function _lerDoCache(colecao, limite) {
+  try {
+    const snap = await db.collection(colecao).limit(limite).get({ source: "cache" });
+    if (snap.empty) return null;
+    return snap.docs.map((d) => ({ id: d.id, ...d.data() })).filter((x) => !x.deletado);
+  } catch (e) {
+    return null; // sem cache ainda (primeiro acesso) — segue pela rede
+  }
+}
+
 async function carregarDadosDoFirebase() {
   const aviso = (nome) => (r) => {
     if (r.status === "rejected") console.error(`Falha ao carregar "${nome}":`, r.reason);
   };
 
-  // ── Fase 1: o essencial para a tela de Registros aparecer ──
-  const [rReps, rOfertas] = await Promise.allSettled([
-    carregarRepresentadasFirebase(),
-    carregarRegistrosFirebase(),
-  ]);
-  aviso("representadas")(rReps);
-  aviso("ofertas")(rOfertas);
+  // ── Do cache do aparelho: instantâneo, sem rede ──
+  let temCache = false;
+  try {
+    const [reps, ofs] = await Promise.all([
+      _lerDoCache("representadas", 2000),
+      _lerDoCache("ofertas", OFERTAS_MAX_DOCS),
+    ]);
+    if (reps && reps.length) {
+      representadas = reps;
+      window.repsSemNFIds = new Set(reps.filter((r) => r.sem_nf === true).map((r) => r.id));
+    }
+    if (ofs && ofs.length) {
+      registros = ofs;
+      temCache = true;
+      console.log(`[cache] ${ofs.length} ofertas carregadas do aparelho.`);
+    }
+  } catch (e) {
+    console.warn("[cache] leitura local falhou:", e && e.message);
+  }
 
-  preencherSelectRepresentadas();
-  renderTabela();
-  renderTabelaRepresentadas();
+  // ── Da rede: atualiza os dados. Em duas etapas para o essencial vir primeiro ──
+  const daRede = (async () => {
+    const [rReps, rOfertas] = await Promise.allSettled([
+      carregarRepresentadasFirebase(),
+      carregarRegistrosFirebase(),
+    ]);
+    aviso("representadas")(rReps);
+    aviso("ofertas")(rOfertas);
 
-  // ── Fase 2: o resto, sem travar a tela ──
-  Promise.allSettled([
-    carregarClientesFirebase(),
-    carregarProjetosFirebase(),
-    carregarUsuariosFirebase(),
-  ]).then((res) => {
+    preencherSelectRepresentadas();
+    renderTabela();
+    renderTabelaRepresentadas();
+
+    const res = await Promise.allSettled([
+      carregarClientesFirebase(),
+      carregarProjetosFirebase(),
+      carregarUsuariosFirebase(),
+    ]);
     ["clientes", "projetos", "usuarios"].forEach((n, i) => aviso(n)(res[i]));
     preencherSelectResponsaveisContato();
     preencherSelectResponsaveisProjeto();
@@ -661,7 +694,15 @@ async function carregarDadosDoFirebase() {
     initAutoCompleteCnpjSimples();
     initAutoCompleteProjetoOferta();
     if (typeof atualizarSugestoesCnpj === "function") atualizarSugestoesCnpj();
-  });
+  })();
+
+  // Com cache: o app abre AGORA e a rede atualiza por trás.
+  // Sem cache (primeiro acesso): espera, senão abriria vazio.
+  if (temCache) {
+    daRede.catch((e) => console.error("Atualização em segundo plano falhou:", e));
+    return;
+  }
+  await daRede;
 }
 
 async function carregarClientesFirebase() {

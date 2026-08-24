@@ -1507,13 +1507,30 @@ function _atualizarVisibilidadeTabAdiados() {
 }
 
 function iniciarSistemaAlertas() {
+  // O listener só EXIBE os alertas (badge + modal) — é leve e roda sempre.
   iniciarListenerAlertas();
-  iniciarLoopAlertas();
   _atualizarVisibilidadeTabAdiados();
-  // Verificação inicial apenas se a aba está visível (evita writes redundantes em abas de fundo)
+
+  // A VERIFICAÇÃO é cara: percorre todas as ofertas e faz uma consulta ao
+  // Firestore por alerta, uma esperando a outra. Com centenas de ofertas isso
+  // trava a interface por dezenas de segundos.
+  //
+  // No celular ela nem precisa existir: lá o CRM é somente consulta, então os
+  // alertas são apenas exibidos. Quem gera/atualiza alertas é o desktop.
+  if (typeof ehDispositivoMobile === "function" && ehDispositivoMobile()) {
+    console.log("[alertas] celular: somente exibição — verificação desativada.");
+    return;
+  }
+
+  iniciarLoopAlertas();
+
+  // No desktop, adia a primeira verificação para não disputar rede com o
+  // carregamento inicial dos dados. O loop periódico segue normalmente depois.
   if (!document.hidden) {
-    apagarAlertasObsoletosParaSempre().catch(console.error);
-    verificarAlertasSistema().catch(console.error);
+    setTimeout(() => {
+      apagarAlertasObsoletosParaSempre().catch(console.error);
+      verificarAlertasSistema().catch(console.error);
+    }, 8000);
   }
 }
 
