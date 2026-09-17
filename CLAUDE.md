@@ -100,6 +100,34 @@ The API base is resolved in `getApiBase()` in `script.js`:
 
 **By design (not a bug):** any approved user with a valid MFA session reads ALL `ofertas`/`clientes`/`representadas` — the per-user `podeVerDe` visibility is a UI filter, not a security boundary. Clientes/ofertas are a shared open book for the team.
 
+### Transactional e-mail (password reset / verify)
+
+`initForgotPassword()` and `initResendEmailVerification()` in `script.js` call Firebase Auth's
+`sendPasswordResetEmail` / `sendEmailVerification`. Three traps, all hit in production:
+
+- **`prompt()` is dead in the installed PWA.** The forgot-password button used to ask for the
+  address via `prompt()`; Safari ignores it in standalone display mode, so the handler got an
+  empty string and returned silently — a button that did nothing, with no error. It now reads
+  `#loginUser` instead.
+- **Never pass `actionCodeSettings.url`.** `sendEmailVerification({url: location.origin})`
+  fails with `auth/unauthorized-continue-uri` because `threear.com.br` is not in
+  Firebase Auth → Settings → Authorized domains. Omitting it uses the project's default action
+  page, which always works.
+- **Success is not proof of delivery.** Email-enumeration protection is ON, so
+  `accounts:sendOobCode` returns `200 {"kind":...}` for addresses with no account and sends
+  nothing (verified: a bogus address returns success, a malformed one returns `INVALID_EMAIL`).
+  Never word the UI as "we sent you an email" — it must stay conditional.
+
+**Delivery to `@threear.com.br` is the real blocker, and it is infrastructure, not code.**
+Mail for the domain is self-hosted (`MX → mail.threear.com.br`, 192.95.37.60, shared hosting at
+Hotel da Web — `include:host72.hoteldaweb.com.br` in the SPF). Firebase's default sender is
+`noreply@crm-three-ar.firebaseapp.com`, an unrelated domain that the receiving spam filter
+distrusts, so the mail is dropped; the same message reaches Gmail fine. The domain publishes
+`v=spf1 … ~all` and `v=DMARC1; p=none`, so DMARC is not the one rejecting — the host's filter is.
+Fix is custom SMTP in Firebase Console → Authentication → Templates → Customize SMTP, pointing at
+`mail.threear.com.br` (ports 587 and 465 confirmed open, 25 blocked) with a real mailbox, so mail
+leaves as `@threear.com.br` and passes SPF via the existing `+mx +a`.
+
 ### Alert System (`alertas.js`)
 
 Self-contained module. Runs a verification loop (`iniciarLoopAlertas`) every 60 seconds (10s in `DEBUG_ALERTAS = true` mode) calling `verificarAlertasSistema()`, which checks all in-memory `registros` against rules.
