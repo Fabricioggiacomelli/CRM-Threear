@@ -236,6 +236,45 @@ function _dadosPedidoSemNF(reg, idx = 0) {
   return { valorPedido, somaNFs, valorFaltante, descricao };
 }
 
+// Data "2026-07-09" -> "09/07/2026". Formata pelos pedaços do texto para evitar
+// o deslocamento de um dia que acontece ao passar data pura pelo new Date() (UTC).
+function formatarDataDiaBR(valor) {
+  const t = String(valor || "").trim();
+  if (!t) return "";
+  const m = t.match(/^(\d{4})-(\d{2})-(\d{2})/);
+  if (m) return `${m[3]}/${m[2]}/${m[1]}`;
+  const d = new Date(t);
+  return isNaN(d.getTime()) ? t : d.toLocaleDateString("pt-BR");
+}
+
+// Contexto da oferta dentro do card. Sem isso o usuário precisa abrir a oferta
+// só para descobrir de qual cliente/projeto o alerta está falando.
+function _contextoAlertaHtml(a, reg) {
+  if (!reg) return "";
+  const linha = (rot, val) =>
+    val ? `<strong>${rot}:</strong> ${escapeHtml(String(val))}<br>` : "";
+
+  const tipo = String(a.tipo || "");
+  const ped = _pedidosDaOferta(reg)[Number(a.pedidoIndice) || 0] || {};
+
+  let html = linha("Cliente", reg.razao);
+
+  if (tipo === "followup") {
+    html += linha("Solicitante", reg.solicitante);
+    html += linha("E-mail", reg.email);
+    html += linha("Telefone", reg.telefone);
+  } else if (tipo === "prazo_entrega") {
+    html += linha("Data de entrega", formatarDataDiaBR(ped.prazo_entrega_contratual));
+  } else if (tipo === "prazo_entrega_atrasado") {
+    html += linha("Deveria ser entregue em", formatarDataDiaBR(ped.prazo_entrega_contratual));
+  } else if (tipo === "pedido_sem_nf") {
+    html += linha("Nº do pedido", ped.numero_pedido);
+  }
+
+  html += linha("Projeto", reg.nome_projeto);
+  return html;
+}
+
 function formatarDataAlertaBR(valor) {
   if (!valor) return "-";
   const d = new Date(valor);
@@ -1805,8 +1844,8 @@ function renderListaAlertas() {
     // Cai para os valores gravados no alerta se a oferta não estiver mais em memória.
     let descCard = a.descricao || "";
     let vPedido = a.valorPedido || 0, vNF = a.somaNFs || 0, vFalta = a.valorFaltante || 0;
+    const regAlerta = _regsPorId.get(a.entidadeId);
     if (a.tipo === "pedido_sem_nf") {
-      const regAlerta = _regsPorId.get(a.entidadeId);
       if (regAlerta) {
         const d = _dadosPedidoSemNF(regAlerta, Number(a.pedidoIndice) || 0);
         descCard = d.descricao; vPedido = d.valorPedido; vNF = d.somaNFs; vFalta = d.valorFaltante || 0;
@@ -1829,7 +1868,7 @@ function renderListaAlertas() {
         <div class="alerta-meta">
           ${escapeHtml(descCard)}<br>
           ${status === "adiado" && a.lembrarNovamenteEm ? `<strong>🔔 Volta em:</strong> ${formatarDataAlertaBR(a.lembrarNovamenteEm)} (${textoTempoRelativoAlerta(a.lembrarNovamenteEm)})<br>` : ""}
-          <strong>Tipo:</strong> ${labelTipoAlerta(a.tipo)}<br>
+          ${_contextoAlertaHtml(a, regAlerta)}
           ${a.tipo === "followup" && a.tipoOferta ? `<strong>Tipo de oferta:</strong> ${escapeHtml(a.tipoOferta.charAt(0).toUpperCase() + a.tipoOferta.slice(1))}<br>` : ""}
           ${a.tipo === "pedido_sem_nf" && vPedido > 0 ? `<strong>Valor do pedido:</strong> ${_formatMoedaBR(vPedido)}<br>` : ""}
           ${a.tipo === "pedido_sem_nf" && vNF > 0 ? `<strong>NFs registradas:</strong> ${_formatMoedaBR(vNF)}<br>` : ""}

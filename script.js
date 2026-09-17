@@ -6495,16 +6495,56 @@ function setLoginMsg(msg) {
   if (el) el.textContent = msg || "";
 }
 
+// Traduz os códigos do Firebase Auth em algo acionável. Sem isto o usuário via
+// o texto técnico cru ("Firebase: Error (auth/...)"), que não diz o que fazer.
+function msgErroEmailAuth(e) {
+  const cod = String(e?.code || "");
+
+  if (cod === "auth/invalid-email" || cod === "auth/missing-email")
+    return "E-mail inválido. Confira o endereço digitado.";
+
+  if (
+    cod === "auth/user-not-found" ||
+    cod === "auth/invalid-login-credentials" ||
+    cod === "auth/invalid-credential" ||
+    cod === "auth/wrong-password"
+  )
+    return "E-mail ou senha incorretos. Confira os dados e tente de novo.";
+
+  if (cod === "auth/too-many-requests")
+    return "Muitas tentativas seguidas. Aguarde alguns minutos e tente novamente.";
+
+  if (cod === "auth/network-request-failed")
+    return "Sem conexão. Verifique a internet e tente novamente.";
+
+  // Acontece quando o domínio de onde o CRM é servido não está em
+  // Firebase Console → Authentication → Settings → Authorized domains.
+  if (cod === "auth/unauthorized-continue-uri" || cod === "auth/invalid-continue-uri")
+    return "Este endereço não está autorizado no Firebase. Avise o administrador.";
+
+  if (cod === "auth/user-disabled")
+    return "Esta conta está desativada. Fale com o administrador.";
+
+  return "Não consegui enviar o e-mail. " + (e?.message || e);
+}
+
 function initForgotPassword() {
   const btn = document.getElementById("btnForgot");
   if (!btn) return;
 
   btn.addEventListener("click", async () => {
-    const email = String(
-      prompt("Digite seu e-mail para enviar o link de troca de senha:") || "",
-    ).trim();
+    // Usa o e-mail já digitado no formulário. Antes isto abria um prompt(), que o
+    // Safari IGNORA quando o CRM roda como app instalado na tela inicial — o botão
+    // simplesmente não fazia nada, sem erro nenhum.
+    const campo = document.getElementById("loginUser");
+    const email = String(campo?.value || "").trim().toLowerCase();
 
-    if (!email) return;
+    if (!email) {
+      setLoginMsg("Digite seu e-mail no campo acima para receber o link.");
+      showToast("Digite seu e-mail no campo acima.", "info");
+      campo?.focus();
+      return;
+    }
 
     try {
       btn.disabled = true;
@@ -6517,11 +6557,9 @@ function initForgotPassword() {
       );
       showToast("E-mail de redefinição enviado!", "success");
     } catch (e) {
-      console.error(e);
-      setLoginMsg(
-        "❌ Não consegui enviar. Verifique se o e-mail está correto.",
-      );
-      showToast("Erro ao enviar e-mail: " + (e?.message || e), "error");
+      console.error("Erro ao enviar redefinição de senha:", e);
+      setLoginMsg("❌ " + msgErroEmailAuth(e));
+      showToast(msgErroEmailAuth(e), "error");
     } finally {
       btn.disabled = false;
     }
@@ -6564,12 +6602,12 @@ function initResendEmailVerification() {
         return;
       }
 
-      const actionCodeSettings = {
-        url: window.location.origin,
-        handleCodeInApp: false,
-      };
-
-      await cred.user.sendEmailVerification(actionCodeSettings);
+      // SEM actionCodeSettings de propósito. Passar `url: window.location.origin`
+      // (https://threear.com.br) faz o Firebase recusar com
+      // "auth/unauthorized-continue-uri" enquanto esse domínio não estiver na lista
+      // de domínios autorizados do Firebase Auth. Sem o parâmetro, ele usa a página
+      // de ação padrão do próprio projeto, que sempre funciona.
+      await cred.user.sendEmailVerification();
 
       setLoginMsg(
         "✅ E-mail de verificação reenviado! Verifique Caixa de entrada/Spam.",
@@ -6583,21 +6621,12 @@ function initResendEmailVerification() {
       mostrarLogin();
     } catch (e) {
       console.error("Erro ao reenviar verificação:", e);
-
-      const msg =
-        e?.code === "auth/wrong-password"
-          ? "Senha incorreta."
-          : e?.code === "auth/user-not-found"
-            ? "Usuário não encontrado."
-            : e?.code === "auth/too-many-requests"
-              ? "Muitas tentativas. Aguarde alguns minutos e tente novamente."
-              : "Não consegui reenviar. Erro: " + (e?.message || e);
-
-      setLoginMsg("❌ " + msg);
-      showToast(msg, "error");
+      setLoginMsg("❌ " + msgErroEmailAuth(e));
+      showToast(msgErroEmailAuth(e), "error");
     } finally {
+      // Só reabilita o botão. Limpar a mensagem aqui apagava o "✅ enviado"
+      // no mesmo instante em que ele aparecia.
       btn.disabled = false;
-      setLoginMsg("");
     }
   });
 }
