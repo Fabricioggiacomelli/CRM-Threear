@@ -6552,10 +6552,14 @@ function initForgotPassword() {
 
       await auth.sendPasswordResetEmail(email);
 
+      // Mensagem deliberadamente condicional: o Firebase está com "proteção contra
+      // enumeração de e-mails" ligada, então ele responde SUCESSO mesmo quando a
+      // conta não existe e nada é enviado. Afirmar "enviamos" seria mentira.
       setLoginMsg(
-        "✅ Enviamos um e-mail para você trocar a senha (verifique spam/promoções).",
+        "Se existir uma conta com esse e-mail, o link de troca de senha foi enviado. " +
+          "Verifique também Spam e Lixo Eletrônico.",
       );
-      showToast("E-mail de redefinição enviado!", "success");
+      showToast("Link enviado, se houver conta com esse e-mail.", "success");
     } catch (e) {
       console.error("Erro ao enviar redefinição de senha:", e);
       setLoginMsg("❌ " + msgErroEmailAuth(e));
